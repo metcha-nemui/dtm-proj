@@ -8,8 +8,8 @@ import { showToast } from './components/toast.js';
 
 /** @returns {Promise<object|null>} 作成したプロジェクト */
 export async function newProjectDialog() {
-   const { structures } = await repo().getLibrary();
-   const sorted = sortByOrder(structures);
+   const { templates } = await repo().getLibrary();
+   const sorted = sortByOrder(templates);
    const values = await formDialog({
       title: '新規プロジェクト',
       submitLabel: '作成',
@@ -17,8 +17,8 @@ export async function newProjectDialog() {
          { name: 'title', label: 'タイトル', placeholder: '曲名(仮でOK)', required: true },
          { name: 'dueDate', label: '締切(任意)', type: 'date' },
          {
-            name: 'structureId',
-            label: '構成テンプレート',
+            name: 'templateId',
+            label: 'テンプレート',
             type: 'select',
             value: sorted[0]?.id,
             options: [...sorted.map((s) => ({ value: s.id, label: s.name })), { value: '', label: '(テンプレートなし)' }],

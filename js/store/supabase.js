@@ -8,14 +8,14 @@ const TABLES = {
    projects: 'projects',
    lanes: 'lanes',
    tasks: 'tasks',
+   templates: 'templates',
    kinds: 'section_kinds',
    templateTasks: 'template_tasks',
-   structures: 'structure_templates',
 };
 const META = 'app_meta';
 
 // 外部キーの向きに合わせた順番。入れるときは親から、消すときは子から。
-const INSERT_ORDER = ['projects', 'lanes', 'tasks', 'kinds', 'templateTasks', 'structures'];
+const INSERT_ORDER = ['projects', 'lanes', 'tasks', 'templates', 'kinds', 'templateTasks'];
 const PAGE_SIZE = 1000; // API が1回に返す行数の上限(Supabase の既定値)
 const TIMESTAMPS = new Set(['createdAt', 'updatedAt', 'doneAt']);
 
@@ -119,20 +119,21 @@ export function createSupabaseRepository({ url, key }, fetchImpl = (...args) => 
       deleteTask: (id) => remove('tasks', id),
 
       async getLibrary() {
-         const [kinds, templateTasks, structures] = await Promise.all([
-            select('kinds'), select('templateTasks'), select('structures'),
+         const [templates, kinds, templateTasks] = await Promise.all([
+            select('templates'), select('kinds'), select('templateTasks'),
          ]);
-         return { kinds, templateTasks, structures };
+         return { templates, kinds, templateTasks };
       },
+      saveTemplate: (t) => upsert('templates', [t]),
+      saveTemplates: (ts) => upsert('templates', ts),
+      // 種別と定番タスクは、外部キーの on delete cascade で一緒に消える
+      deleteTemplate: (id) => remove('templates', id),
       saveKind: (k) => upsert('kinds', [k]),
       saveKinds: (ks) => upsert('kinds', ks),
       deleteKind: (id) => remove('kinds', id),
       saveTemplateTask: (t) => upsert('templateTasks', [t]),
       saveTemplateTasks: (ts) => upsert('templateTasks', ts),
       deleteTemplateTask: (id) => remove('templateTasks', id),
-      saveStructure: (s) => upsert('structures', [s]),
-      saveStructures: (ss) => upsert('structures', ss),
-      deleteStructure: (id) => remove('structures', id),
 
       async getMeta(metaKey) {
          const rows = await request('GET', META, { query: { select: 'value', key: `eq.${metaKey}` } });

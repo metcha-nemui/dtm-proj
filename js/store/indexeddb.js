@@ -3,7 +3,7 @@
 import { COLLECTIONS, SCHEMA_VERSION, assertRepository, migrate } from './repository.js';
 
 const DB_NAME = 'dtm-proj';
-const DB_VERSION = 1;
+const DB_VERSION = 2;
 const META = 'meta';
 
 function request(req) {
@@ -41,13 +41,18 @@ export function createIndexedDbRepository(dbName = DB_NAME) {
          const req = indexedDB.open(dbName, DB_VERSION);
          req.onupgradeneeded = (event) => {
             const db = req.result;
-            if (event.oldVersion < 1) {
+            if (event.oldVersion < 2) {
+               // v2 でライブラリの形を変えた(種別と定番タスクをテンプレートの中に持つ)。
+               // 以前のデータは変換せずに捨て、空の状態から作り直す(初期データが入り直す)。
+               for (const name of [...db.objectStoreNames]) db.deleteObjectStore(name);
                for (const name of COLLECTIONS) db.createObjectStore(name, { keyPath: 'id' });
                db.createObjectStore(META, { keyPath: 'key' });
                const { transaction } = req;
                transaction.objectStore('lanes').createIndex('projectId', 'projectId');
                transaction.objectStore('tasks').createIndex('projectId', 'projectId');
                transaction.objectStore('tasks').createIndex('laneId', 'laneId');
+               transaction.objectStore('kinds').createIndex('templateId', 'templateId');
+               transaction.objectStore('templateTasks').createIndex('templateId', 'templateId');
             }
          };
          req.onsuccess = () => resolve(req.result);
@@ -115,13 +120,23 @@ export function createIndexedDbRepository(dbName = DB_NAME) {
 
       async getLibrary() {
          const db = await open();
-         const tx = db.transaction(['kinds', 'templateTasks', 'structures']);
-         const [kinds, templateTasks, structures] = await Promise.all([
+         const tx = db.transaction(['templates', 'kinds', 'templateTasks']);
+         const [templates, kinds, templateTasks] = await Promise.all([
+            request(tx.objectStore('templates').getAll()),
             request(tx.objectStore('kinds').getAll()),
             request(tx.objectStore('templateTasks').getAll()),
-            request(tx.objectStore('structures').getAll()),
          ]);
-         return { kinds, templateTasks, structures };
+         return { templates, kinds, templateTasks };
+      },
+      saveTemplate: (t) => putAll('templates', [t]),
+      saveTemplates: (ts) => putAll('templates', ts),
+      async deleteTemplate(id) {
+         const db = await open();
+         const tx = db.transaction(['templates', 'kinds', 'templateTasks'], 'readwrite');
+         tx.objectStore('templates').delete(id);
+         deleteByIndex(tx.objectStore('kinds'), 'templateId', id);
+         deleteByIndex(tx.objectStore('templateTasks'), 'templateId', id);
+         await completed(tx);
       },
       saveKind: (k) => putAll('kinds', [k]),
       saveKinds: (ks) => putAll('kinds', ks),
@@ -129,9 +144,6 @@ export function createIndexedDbRepository(dbName = DB_NAME) {
       saveTemplateTask: (t) => putAll('templateTasks', [t]),
       saveTemplateTasks: (ts) => putAll('templateTasks', ts),
       deleteTemplateTask: (id) => remove('templateTasks', id),
-      saveStructure: (s) => putAll('structures', [s]),
-      saveStructures: (ss) => putAll('structures', ss),
-      deleteStructure: (id) => remove('structures', id),
 
       async getMeta(key) {
          return (await getOne(META, key))?.value;

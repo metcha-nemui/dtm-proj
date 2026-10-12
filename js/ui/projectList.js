@@ -57,7 +57,7 @@ export function mount(container) {
       grid.replaceChildren(...(cards.length ? cards : [
          h('div', { class: 'empty' },
             h('p', null, 'まだプロジェクトがありません。'),
-            h('p', null, '「新規プロジェクト」から、曲のタイトルと構成テンプレートを選んで始めます。')),
+            h('p', null, '「新規プロジェクト」から、曲のタイトルとテンプレートを選んで始めます。')),
       ]));
    }
 

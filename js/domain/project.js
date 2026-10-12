@@ -34,10 +34,10 @@ export function daysUntilDue(dueDate, today = new Date()) {
    return Math.round((new Date(year, month - 1, day) - start) / 86400000);
 }
 
-/** 定番タスクを、種別(kindId)または全体(kindId=null)で絞って登録順に返す。 */
-export function templatesFor(templateTasks, kindId) {
-   return sortByOrder(templateTasks.filter((t) =>
-      kindId ? t.scope === 'kind' && t.kindId === kindId : t.scope === 'global'));
+/** テンプレートの定番タスクを、種別(kindId)または「全体」(kindId=null)で絞って登録順に返す。 */
+export function templatesFor(templateTasks, templateId, kindId) {
+   return sortByOrder(templateTasks.filter((t) => t.templateId === templateId
+      && (kindId ? t.scope === 'kind' && t.kindId === kindId : t.scope === 'global')));
 }
 
 function newLane(projectId, fields) {
@@ -89,11 +89,18 @@ export function colorsInOrder(keys) {
  */
 export function sectionColors(lanes) {
    const sections = sortByOrder(lanes.filter((l) => l.type === 'section'));
-   // 種別のないセクションは名前で見分ける(複製したときに付く末尾の番号は無視する)
-   const colors = colorsInOrder(sections.map((l) => (l.kindId
-      ? `kind:${l.kindId}`
-      : `name:${l.name.replace(/\d+$/, '') || l.name}`)));
+   const colors = colorsInOrder(sections.map(sectionKey));
    return new Map(sections.map((l, i) => [l.id, colors[i]]));
+}
+
+/** レーン名から、重複を避けるために付けた末尾の番号を除く(「サビ2」→「サビ」)。 */
+export function laneBaseName(name) {
+   return name.replace(/\d+$/, '') || name;
+}
+
+/** 「同じ種類のセクション」を見分けるキー。種別があれば種別、なければ名前(末尾の番号を除く)。 */
+export function sectionKey(lane) {
+   return lane.kindId ? `kind:${lane.kindId}` : `name:${laneBaseName(lane.name)}`;
 }
 
 export const GLOBAL_LANE_NAME = '全体';
@@ -109,31 +116,33 @@ export function assertSection(lane, action) {
 }
 
 /**
- * 構成テンプレートからプロジェクトを作る。定番タスクはコピーするので、
+ * テンプレートからプロジェクトを作る。定番タスクはコピーするので、
  * 後からライブラリを編集しても作成済みのプロジェクトには影響しない。
  * @param {{ title: string, memo?: string, dueDate?: string|null }} input
- * @param {object|null} structure 構成テンプレート。null ならセクションなし(「全体」レーンだけ)
+ * @param {object|null} template null ならテンプレートなし(空の「全体」レーンだけ)
  * @param {{ kinds: object[], templateTasks: object[] }} library
  * @returns {{ project: object, lanes: object[], tasks: object[] }}
  */
-export function createProject({ title, memo = '', dueDate = null }, structure, library) {
+export function createProject({ title, memo = '', dueDate = null }, template, library) {
+   const templateId = template?.id ?? null;
    const project = newRecord({
       title: title.trim() || '無題のプロジェクト',
       memo,
       dueDate: normalizeDueDate(dueDate),
+      templateId,
    });
-   const kinds = new Map(library.kinds.map((k) => [k.id, k]));
+   const kinds = new Map(library.kinds.filter((k) => k.templateId === templateId).map((k) => [k.id, k]));
    const lanes = [];
    const tasks = [];
    const names = () => lanes.map((l) => l.name);
 
-   // 「全体」レーンは構成テンプレートに関係なく必ず作り、全体の定番タスクを入れる
+   // 「全体」レーンはテンプレートに関係なく必ず作り、そのテンプレートの「全体」の定番タスクを入れる
    const global = newGlobalLane(project.id);
    lanes.push(global);
-   tasks.push(...tasksFromTemplates(global, templatesFor(library.templateTasks, null)));
+   tasks.push(...tasksFromTemplates(global, templatesFor(library.templateTasks, templateId, null)));
 
-   // ライブラリから削除済みの種別は飛ばす
-   const sectionKinds = (structure?.sections ?? []).map((id) => kinds.get(id)).filter(Boolean);
+   // 削除済みの種別は飛ばす
+   const sectionKinds = (template?.sections ?? []).map((id) => kinds.get(id)).filter(Boolean);
    sectionKinds.forEach((kind, i) => {
       const lane = newLane(project.id, {
          name: uniqueLaneName(kind.name, names()),
@@ -141,7 +150,7 @@ export function createProject({ title, memo = '', dueDate = null }, structure, l
          order: (i + 1) * ORDER_STEP,
       });
       lanes.push(lane);
-      tasks.push(...tasksFromTemplates(lane, templatesFor(library.templateTasks, kind.id)));
+      tasks.push(...tasksFromTemplates(lane, templatesFor(library.templateTasks, templateId, kind.id)));
    });
 
    return { project, lanes, tasks };
@@ -180,7 +189,7 @@ export function addSection({ projectId, lanes, kind, templateTasks, index, name,
    });
    const changed = placeAt(sections, draft, index);
    const lane = changed.find((l) => l.id === draft.id);
-   const tasks = empty || !kind ? [] : tasksFromTemplates(lane, templatesFor(templateTasks, kind.id));
+   const tasks = empty || !kind ? [] : tasksFromTemplates(lane, templatesFor(templateTasks, kind.templateId, kind.id));
    return { lane, lanes: changed.map((l) => (l.id === lane.id ? l : touch(l))), tasks };
 }
 
@@ -193,10 +202,9 @@ export function duplicateLane(laneId, lanes, tasks) {
    if (!source) throw new Error('レーンが見つかりません');
    assertSection(source, '複製');
    const group = sortByOrder(lanes.filter((l) => l.type === source.type));
-   const base = source.name.replace(/\d+$/, '') || source.name;
    const draft = newLane(source.projectId, {
       type: source.type,
-      name: uniqueLaneName(base, lanes.map((l) => l.name)),
+      name: uniqueLaneName(laneBaseName(source.name), lanes.map((l) => l.name)),
       kindId: source.kindId,
    });
    const changed = placeAt(group, draft, group.findIndex((l) => l.id === laneId) + 1);

@@ -2,11 +2,10 @@
 // UIとドメインロジックはここで定義したメソッドだけを使う。実装は indexeddb.js(将来は Supabase)。
 // すべて非同期(Promise)で、実装を差し替えてもシグネチャは変えない。
 
-export const SCHEMA_VERSION = 2;
-
-// 廃止した項目。古いエクスポートデータを読むときに落とす(Supabase では、テーブルにない列を送ると失敗する)。
-// v2: タスクの出自(定番 / 固有)と、セクション種別の色をやめた
-const DROPPED_FIELDS = { tasks: ['origin', 'sourceTemplateTaskId'], kinds: ['color'] };
+// v3: セクション種別と定番タスクを、テンプレートの中に持つようにした。
+// それより前のデータは形が違い、変換を用意していないので読み込めない。
+export const SCHEMA_VERSION = 3;
+const OLDEST_READABLE_VERSION = 3;
 
 /**
  * @typedef {Object} Project
@@ -14,6 +13,7 @@ const DROPPED_FIELDS = { tasks: ['origin', 'sourceTemplateTaskId'], kinds: ['col
  * @property {string} title
  * @property {string} memo
  * @property {string|null} dueDate 締切(YYYY-MM-DD)。なければ null
+ * @property {string|null} templateId 作成元のテンプレート。セクション追加の選択肢と、定番の追加先に使う。なければ null
  * @property {string} createdAt
  * @property {string} updatedAt
  */
@@ -47,8 +47,10 @@ const DROPPED_FIELDS = { tasks: ['origin', 'sourceTemplateTaskId'], kinds: ['col
  */
 
 /**
+ * セクション種別。テンプレートごとに持つ(他のテンプレートとは共有しない)。
  * @typedef {Object} SectionKind
  * @property {string} id
+ * @property {string} templateId
  * @property {string} name
  * @property {number} order
  * @property {string} createdAt
@@ -58,7 +60,8 @@ const DROPPED_FIELDS = { tasks: ['origin', 'sourceTemplateTaskId'], kinds: ['col
 /**
  * @typedef {Object} TemplateTask
  * @property {string} id
- * @property {'kind'|'global'} scope
+ * @property {string} templateId
+ * @property {'kind'|'global'} scope 種別の定番か、「全体」の定番か
  * @property {string|null} kindId scope='kind' のとき
  * @property {string} title
  * @property {string} memo
@@ -68,10 +71,11 @@ const DROPPED_FIELDS = { tasks: ['origin', 'sourceTemplateTaskId'], kinds: ['col
  */
 
 /**
- * @typedef {Object} StructureTemplate
+ * プロジェクトのテンプレート。種別(SectionKind)と定番タスク(TemplateTask)は templateId でここに属する。
+ * @typedef {Object} Template
  * @property {string} id
  * @property {string} name
- * @property {string[]} sections kindId を並び順どおりに。「全体」レーンは含めない(常に作られる)
+ * @property {string[]} sections このテンプレートの kindId を並び順どおりに。「全体」レーンは含めない(常に作られる)
  * @property {number} order
  * @property {string} createdAt
  * @property {string} updatedAt
@@ -79,9 +83,9 @@ const DROPPED_FIELDS = { tasks: ['origin', 'sourceTemplateTaskId'], kinds: ['col
 
 /**
  * @typedef {Object} Library
+ * @property {Template[]} templates
  * @property {SectionKind[]} kinds
  * @property {TemplateTask[]} templateTasks
- * @property {StructureTemplate[]} structures
  */
 
 /**
@@ -91,9 +95,9 @@ const DROPPED_FIELDS = { tasks: ['origin', 'sourceTemplateTaskId'], kinds: ['col
  * @property {Project[]} projects
  * @property {Lane[]} lanes
  * @property {Task[]} tasks
+ * @property {Template[]} templates
  * @property {SectionKind[]} kinds
  * @property {TemplateTask[]} templateTasks
- * @property {StructureTemplate[]} structures
  */
 
 /**
@@ -114,15 +118,15 @@ const DROPPED_FIELDS = { tasks: ['origin', 'sourceTemplateTaskId'], kinds: ['col
  * @property {(id: string) => Promise<void>} deleteTask
  *
  * @property {() => Promise<Library>} getLibrary
+ * @property {(t: Template) => Promise<void>} saveTemplate
+ * @property {(ts: Template[]) => Promise<void>} saveTemplates
+ * @property {(id: string) => Promise<void>} deleteTemplate 種別と定番タスクも一緒に消す
  * @property {(k: SectionKind) => Promise<void>} saveKind
  * @property {(ks: SectionKind[]) => Promise<void>} saveKinds
  * @property {(id: string) => Promise<void>} deleteKind
  * @property {(t: TemplateTask) => Promise<void>} saveTemplateTask
  * @property {(ts: TemplateTask[]) => Promise<void>} saveTemplateTasks
  * @property {(id: string) => Promise<void>} deleteTemplateTask
- * @property {(s: StructureTemplate) => Promise<void>} saveStructure
- * @property {(ss: StructureTemplate[]) => Promise<void>} saveStructures
- * @property {(id: string) => Promise<void>} deleteStructure
  *
  * @property {(key: string) => Promise<any>} getMeta アプリ内部の状態(シード済みフラグなど)
  * @property {(key: string, value: any) => Promise<void>} setMeta
@@ -131,16 +135,16 @@ const DROPPED_FIELDS = { tasks: ['origin', 'sourceTemplateTaskId'], kinds: ['col
  * @property {(json: string|object) => Promise<void>} importAll 既存データをすべて置き換える
  */
 
-export const COLLECTIONS = ['projects', 'lanes', 'tasks', 'kinds', 'templateTasks', 'structures'];
+export const COLLECTIONS = ['projects', 'lanes', 'tasks', 'templates', 'kinds', 'templateTasks'];
 
 const METHODS = [
    'getProjects', 'getProject', 'saveProject', 'deleteProject',
    'getLanes', 'saveLane', 'saveLanes', 'deleteLane',
    'getTasks', 'saveTask', 'saveTasks', 'deleteTask',
    'getLibrary',
+   'saveTemplate', 'saveTemplates', 'deleteTemplate',
    'saveKind', 'saveKinds', 'deleteKind',
    'saveTemplateTask', 'saveTemplateTasks', 'deleteTemplateTask',
-   'saveStructure', 'saveStructures', 'deleteStructure',
    'getMeta', 'setMeta',
    'exportAll', 'importAll',
 ];
@@ -171,6 +175,9 @@ export function migrate(json) {
    if (data.schemaVersion > SCHEMA_VERSION) {
       throw new Error(`新しいバージョンのデータです(schemaVersion ${data.schemaVersion})。アプリを更新してください`);
    }
+   if (data.schemaVersion < OLDEST_READABLE_VERSION) {
+      throw new Error(`古い形式のデータなので読み込めません(schemaVersion ${data.schemaVersion})`);
+   }
 
    const result = { schemaVersion: SCHEMA_VERSION, exportedAt: data.exportedAt ?? new Date().toISOString() };
    for (const name of COLLECTIONS) {
@@ -178,9 +185,7 @@ export function migrate(json) {
       if (!Array.isArray(records) || records.some((r) => !r || typeof r.id !== 'string')) {
          throw new Error(`データが壊れています: ${name}`);
       }
-      const dropped = DROPPED_FIELDS[name] ?? [];
-      result[name] = records.map((record) =>
-         Object.fromEntries(Object.entries(record).filter(([field]) => !dropped.includes(field))));
+      result[name] = records;
    }
    return result;
 }

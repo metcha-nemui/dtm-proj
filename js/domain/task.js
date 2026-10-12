@@ -81,19 +81,41 @@ export function moveTask(tasks, taskId, toLaneId, toIndex) {
 }
 
 /**
+ * レーンのタスクを定番に追加するときの行き先。
+ * セクションのタスクはその種別(が属するテンプレート)の定番に、
+ * 「全体」レーンのタスクはプロジェクトのテンプレートの「全体」の定番になる。
+ * @param {object} lane
+ * @param {object} project
+ * @param {{ templates: object[], kinds: object[] }} library
+ * @returns {{ template: object, kind: object|null }|null} 行き先がなければ null(種別なし、テンプレートなし・削除済み)
+ */
+export function promoteTarget(lane, project, { templates, kinds }) {
+   const kind = lane.type === 'global' ? null : kinds.find((k) => k.id === lane.kindId);
+   if (lane.type !== 'global' && !kind) return null;
+   const template = templates.find((t) => t.id === (kind ? kind.templateId : project.templateId));
+   return template ? { template, kind: kind ?? null } : null;
+}
+
+/**
  * タスクを、所属するレーンの定番に追加する(タイトルとメモのコピー。タスク自体は変わらない)。
- * セクションのタスクはそのセクション種別の定番に、「全体」レーンのタスクは「全体」の定番になる。
  * タスクは定番由来かどうかを覚えていないので、二重登録は同じタイトルの定番があるかで防ぐ。
  * @returns {object} 追加する定番タスク
  */
-export function promoteTask(task, lane, templateTasks) {
-   const scope = lane.type === 'global' ? 'global' : 'kind';
-   const kindId = scope === 'kind' ? lane.kindId : null;
-   if (scope === 'kind' && !kindId) throw new Error('このセクションには種別がないので、定番にできません');
+export function promoteTask(task, lane, project, library) {
+   const target = promoteTarget(lane, project, library);
+   if (!target) {
+      throw new Error(lane.type === 'global'
+         ? 'このプロジェクトにはテンプレートがないので、定番にできません'
+         : 'このセクションには種別がないので、定番にできません');
+   }
+   const templateId = target.template.id;
+   const kindId = target.kind?.id ?? null;
+   const scope = kindId ? 'kind' : 'global';
 
-   const siblings = templateTasks.filter((t) => t.scope === scope && t.kindId === kindId);
+   const siblings = library.templateTasks.filter((t) => t.templateId === templateId && t.scope === scope && t.kindId === kindId);
    if (siblings.some((t) => t.title === task.title)) throw new Error(`「${task.title}」は、すでに定番にあります`);
    return newRecord({
+      templateId,
       scope,
       kindId,
       title: task.title,

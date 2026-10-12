@@ -11,7 +11,7 @@ const dateFormat = new Intl.DateTimeFormat('ja-JP', { dateStyle: 'short', timeSt
 
 function describe(data) {
    return `プロジェクト${data.projects.length}件、タスク${data.tasks.length}件、`
-      + `セクション種別${data.kinds.length}件、定番タスク${data.templateTasks.length}件、構成テンプレート${data.structures.length}件`;
+      + `テンプレート${data.templates.length}件、セクション種別${data.kinds.length}件、定番タスク${data.templateTasks.length}件`;
 }
 
 function download(filename, text) {

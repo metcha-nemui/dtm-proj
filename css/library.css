@@ -4,33 +4,6 @@
    margin-bottom: var(--space-4);
 }
 
-.tabs {
-   display: flex;
-   gap: var(--space-1);
-   margin-bottom: var(--space-4);
-   border-bottom: 1px solid var(--border);
-}
-
-.tab {
-   margin-bottom: -1px;
-   padding: var(--space-2) var(--space-3);
-   border: 0;
-   border-bottom: 2px solid transparent;
-   background: transparent;
-   color: var(--text-muted);
-   cursor: pointer;
-}
-
-.tab:hover {
-   color: var(--text);
-}
-
-.tab[aria-selected="true"] {
-   border-bottom-color: var(--accent);
-   color: var(--accent);
-   font-weight: 600;
-}
-
 /* ページ全体ではなく .library-cols をスクロールさせる。
    項目数でスクロールバーが出たり消えたりしても、画面全体の幅が変わらない */
 .library-page {
@@ -56,6 +29,21 @@
    padding: var(--space-4);
 }
 
+/* 選んだテンプレートの中身。上に名前と並び、下に種別と定番タスク */
+.library-detail {
+   display: flex;
+   flex-direction: column;
+   gap: var(--space-4);
+   min-width: 0;
+}
+
+.kinds-panel {
+   display: grid;
+   grid-template-columns: 220px minmax(0, 1fr);
+   align-items: start;
+   gap: var(--space-5);
+}
+
 .panel-title {
    margin-bottom: var(--space-3);
    font-size: 15px;
@@ -78,7 +66,7 @@
    font-size: 12px;
 }
 
-/* ---- 選択リスト(種別、構成テンプレート) ---- */
+/* ---- 選択リスト(テンプレート、種別) ---- */
 
 .pick-list {
    display: flex;
@@ -200,7 +188,7 @@
    border-color: transparent;
 }
 
-/* ---- 構成テンプレート ---- */
+/* ---- セクションの並び ---- */
 
 .chip-list {
    display: flex;
@@ -273,6 +261,10 @@
       grid-template-columns: minmax(0, 1fr);
       padding: 0;
       overflow: visible;
+   }
+
+   .kinds-panel {
+      grid-template-columns: minmax(0, 1fr);
    }
 }
 

@@ -2,7 +2,8 @@
 // 入力は欄を離れたとき(change)と閉じるときに保存する。
 
 import * as actions from '../actions.js';
-import { STATUSES, STATUS_LABELS } from '../domain/task.js';
+import { GLOBAL_LANE_NAME } from '../domain/project.js';
+import { promoteTarget, STATUSES, STATUS_LABELS } from '../domain/task.js';
 import { repo, subscribe } from '../state.js';
 import { h, icon } from './components/dom.js';
 import { reportError, showToast } from './components/toast.js';
@@ -18,15 +19,16 @@ export function createTaskDrawer(projectId, { onSelectionChange } = {}) {
    const run = (promise) => promise.catch(reportError);
 
    async function loadContext(taskId) {
-      const [tasks, lanes, library] = await Promise.all([
+      const [tasks, lanes, library, project] = await Promise.all([
          repo().getTasks(projectId),
          repo().getLanes(projectId),
          repo().getLibrary(),
+         repo().getProject(projectId),
       ]);
       const found = tasks.find((t) => t.id === taskId);
       if (!found) return null;
       const lane = lanes.find((l) => l.id === found.laneId) ?? null;
-      return { task: found, lane, kind: library.kinds.find((k) => k.id === lane?.kindId) ?? null };
+      return { task: found, lane, target: lane && project ? promoteTarget(lane, project, library) : null };
    }
 
    // 入力欄の内容に変更があれば保存する
@@ -102,15 +104,16 @@ export function createTaskDrawer(projectId, { onSelectionChange } = {}) {
       }
       el.laneName.textContent = context.lane?.name ?? '';
 
-      // 追加先は所属するレーンで決まる。セクションならその種別の定番、「全体」レーンなら「全体」の定番
-      const { lane, kind } = context;
-      const owner = lane?.type === 'global' ? lane.name : kind?.name;
-      const label = owner && `「${owner}」の定番`;
-      el.promoteArea.replaceChildren(
+      // 追加先は所属するレーンで決まる。セクションならその種別の定番、「全体」レーンならテンプレートの「全体」の定番
+      const { lane, target } = context;
+      const label = target && `「${target.template.name} / ${target.kind?.name ?? GLOBAL_LANE_NAME}」の定番`;
+      const reason = lane?.type === 'global'
+         ? 'このプロジェクトにはテンプレートがないので、定番にできません。'
+         : 'このセクションには種別がないので、定番にできません。';
+      el.promoteArea.replaceChildren(...[
          label && h('button', { type: 'button', class: 'btn', onclick: () => promote(label) }, `${label}に追加`),
-         h('p', { class: 'muted drawer-hint' }, label
-            ? 'タイトルとメモをライブラリにコピーします。'
-            : 'このセクションには種別がないので、定番にできません。'));
+         h('p', { class: 'muted drawer-hint' }, label ? 'タイトルとメモをテンプレートにコピーします。' : reason),
+      ].filter(Boolean));
    }
 
    async function open(taskId) {

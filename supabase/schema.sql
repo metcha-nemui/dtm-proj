@@ -1,11 +1,19 @@
 -- DTM工程管理: Supabase のテーブル定義
--- SQL Editor に貼り付けて実行する。何度実行しても同じ結果になる(既存のデータは残る。消えるのは、廃止した列だけ)。
+-- SQL Editor に貼り付けて実行する。何度実行しても同じ結果になる(既存のテーブルとデータには触らない)。
 --
 -- ・1つの Supabase プロジェクトを1人で使う前提。ユーザーごとの行の区別はない。
 -- ・アプリは Project URL と公開キー(anon key)だけで接続する(擬似ログイン)。
 --   つまり、この2つを知っている人は全データを読み書きできる。公開キーは人に渡さず、リポジトリにも入れない。
 -- ・列名は snake_case。アプリ側(camelCase)との対応は js/store/supabase.js で取る。
 --   アプリの order は予約語を避けて sort_order にしている。
+
+--
+-- 【以前の定義で作ったテーブルがある場合】
+-- ライブラリの形を変えた(セクション種別と定番タスクを、テンプレートの中に持つ)ので、そのままでは動かない。
+-- データの変換は用意していない。次の文を先に実行して全テーブルを消してから、このファイルを実行する。
+--
+--    drop table if exists public.tasks, public.lanes, public.projects, public.template_tasks,
+--       public.section_kinds, public.structure_templates, public.templates, public.app_meta cascade;
 
 -- ---- プロジェクト側 ----
 
@@ -14,6 +22,8 @@ create table if not exists public.projects (
    title text not null,
    memo text not null default '',
    due_date date,
+   -- 作成元のテンプレート。テンプレートを消してもプロジェクトは残すので、外部キーにはしない
+   template_id text,
    created_at timestamptz not null default now(),
    updated_at timestamptz not null default now()
 );
@@ -55,16 +65,31 @@ create index if not exists tasks_lane_idx on public.tasks (lane_id);
 
 -- ---- ライブラリ(ノウハウ)側 ----
 
+-- プロジェクトのテンプレート。セクション種別と定番タスクは、テンプレートごとに持つ
+create table if not exists public.templates (
+   id text primary key,
+   name text not null,
+   -- このテンプレートのセクション種別のIDを並び順どおりに。同じ種別が何度出てもよい
+   sections text[] not null default '{}',
+   sort_order double precision not null,
+   created_at timestamptz not null default now(),
+   updated_at timestamptz not null default now()
+);
+
 create table if not exists public.section_kinds (
    id text primary key,
+   template_id text not null references public.templates (id) on delete cascade,
    name text not null,
    sort_order double precision not null,
    created_at timestamptz not null default now(),
    updated_at timestamptz not null default now()
 );
 
+create index if not exists section_kinds_template_idx on public.section_kinds (template_id);
+
 create table if not exists public.template_tasks (
    id text primary key,
+   template_id text not null references public.templates (id) on delete cascade,
    scope text not null check (scope in ('kind', 'global')),
    -- scope = 'kind' のときだけ入る。'global'(「全体」の定番)では null
    kind_id text references public.section_kinds (id) on delete cascade,
@@ -76,24 +101,8 @@ create table if not exists public.template_tasks (
    check ((scope = 'kind' and kind_id is not null) or (scope = 'global' and kind_id is null))
 );
 
+create index if not exists template_tasks_template_idx on public.template_tasks (template_id);
 create index if not exists template_tasks_kind_idx on public.template_tasks (kind_id);
-
-create table if not exists public.structure_templates (
-   id text primary key,
-   name text not null,
-   -- セクション種別のIDを並び順どおりに。同じ種別が何度出てもよい
-   sections text[] not null default '{}',
-   sort_order double precision not null,
-   created_at timestamptz not null default now(),
-   updated_at timestamptz not null default now()
-);
-
--- ---- 廃止した列 ----
--- 以前の定義で作ったテーブルから落とす。タスクの出自(定番 / 固有)と、セクション種別の色。
-
-alter table public.tasks drop column if exists origin;
-alter table public.tasks drop column if exists source_template_task_id;
-alter table public.section_kinds drop column if exists color;
 
 -- ---- アプリ内部の状態(初期データを投入済みか、など) ----
 
@@ -110,7 +119,7 @@ declare
    t text;
 begin
    foreach t in array array[
-      'projects', 'lanes', 'tasks', 'section_kinds', 'template_tasks', 'structure_templates', 'app_meta'
+      'projects', 'lanes', 'tasks', 'templates', 'section_kinds', 'template_tasks', 'app_meta'
    ]
    loop
       execute format('alter table public.%I enable row level security', t);

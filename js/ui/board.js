@@ -80,7 +80,8 @@ export function mount(container, { id: projectId }) {
    }
 
    async function addSectionDialog(index) {
-      const kinds = sortByOrder(data.library.kinds);
+      // 選べるのは、このプロジェクトのテンプレートの種別だけ(テンプレートがなければ「種別なし」だけ)
+      const kinds = sortByOrder(data.library.kinds.filter((k) => k.templateId === data.project.templateId));
       const values = await formDialog({
          title: 'セクションを追加',
          submitLabel: '追加',
@@ -98,6 +99,17 @@ export function mount(container, { id: projectId }) {
       });
       if (!values) return;
       reveal(await actions.addSection(projectId, { ...values, kindId: values.kindId || null, index }));
+   }
+
+   async function saveAsTemplateDialog() {
+      const values = await formDialog({
+         title: 'テンプレートとして保存',
+         message: 'いまのセクションの並びとタスクから、新しいテンプレートを作ります。同じ種別のセクションは1つにまとめ、最初のセクションのタスクを定番にします。',
+         fields: [{ name: 'name', label: 'テンプレートの名前', value: data.project.title, required: true }],
+      });
+      if (!values) return;
+      const template = await actions.saveProjectAsTemplate(projectId, values.name);
+      showToast(`テンプレート「${template.name}」を作りました。ライブラリで編集できます`);
    }
 
    async function renameLaneDialog(lane) {
@@ -195,6 +207,7 @@ export function mount(container, { id: projectId }) {
          dataset: { focusKey: 'project-menu' },
          onclick: () => openMenu(menuButton, [
             { label: '名前・締切・メモを編集', onSelect: () => run(editProjectDialog(project)) },
+            { label: 'テンプレートとして保存', onSelect: () => run(saveAsTemplateDialog()) },
             {
                label: 'プロジェクトを削除',
                danger: true,

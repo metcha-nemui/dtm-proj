@@ -38,10 +38,10 @@ async function changed(projectId) {
 
 // ---- プロジェクト ----
 
-export const createProject = serial(async ({ title, memo, dueDate, structureId }) => {
+export const createProject = serial(async ({ title, memo, dueDate, templateId }) => {
    const library = await repo().getLibrary();
-   const structure = library.structures.find((s) => s.id === structureId) ?? null;
-   const { project, lanes, tasks } = projectDomain.createProject({ title, memo, dueDate }, structure, library);
+   const template = library.templates.find((t) => t.id === templateId) ?? null;
+   const { project, lanes, tasks } = projectDomain.createProject({ title, memo, dueDate }, template, library);
    await repo().saveProject(project);
    await repo().saveLanes(lanes);
    await repo().saveTasks(tasks);
@@ -64,11 +64,12 @@ export const deleteProject = serial(async (projectId) => {
 // ---- レーン ----
 
 export const addSection = serial(async (projectId, { kindId, index, name, empty }) => {
-   const [{ lanes }, library] = await Promise.all([load(projectId), repo().getLibrary()]);
+   const [{ lanes }, library, project] = await Promise.all([load(projectId), repo().getLibrary(), repo().getProject(projectId)]);
    const result = projectDomain.addSection({
       projectId,
       lanes,
-      kind: library.kinds.find((k) => k.id === kindId) ?? null,
+      // 選べるのは、このプロジェクトのテンプレートの種別だけ
+      kind: library.kinds.find((k) => k.id === kindId && k.templateId === project?.templateId) ?? null,
       templateTasks: library.templateTasks,
       index,
       name,
@@ -174,9 +175,10 @@ export const restoreTask = serial(async (task) => {
 
 /** タスクを、所属するレーン(セクション種別、または「全体」)の定番に追加する。 */
 export const promoteTask = serial(async (projectId, taskId) => {
-   const [{ lanes, tasks }, library] = await Promise.all([load(projectId), repo().getLibrary()]);
+   const [{ lanes, tasks }, library, project] = await Promise.all([load(projectId), repo().getLibrary(), repo().getProject(projectId)]);
+   if (!project) throw new Error('プロジェクトが見つかりません');
    const task = find(tasks, taskId, 'タスク');
-   const templateTask = taskDomain.promoteTask(task, find(lanes, task.laneId, 'レーン'), library.templateTasks);
+   const templateTask = taskDomain.promoteTask(task, find(lanes, task.laneId, 'レーン'), project, library);
    await repo().saveTemplateTask(templateTask);
    // 変わるのはライブラリだけ。プロジェクトの最終更新は進めない
    notify({ library: true });
@@ -188,9 +190,50 @@ export const promoteTask = serial(async (projectId, taskId) => {
 
 const libraryChanged = () => notify({ library: true });
 
-export const addKind = serial(async ({ name }) => {
+export const addTemplate = serial(async ({ name }) => {
+   const { templates } = await repo().getLibrary();
+   const template = libraryDomain.newTemplate(templates, { name });
+   await repo().saveTemplate(template);
+   libraryChanged();
+   return template;
+});
+
+export const updateTemplate = serial(async (id, patch) => {
+   const { templates } = await repo().getLibrary();
+   await repo().saveTemplate(libraryDomain.updateTemplate(find(templates, id, 'テンプレート'), patch));
+   libraryChanged();
+});
+
+// テンプレートと、その種別・定番タスクを保存する。種別と定番タスクはテンプレートを参照するので、テンプレートが先
+async function saveTemplateWithContents({ template, kinds, templateTasks }) {
+   await repo().saveTemplate(template);
+   await repo().saveKinds(kinds);
+   await repo().saveTemplateTasks(templateTasks);
+   libraryChanged();
+   return template;
+}
+
+/** 種別と定番タスクごと複製する。 */
+export const duplicateTemplate = serial(async (id) => {
+   const library = await repo().getLibrary();
+   return saveTemplateWithContents(libraryDomain.duplicateTemplate(find(library.templates, id, 'テンプレート'), library));
+});
+
+/** プロジェクトのいまの構成(セクションの並びとタスク)から、新しいテンプレートを作る。 */
+export const saveProjectAsTemplate = serial(async (projectId, name) => {
+   const [project, library] = await Promise.all([load(projectId), repo().getLibrary()]);
+   return saveTemplateWithContents(libraryDomain.templateFromProject({ name }, project, library));
+});
+
+/** 種別と定番タスクも一緒に消す。作成済みのプロジェクトは残る。 */
+export const deleteTemplate = serial(async (id) => {
+   await repo().deleteTemplate(id);
+   libraryChanged();
+});
+
+export const addKind = serial(async ({ templateId, name }) => {
    const { kinds } = await repo().getLibrary();
-   const kind = libraryDomain.newKind(kinds, { name });
+   const kind = libraryDomain.newKind(kinds, { templateId, name });
    await repo().saveKind(kind);
    libraryChanged();
    return kind;
@@ -204,22 +247,22 @@ export const updateKind = serial(async (kindId, patch) => {
 
 export const moveKind = serial(async (kindId, toIndex) => {
    const { kinds } = await repo().getLibrary();
-   await repo().saveKinds(libraryDomain.moveInList(kinds, kindId, toIndex));
+   await repo().saveKinds(libraryDomain.moveKind(kinds, kindId, toIndex));
    libraryChanged();
 });
 
-/** 種別と、その定番タスク、構成テンプレートからの参照を消す。 */
+/** 種別と、その定番タスク、テンプレートの並びからの参照を消す。 */
 export const deleteKind = serial(async (kindId) => {
-   const { templateTaskIds, structures } = libraryDomain.removeKind(kindId, await repo().getLibrary());
+   const { templateTaskIds, templates } = libraryDomain.removeKind(kindId, await repo().getLibrary());
    for (const id of templateTaskIds) await repo().deleteTemplateTask(id);
-   await repo().saveStructures(structures);
+   await repo().saveTemplates(templates);
    await repo().deleteKind(kindId);
    libraryChanged();
 });
 
-export const addTemplateTask = serial(async ({ kindId, title }) => {
+export const addTemplateTask = serial(async ({ templateId, kindId, title }) => {
    const { templateTasks } = await repo().getLibrary();
-   const templateTask = libraryDomain.newTemplateTask(templateTasks, { kindId, title });
+   const templateTask = libraryDomain.newTemplateTask(templateTasks, { templateId, kindId, title });
    await repo().saveTemplateTask(templateTask);
    libraryChanged();
    return templateTask;
@@ -251,21 +294,3 @@ export const restoreTemplateTask = serial(async (templateTask) => {
    libraryChanged();
 });
 
-export const addStructure = serial(async ({ name }) => {
-   const { structures } = await repo().getLibrary();
-   const structure = libraryDomain.newStructure(structures, { name });
-   await repo().saveStructure(structure);
-   libraryChanged();
-   return structure;
-});
-
-export const updateStructure = serial(async (id, patch) => {
-   const { structures } = await repo().getLibrary();
-   await repo().saveStructure(libraryDomain.updateStructure(find(structures, id, '構成テンプレート'), patch));
-   libraryChanged();
-});
-
-export const deleteStructure = serial(async (id) => {
-   await repo().deleteStructure(id);
-   libraryChanged();
-});
