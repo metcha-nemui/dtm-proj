@@ -172,15 +172,15 @@ export const restoreTask = serial(async (task) => {
    await changed(task.projectId);
 });
 
-/** 固有タスクを、所属するレーン(セクション種別、または「全体」)の定番にする。 */
+/** タスクを、所属するレーン(セクション種別、または「全体」)の定番に追加する。 */
 export const promoteTask = serial(async (projectId, taskId) => {
    const [{ lanes, tasks }, library] = await Promise.all([load(projectId), repo().getLibrary()]);
    const task = find(tasks, taskId, 'タスク');
-   const result = taskDomain.promoteTask(task, find(lanes, task.laneId, 'レーン'), library.templateTasks);
-   await repo().saveTemplateTask(result.templateTask);
-   await repo().saveTask(result.task);
-   await changed(projectId);
-   return result.templateTask;
+   const templateTask = taskDomain.promoteTask(task, find(lanes, task.laneId, 'レーン'), library.templateTasks);
+   await repo().saveTemplateTask(templateTask);
+   // 変わるのはライブラリだけ。プロジェクトの最終更新は進めない
+   notify({ library: true });
+   return templateTask;
 });
 
 // ---- ライブラリ ----
@@ -188,9 +188,9 @@ export const promoteTask = serial(async (projectId, taskId) => {
 
 const libraryChanged = () => notify({ library: true });
 
-export const addKind = serial(async ({ name, color }) => {
+export const addKind = serial(async ({ name }) => {
    const { kinds } = await repo().getLibrary();
-   const kind = libraryDomain.newKind(kinds, { name, color });
+   const kind = libraryDomain.newKind(kinds, { name });
    await repo().saveKind(kind);
    libraryChanged();
    return kind;

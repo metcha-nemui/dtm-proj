@@ -50,8 +50,6 @@ export function confirmDialog({ title, message, okLabel = 'OK', danger = false }
 
 function readValue(field, el) {
    if (field.type === 'checkbox') return el.checked;
-   // 選択肢にない値を持っていて何も選ばなかった場合は、元の値のままにする
-   if (field.type === 'swatches') return el.querySelector(':checked')?.value ?? field.value;
    return el.value;
 }
 
@@ -65,19 +63,6 @@ function control(field) {
             field.options.map((o) => h('option', { value: o.value, selected: o.value === field.value }, o.label)));
       case 'checkbox':
          return h('input', { ...common, type: 'checkbox', checked: Boolean(field.value) });
-      case 'swatches':
-         // 決まった色の中から1つ選ぶ
-         return h('div', { class: 'swatches', role: 'radiogroup', 'aria-label': field.label },
-            field.options.map((o) => h('input', {
-               type: 'radio',
-               class: 'swatch',
-               name: field.name,
-               value: o.value,
-               checked: o.value === field.value,
-               title: o.label,
-               'aria-label': o.label,
-               style: { '--swatch': o.value },
-            })));
       default:
          return h('input', {
             ...common, class: 'input', type: field.type ?? 'text', value: field.value ?? '',
@@ -92,7 +77,7 @@ function control(field) {
  * @param {string} options.title
  * @param {string} [options.message]
  * @param {string} [options.submitLabel]
- * @param {Array<{ name: string, label: string, type?: 'text'|'number'|'textarea'|'select'|'checkbox'|'swatches',
+ * @param {Array<{ name: string, label: string, type?: 'text'|'number'|'textarea'|'select'|'checkbox',
  *   value?: any, placeholder?: string, required?: boolean,
  *   options?: Array<{ value: string, label: string }> }>} options.fields
  * @returns {Promise<Object|null>} name をキーにした入力値。キャンセルなら null
@@ -118,9 +103,7 @@ export function formDialog({ title, message, fields, submitLabel = '保存' }) {
          fields.map((f) => (f.type === 'checkbox'
             ? h('label', { class: 'field field-check' }, controls.get(f), f.label)
             : h('div', { class: 'field' },
-               f.type === 'swatches'
-                  ? h('span', { class: 'field-label' }, f.label)
-                  : h('label', { class: 'field-label', for: `field-${f.name}` }, f.label),
+               h('label', { class: 'field-label', for: `field-${f.name}` }, f.label),
                controls.get(f)))),
          h('div', { class: 'dialog-actions' },
             h('button', { type: 'button', class: 'btn', onclick: () => close(null) }, 'キャンセル'),

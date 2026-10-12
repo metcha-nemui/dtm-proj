@@ -2,7 +2,11 @@
 // UIとドメインロジックはここで定義したメソッドだけを使う。実装は indexeddb.js(将来は Supabase)。
 // すべて非同期(Promise)で、実装を差し替えてもシグネチャは変えない。
 
-export const SCHEMA_VERSION = 1;
+export const SCHEMA_VERSION = 2;
+
+// 廃止した項目。古いエクスポートデータを読むときに落とす(Supabase では、テーブルにない列を送ると失敗する)。
+// v2: タスクの出自(定番 / 固有)と、セクション種別の色をやめた
+const DROPPED_FIELDS = { tasks: ['origin', 'sourceTemplateTaskId'], kinds: ['color'] };
 
 /**
  * @typedef {Object} Project
@@ -36,8 +40,6 @@ export const SCHEMA_VERSION = 1;
  * @property {string} title
  * @property {string} memo
  * @property {'todo'|'doing'|'done'} status
- * @property {'standard'|'custom'} origin 定番由来か、このプロジェクト固有か
- * @property {string|null} sourceTemplateTaskId
  * @property {number} order
  * @property {string|null} doneAt
  * @property {string} createdAt
@@ -48,7 +50,6 @@ export const SCHEMA_VERSION = 1;
  * @typedef {Object} SectionKind
  * @property {string} id
  * @property {string} name
- * @property {string} color
  * @property {number} order
  * @property {string} createdAt
  * @property {string} updatedAt
@@ -177,7 +178,9 @@ export function migrate(json) {
       if (!Array.isArray(records) || records.some((r) => !r || typeof r.id !== 'string')) {
          throw new Error(`データが壊れています: ${name}`);
       }
-      result[name] = records;
+      const dropped = DROPPED_FIELDS[name] ?? [];
+      result[name] = records.map((record) =>
+         Object.fromEntries(Object.entries(record).filter(([field]) => !dropped.includes(field))));
    }
    return result;
 }

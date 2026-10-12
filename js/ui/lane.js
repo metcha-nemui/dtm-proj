@@ -3,13 +3,10 @@
 import { STATUSES, STATUS_LABELS } from '../domain/task.js';
 import { h, icon, progressBar } from './components/dom.js';
 
-const ORIGIN_LABELS = { standard: '定番タスク', custom: 'このプロジェクト固有のタスク' };
-
 function taskItem(task, handlers, pending) {
    const next = STATUSES[(STATUSES.indexOf(task.status) + 1) % STATUSES.length];
 
-   return h('li', { class: `task is-${task.origin} is-${task.status}`, dataset: { taskId: task.id } },
-      h('span', { class: 'task-origin', title: ORIGIN_LABELS[task.origin] }),
+   return h('li', { class: `task is-${task.status}`, dataset: { taskId: task.id } },
       h('button', {
          type: 'button',
          // 変更を送っている間は、丸を回して待ち時間を伝える
@@ -34,14 +31,14 @@ function taskItem(task, handlers, pending) {
  * @param {object} props
  * @param {object} props.lane
  * @param {object[]} props.tasks このレーンのタスク(並び順どおり)
- * @param {object|null} props.kind 由来するセクション種別(色に使う)
+ * @param {string|null} props.color セクションの色。「全体」レーンは null(CSS の色を使う)
  * @param {object} props.stats summarize() の結果
  * @param {{ has: (taskId: string) => boolean }} props.pendingStatus ステータスの変更を送っている途中のタスク
  * @param {object} props.handlers onCycleStatus(task) / onOpenTask(task) / onAddTask(lane, title) /
  *   onToggleCollapse(lane) / onMenu(lane, anchor) / onInsertBefore(lane)。
  *   メニューと「前に追加」はセクションにだけ出す(「全体」レーンは名前変更・複製・削除ができない)
  */
-export function renderLane({ lane, tasks, kind, stats, pendingStatus, handlers }) {
+export function renderLane({ lane, tasks, color, stats, pendingStatus, handlers }) {
    const input = h('input', {
       class: 'input quick-add-input',
       placeholder: '+ タスクを追加',
@@ -74,7 +71,7 @@ export function renderLane({ lane, tasks, kind, stats, pendingStatus, handlers }
       class: `lane lane-${lane.type}${lane.collapsed ? ' is-collapsed' : ''}`,
       id: `lane-${lane.id}`,
       dataset: { laneId: lane.id },
-      style: kind ? { '--lane-color': kind.color } : null,
+      style: color ? { '--lane-color': color } : null,
    },
    lane.type === 'section' && h('button', {
       type: 'button',

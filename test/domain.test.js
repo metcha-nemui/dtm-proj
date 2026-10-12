@@ -2,12 +2,12 @@
 // Node でも動く: node -e "import('./test/domain.test.js').then(m => m.report()).then(ok => process.exit(ok ? 0 : 1))"
 
 import {
-   KIND_COLORS, moveTemplateTask, newKind, newStructure, newTemplateTask, removeKind, updateKind, updateStructure, updateTemplateTask,
+   moveTemplateTask, newKind, newStructure, newTemplateTask, removeKind, updateKind, updateStructure, updateTemplateTask,
 } from '../js/domain/library.js';
 import { orderAtEnd, orderBetween, placeAt, reorder, sortByOrder } from '../js/domain/order.js';
 import {
-   addSection, assertSection, createProject, daysUntilDue, duplicateLane, moveLane, normalizeDueDate, renameLane,
-   templatesFor, uniqueLaneName, updateProject,
+   addSection, assertSection, colorsInOrder, createProject, daysUntilDue, duplicateLane, moveLane, normalizeDueDate, renameLane,
+   SECTION_COLORS, sectionColors, templatesFor, uniqueLaneName, updateProject,
 } from '../js/domain/project.js';
 import { summarize, summarizeByLane } from '../js/domain/stats.js';
 import {
@@ -126,7 +126,8 @@ test('createProject: 歌モノ標準からレーンとタスクができる', ()
    const global = lanes.find((l) => l.type === 'global');
    equal(titles(tasks.filter((t) => t.laneId === global.id)),
       ['テンポ・キー決定', '仮タイトル', '歌詞', 'ミックス', 'マスタリング', '書き出し']);
-   assert(tasks.every((t) => t.origin === 'standard' && t.sourceTemplateTaskId && t.status === 'todo'));
+   assert(tasks.every((t) => t.status === 'todo'));
+   assert(tasks.every((t) => !('origin' in t) && !('sourceTemplateTaskId' in t)), '出自は持たない');
    assert(tasks.every((t) => t.projectId === project.id));
    equal(tasks.length, 6 * 3 + 4 * 2 + 6);
 });
@@ -197,7 +198,7 @@ test('addSection: 指定位置に定番タスクつきで入る', () => {
    equal(added.lane.name, 'サビ4');
    equal(added.lanes.length, 1, '他のレーンは書き換えない');
    equal(added.tasks.length, 6);
-   assert(added.tasks.every((t) => t.laneId === added.lane.id && t.origin === 'standard'));
+   assert(added.tasks.every((t) => t.laneId === added.lane.id));
    const sections = [...lanes, added.lane].filter((l) => l.type === 'section');
    equal(titles(sections).slice(0, 3), ['イントロ', 'サビ4', 'Aメロ']);
 });
@@ -237,6 +238,41 @@ test('moveLane: 同じ種類の中だけで並べ替える', () => {
    equal(moved.find((l) => l.type === 'global').order, lanes.find((l) => l.type === 'global').order);
 });
 
+test('sectionColors: 並び順にパレットの色を割り振る。同じ種別は同じ色', () => {
+   const { lanes } = createProject({ title: 'x' }, structure('vocal'), library);
+   const colorOf = (all, name) => sectionColors(all).get(all.find((l) => l.name === name).id);
+   const [c1, c2, c3, c4] = SECTION_COLORS;
+   equal(['イントロ', 'Aメロ', 'Bメロ', 'サビ'].map((n) => colorOf(lanes, n)), [c1, c2, c3, c4]);
+   equal(['Aメロ2', 'サビ2', 'サビ3'].map((n) => colorOf(lanes, n)), [c2, c4, c4], '同じ種別は同じ色');
+   equal(colorOf(lanes, 'アウトロ'), SECTION_COLORS[6]);
+   assert(!sectionColors(lanes).has(lanes.find((l) => l.type === 'global').id), '「全体」レーンには割り振らない');
+
+   // 並べ替えると、位置に合わせて色が入れ替わる
+   const sections = sortByOrder(lanes.filter((l) => l.type === 'section'));
+   const moved = apply(lanes, moveLane(lanes, sections[2].id, 1));
+   equal(['イントロ', 'Bメロ', 'Aメロ', 'サビ'].map((n) => colorOf(moved, n)), [c1, c2, c3, c4]);
+   equal(colorOf(moved, 'Aメロ2'), c3);
+   // 名前を変えても種別が同じなら同じ色
+   const renamed = apply(lanes, [renameLane(lanes.find((l) => l.name === 'サビ3'), '落ちサビ')]);
+   equal(colorOf(renamed, '落ちサビ'), c4);
+});
+
+test('sectionColors: 種別のないセクションは名前で見分ける / 色を使い切ったら先頭に戻る', () => {
+   const { project, lanes } = createProject({ title: 'x' }, null, library);
+   const base = { projectId: project.id, templateTasks: [], kind: null };
+   const a = addSection({ ...base, lanes, name: 'ブレイク' }).lane;
+   const b = addSection({ ...base, lanes: [...lanes, a], name: 'ドロップ' }).lane;
+   const all = [...lanes, a, b];
+   const dup = duplicateLane(a.id, all, []);
+   const colors = sectionColors(apply([...all, dup.lane], dup.lanes));
+   equal(dup.lane.name, 'ブレイク2');
+   equal([colors.get(a.id), colors.get(dup.lane.id), colors.get(b.id)], [SECTION_COLORS[0], SECTION_COLORS[0], SECTION_COLORS[1]]);
+
+   const many = colorsInOrder(Array.from({ length: SECTION_COLORS.length + 2 }, (_, i) => `k${i}`));
+   equal(many.slice(-2), SECTION_COLORS.slice(0, 2));
+   equal(new Set(SECTION_COLORS).size, 18, 'パレットは重複のない18色');
+});
+
 test('renameLane: 空の名前は拒否', () => {
    const { lanes } = createProject({ title: 'x' }, structure('inst'), library);
    const section = lanes.find((l) => l.type === 'section');
@@ -253,10 +289,10 @@ function fixture() {
    return { project, lanes, tasks, lane, inLane };
 }
 
-test('addTask: 固有タスクとして末尾に追加', () => {
+test('addTask: 末尾に追加', () => {
    const { tasks, lane, inLane } = fixture();
    const task = addTask(lane('サビ'), inLane(tasks, 'サビ'), ' ギターソロ ');
-   equal([task.title, task.origin, task.sourceTemplateTaskId, task.status], ['ギターソロ', 'custom', null, 'todo']);
+   equal([task.title, task.status], ['ギターソロ', 'todo']);
    equal(titles(inLane([...tasks, task], 'サビ')).at(-1), 'ギターソロ');
    throws(() => addTask(lane('サビ'), [], '   '));
 });
@@ -301,10 +337,9 @@ test('moveTask: レーン間の移動', () => {
 test('promoteTask: セクションのタスクは、その種別の定番になる', () => {
    const { tasks, lane, inLane } = fixture();
    const custom = addTask(lane('サビ2'), inLane(tasks, 'サビ2'), 'ハモリ');
-   const { templateTask, task } = promoteTask({ ...custom, memo: 'm' }, lane('サビ2'), library.templateTasks);
+   const templateTask = promoteTask({ ...custom, memo: 'm' }, lane('サビ2'), library.templateTasks);
    equal([templateTask.scope, templateTask.kindId, templateTask.title, templateTask.memo],
       ['kind', 'seed-kind-chorus', 'ハモリ', 'm']);
-   equal([task.origin, task.sourceTemplateTaskId], ['standard', templateTask.id]);
    // 以後に作るプロジェクトでは、定番の末尾に入る
    const next = createProject({ title: 'y' }, structure('vocal'),
       { ...library, templateTasks: [...library.templateTasks, templateTask] });
@@ -312,15 +347,18 @@ test('promoteTask: セクションのタスクは、その種別の定番にな�
    equal(titles(next.tasks.filter((t) => t.laneId === chorus.id)).at(-1), 'ハモリ');
 });
 
-test('promoteTask: 「全体」レーンのタスクは「全体」の定番になる / 昇格できない場合', () => {
+test('promoteTask: 「全体」レーンのタスクは「全体」の定番になる / 追加できない場合', () => {
    const { project, lanes, tasks, lane, inLane } = fixture();
    const global = lanes.find((l) => l.type === 'global');
-   const { templateTask } = promoteTask(addTask(global, [], 'リファレンス曲を決める'), global, library.templateTasks);
+   const templateTask = promoteTask(addTask(global, [], 'リファレンス曲を決める'), global, library.templateTasks);
    equal([templateTask.scope, templateTask.kindId, templateTask.order], ['global', null, 7]);
 
    const { lane: noKind } = addSection({ projectId: project.id, lanes, kind: null, templateTasks: [], name: 'ブレイク' });
    throws(() => promoteTask(addTask(noKind, [], 'x'), noKind, library.templateTasks), '種別のないセクション');
-   throws(() => promoteTask(inLane(tasks, 'サビ')[0], lane('サビ'), library.templateTasks), '定番タスク');
+   throws(() => promoteTask(inLane(tasks, 'サビ')[0], lane('サビ'), library.templateTasks), '同じタイトルの定番がある');
+   // タイトルを変えたタスクは、別の定番として追加できる
+   const edited = updateTask(inLane(tasks, 'サビ')[0], { title: 'コード確定(転調)' });
+   equal(promoteTask(edited, lane('サビ'), library.templateTasks).title, 'コード確定(転調)');
 });
 
 // ---- stats ----
@@ -340,15 +378,12 @@ test('summarizeByLane', () => {
 
 // ---- library ----
 
-test('newKind / updateKind: 末尾に追加、未使用の色を割り当てる', () => {
+test('newKind / updateKind: 末尾に追加。色は持たない', () => {
    const k = newKind(library.kinds.slice(0, 3), { name: ' ブレイク ' });
    equal([k.name, k.order], ['ブレイク', 4]);
-   assert(!library.kinds.slice(0, 3).some((x) => x.color === k.color), '使用済みの色');
-   assert(KIND_COLORS.some((c) => c.value === k.color), 'パレットの色');
-   assert(library.kinds.every((x) => KIND_COLORS.some((c) => c.value === x.color)), '初期データの色もパレットから');
-   equal(newKind([], { name: 'x', color: '#123456' }).color, '#123456');
+   assert(!('color' in k) && library.kinds.every((x) => !('color' in x)), '色はセクションの並びで決まる');
    throws(() => newKind([], { name: ' ' }));
-   equal(updateKind(k, { name: 'ドロップ', color: '#000000' }).name, 'ドロップ');
+   equal(updateKind(k, { name: 'ドロップ' }).name, 'ドロップ');
    throws(() => updateKind(k, { name: '' }));
 });
 
@@ -409,6 +444,15 @@ test('migrate: 検証して形を揃える', () => {
    throws(() => migrate({ schemaVersion: 1, tasks: [{}] }), 'id なし');
 });
 
+test('migrate: 廃止した項目(タスクの出自、種別の色)を落とす', () => {
+   const data = migrate({
+      schemaVersion: 1,
+      tasks: [{ id: 't', title: 'x', origin: 'standard', sourceTemplateTaskId: 's' }],
+      kinds: [{ id: 'k', name: 'サビ', color: '#ef4444' }],
+   });
+   equal([data.tasks, data.kinds], [[{ id: 't', title: 'x' }], [{ id: 'k', name: 'サビ' }]]);
+});
+
 // ---- store: Supabase 実装 ----
 
 // Supabase の REST API(PostgREST)のふりをする fetch。テーブルをメモリに持ち、
@@ -457,8 +501,8 @@ function fakeSupabase({ key = 'KEY', failWith = null } = {}) {
 test('supabase: 列名の対応(camelCase ↔ snake_case、order ↔ sort_order)と日時の形', () => {
    const { tasks } = createProject({ title: 'x', dueDate: '2026-10-31' }, structure('vocal'), library);
    const row = toRow(tasks[0]);
-   equal(Object.keys(row).sort(), ['created_at', 'done_at', 'id', 'lane_id', 'memo', 'origin', 'project_id',
-      'sort_order', 'source_template_task_id', 'status', 'title', 'updated_at']);
+   equal(Object.keys(row).sort(), ['created_at', 'done_at', 'id', 'lane_id', 'memo', 'project_id',
+      'sort_order', 'status', 'title', 'updated_at']);
    equal(fromRow(row), tasks[0], '往復しても変わらない');
    // データベースは日時を +00:00 の形で返す。IndexedDB 実装と同じ …Z に揃える
    const back = fromRow({ created_at: '2026-10-12T04:25:44.487+00:00', done_at: null, due_date: '2026-10-31' });

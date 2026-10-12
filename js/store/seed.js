@@ -2,14 +2,14 @@
 // IDは固定にしてある。どの保存先でも同じ初期データになり、テストからも名指しできる。
 
 const KINDS = [
-   ['intro', 'イントロ', '#3b82f6'],
-   ['verse', 'Aメロ', '#22c55e'],
-   ['bridge', 'Bメロ', '#eab308'],
-   ['chorus', 'サビ', '#ef4444'],
-   ['interlude', '間奏', '#8b5cf6'],
-   ['c', 'Cメロ', '#f97316'],
-   ['outro', 'アウトロ', '#14b8a6'],
-   ['generic', '汎用', '#64748b'],
+   ['intro', 'イントロ'],
+   ['verse', 'Aメロ'],
+   ['bridge', 'Bメロ'],
+   ['chorus', 'サビ'],
+   ['interlude', '間奏'],
+   ['c', 'Cメロ'],
+   ['outro', 'アウトロ'],
+   ['generic', '汎用'],
 ];
 
 const KIND_TASKS = {
@@ -30,7 +30,7 @@ const kindId = (key) => `seed-kind-${key}`;
 export function buildSeed(now = new Date().toISOString()) {
    const stamp = { createdAt: now, updatedAt: now };
 
-   const kinds = KINDS.map(([key, name, color], i) => ({ id: kindId(key), name, color, order: i + 1, ...stamp }));
+   const kinds = KINDS.map(([key, name], i) => ({ id: kindId(key), name, order: i + 1, ...stamp }));
 
    const templateTask = (id, scope, kind, title, i) => ({
       id, scope, kindId: kind, title, memo: '', order: i + 1, ...stamp,

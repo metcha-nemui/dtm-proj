@@ -1,5 +1,5 @@
 -- DTM工程管理: Supabase のテーブル定義
--- SQL Editor に貼り付けて実行する。何度実行しても同じ結果になる(既存のテーブルとデータには触らない)。
+-- SQL Editor に貼り付けて実行する。何度実行しても同じ結果になる(既存のデータは残る。消えるのは、廃止した列だけ)。
 --
 -- ・1つの Supabase プロジェクトを1人で使う前提。ユーザーごとの行の区別はない。
 -- ・アプリは Project URL と公開キー(anon key)だけで接続する(擬似ログイン)。
@@ -44,9 +44,6 @@ create table if not exists public.tasks (
    title text not null,
    memo text not null default '',
    status text not null default 'todo' check (status in ('todo', 'doing', 'done')),
-   origin text not null default 'custom' check (origin in ('standard', 'custom')),
-   -- コピー元の定番タスク。定番を消してもタスクは残すので、外部キーにはしない
-   source_template_task_id text,
    sort_order double precision not null,
    done_at timestamptz,
    created_at timestamptz not null default now(),
@@ -61,7 +58,6 @@ create index if not exists tasks_lane_idx on public.tasks (lane_id);
 create table if not exists public.section_kinds (
    id text primary key,
    name text not null,
-   color text not null,
    sort_order double precision not null,
    created_at timestamptz not null default now(),
    updated_at timestamptz not null default now()
@@ -91,6 +87,13 @@ create table if not exists public.structure_templates (
    created_at timestamptz not null default now(),
    updated_at timestamptz not null default now()
 );
+
+-- ---- 廃止した列 ----
+-- 以前の定義で作ったテーブルから落とす。タスクの出自(定番 / 固有)と、セクション種別の色。
+
+alter table public.tasks drop column if exists origin;
+alter table public.tasks drop column if exists source_template_task_id;
+alter table public.section_kinds drop column if exists color;
 
 -- ---- アプリ内部の状態(初期データを投入済みか、など) ----
 

@@ -2,6 +2,7 @@
 
 import * as actions from '../actions.js';
 import { sortByOrder } from '../domain/order.js';
+import { sectionColors } from '../domain/project.js';
 import { summarize } from '../domain/stats.js';
 import { repo, subscribe } from '../state.js';
 import { confirmDialog, formDialog } from './components/dialog.js';
@@ -210,9 +211,6 @@ export function mount(container, { id: projectId }) {
             progressBar(stats.ratio),
             h('span', { class: 'muted' }, `${stats.done}/${stats.total} 完了`),
             dueBadge(project, stats)),
-         h('div', { class: 'board-legend muted', 'aria-hidden': 'true' },
-            h('span', { class: 'legend-item legend-standard' }, '定番'),
-            h('span', { class: 'legend-item legend-custom' }, '固有')),
          h('label', { class: 'board-filter' },
             h('input', {
                type: 'checkbox',
@@ -247,14 +245,14 @@ export function mount(container, { id: projectId }) {
 
    // セクション一覧。構成を俯瞰でき、押すとそのレーンへジャンプする
    function laneChips() {
-      const kinds = new Map(data.library.kinds.map((k) => [k.id, k]));
+      const colors = sectionColors(data.lanes);
       const ordered = [...data.lanes.filter((l) => l.type === 'global'), ...sections()];
       return h('nav', { class: 'lane-chips', 'aria-label': 'レーンへジャンプ' }, ordered.map((lane) => {
          const stats = summarize(data.tasks.filter((t) => t.laneId === lane.id));
          return h('button', {
             type: 'button',
             class: `lane-chip lane-chip-${lane.type}${stats.total > 0 && stats.done === stats.total ? ' is-finished' : ''}`,
-            style: kinds.has(lane.kindId) ? { '--lane-color': kinds.get(lane.kindId).color } : null,
+            style: colors.has(lane.id) ? { '--lane-color': colors.get(lane.id) } : null,
             dataset: { focusKey: `chip:${lane.id}` },
             onclick: () => jumpToLane(lane),
          },
@@ -264,8 +262,8 @@ export function mount(container, { id: projectId }) {
    }
 
    function laneGroup(type) {
-      const { lanes, tasks, library } = data;
-      const kinds = new Map(library.kinds.map((k) => [k.id, k]));
+      const { lanes, tasks } = data;
+      const colors = sectionColors(lanes);
       const group = lanes.filter((l) => l.type === type);
       return h('div', { class: `lane-group lane-group-${type}`, dataset: { laneType: type }, hidden: group.length === 0 },
          group.map((lane) => {
@@ -273,7 +271,7 @@ export function mount(container, { id: projectId }) {
             return renderLane({
                lane,
                tasks: laneTasks,
-               kind: kinds.get(lane.kindId) ?? null,
+               color: colors.get(lane.id) ?? null,
                stats: summarize(laneTasks),
                pendingStatus,
                handlers,

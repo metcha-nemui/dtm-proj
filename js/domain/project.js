@@ -44,6 +44,58 @@ function newLane(projectId, fields) {
    return newRecord({ projectId, type: 'section', name: '', kindId: null, order: 0, collapsed: false, ...fields });
 }
 
+// セクションに割り振る色。系統の違う9色(Tailwind CSS の 500)と、それぞれを明るくした9色(同 300)。
+// 並び順がそのまま割り振る順番になるので、隣どうしが似た色にならない順にしてある。
+export const SECTION_COLORS = [
+   '#ef4444', // 赤
+   '#3b82f6', // 青
+   '#22c55e', // 緑
+   '#f97316', // オレンジ
+   '#8b5cf6', // 紫
+   '#14b8a6', // 青緑
+   '#ec4899', // ピンク
+   '#eab308', // 黄
+   '#64748b', // グレー
+   '#fca5a5', // 明るい赤
+   '#93c5fd', // 明るい青
+   '#86efac', // 明るい緑
+   '#fdba74', // 明るいオレンジ
+   '#c4b5fd', // 明るい紫
+   '#5eead4', // 明るい青緑
+   '#f9a8d4', // 明るいピンク
+   '#fde047', // 明るい黄
+   '#cbd5e1', // 明るいグレー
+];
+
+/**
+ * キーの並びに、パレットの色を先頭から順に割り振る。同じキーには同じ色。
+ * パレットを使い切ったら先頭に戻る。
+ * @param {string[]} keys
+ * @returns {string[]} keys と同じ並びの色
+ */
+export function colorsInOrder(keys) {
+   const assigned = new Map();
+   return keys.map((key) => {
+      if (!assigned.has(key)) assigned.set(key, SECTION_COLORS[assigned.size % SECTION_COLORS.length]);
+      return assigned.get(key);
+   });
+}
+
+/**
+ * セクションの色を、並び順に割り振る。同じ種別のセクションは同じ色。
+ * 色は保存せず、表示のたびに決める。だから並べ替えると、位置に合わせて色も入れ替わる。
+ * @param {object[]} lanes プロジェクトの全レーン
+ * @returns {Map<string, string>} レーンID → 色。「全体」レーンは含めない
+ */
+export function sectionColors(lanes) {
+   const sections = sortByOrder(lanes.filter((l) => l.type === 'section'));
+   // 種別のないセクションは名前で見分ける(複製したときに付く末尾の番号は無視する)
+   const colors = colorsInOrder(sections.map((l) => (l.kindId
+      ? `kind:${l.kindId}`
+      : `name:${l.name.replace(/\d+$/, '') || l.name}`)));
+   return new Map(sections.map((l, i) => [l.id, colors[i]]));
+}
+
 export const GLOBAL_LANE_NAME = '全体';
 
 // 「全体」レーン。すべてのプロジェクトが必ず1本持ち、名前変更・複製・削除はできない。

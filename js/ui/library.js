@@ -1,9 +1,8 @@
 // ライブラリ #/library — セクション種別、定番タスク、構成テンプレートを育てる画面。
 
 import * as actions from '../actions.js';
-import { KIND_COLORS } from '../domain/library.js';
 import { sortByOrder } from '../domain/order.js';
-import { GLOBAL_LANE_NAME, templatesFor } from '../domain/project.js';
+import { colorsInOrder, GLOBAL_LANE_NAME, templatesFor } from '../domain/project.js';
 import { repo, subscribe } from '../state.js';
 import { confirmDialog, formDialog } from './components/dialog.js';
 import { h, icon, keepFocus } from './components/dom.js';
@@ -49,24 +48,14 @@ export function mount(container) {
          dataset: { focusKey: `scope:${id}` },
          onclick: () => select(() => { scope = id; }),
       },
-      h('span', { class: 'color-dot', style: kind ? { background: kind.color } : null }),
       h('span', { class: 'pick-name' }, kind?.name ?? GLOBAL_LANE_NAME),
       h('span', { class: 'pick-count' }, String(templateCount(id))));
    }
 
-   async function editKindDialog(kind) {
+   async function renameKindDialog(kind) {
       const values = await formDialog({
-         title: 'セクション種別を編集',
-         fields: [
-            { name: 'name', label: '名前', value: kind.name, required: true },
-            {
-               name: 'color',
-               label: '色',
-               type: 'swatches',
-               value: kind.color,
-               options: KIND_COLORS.map((c) => ({ value: c.value, label: c.name })),
-            },
-         ],
+         title: '名前を変更',
+         fields: [{ name: 'name', label: '名前', value: kind.name, required: true }],
       });
       if (values) await actions.updateKind(kind.id, values);
    }
@@ -90,7 +79,7 @@ export function mount(container) {
             'aria-label': `${kind.name}のメニュー`,
             dataset: { focusKey: `kind-menu:${kind.id}` },
             onclick: () => openMenu(menuButton, [
-               { label: '名前と色を編集', onSelect: () => run(editKindDialog(kind)) },
+               { label: '名前を変更', onSelect: () => run(renameKindDialog(kind)) },
                { label: '削除', danger: true, onSelect: () => run(deleteKindDialog(kind)) },
             ]),
          }, icon('ellipsis-vertical'));
@@ -220,11 +209,12 @@ export function mount(container) {
       const kinds = new Map(library.kinds.map((k) => [k.id, k]));
       const save = (patch) => run(actions.updateStructure(structure.id, patch));
       const { sections } = structure;
+      // このテンプレートで作ったプロジェクトと同じ色になる(並び順に割り振る)
+      const colors = colorsInOrder(sections);
 
       const chips = h('ol', { class: 'chip-list' }, sections.map((kindId, i) => {
-         const kind = kinds.get(kindId);
-         const name = kind?.name ?? '(削除済みの種別)';
-         return h('li', { class: 'chip', dataset: { kindId }, style: kind ? { '--lane-color': kind.color } : null },
+         const name = kinds.get(kindId)?.name ?? '(削除済みの種別)';
+         return h('li', { class: 'chip', dataset: { kindId }, style: { '--lane-color': colors[i] } },
             h('span', null, name),
             h('button', {
                type: 'button',
@@ -275,7 +265,6 @@ export function mount(container) {
             h('div', { class: 'kind-buttons' }, library.kinds.map((kind) => h('button', {
                type: 'button',
                class: 'btn kind-button',
-               style: { '--lane-color': kind.color },
                dataset: { focusKey: `structure-add-kind:${kind.id}` },
                onclick: () => save({ sections: [...sections, kind.id] }),
             }, icon('plus', 14), kind.name)))),

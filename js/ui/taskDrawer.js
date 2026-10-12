@@ -69,7 +69,7 @@ export function createTaskDrawer(projectId, { onSelectionChange } = {}) {
          onclick: () => run(actions.setTaskStatus(projectId, task.id, status)),
       }, STATUS_LABELS[status]));
       const laneName = h('span', { class: 'drawer-lane muted' });
-      const origin = h('div', { class: 'drawer-origin' });
+      const promoteArea = h('div', { class: 'drawer-promote' });
 
       const panel = h('aside', { class: 'drawer', role: 'dialog', 'aria-label': 'タスク詳細', tabIndex: -1 },
          h('header', { class: 'drawer-head' },
@@ -79,14 +79,14 @@ export function createTaskDrawer(projectId, { onSelectionChange } = {}) {
             title,
             field('ステータス', h('div', { class: 'segments' }, statusButtons)),
             field('メモ', memo),
-            field('由来', origin),
+            field('定番に追加', promoteArea),
             h('div', { class: 'drawer-foot' },
                h('button', { type: 'button', class: 'btn btn-danger', onclick: remove }, 'タスクを削除'))));
       const backdrop = h('div', { class: 'drawer-backdrop', onclick: () => close() });
 
       document.getElementById('overlay-root').append(backdrop, panel);
       document.body.classList.add('drawer-open');
-      el = { panel, backdrop, title, memo, statusButtons, laneName, origin };
+      el = { panel, backdrop, title, memo, statusButtons, laneName, promoteArea };
    }
 
    // 読み込んだ内容を表示に反映する。編集中(フォーカス中)の欄は上書きしない
@@ -102,22 +102,15 @@ export function createTaskDrawer(projectId, { onSelectionChange } = {}) {
       }
       el.laneName.textContent = context.lane?.name ?? '';
 
-      if (task.origin === 'standard') {
-         el.origin.replaceChildren(h('span', { class: 'origin-badge is-standard' }, '定番タスク'));
-         return;
-      }
-      // 昇格先は所属するレーンで決まる。セクションならその種別の定番、「全体」レーンなら「全体」の定番
+      // 追加先は所属するレーンで決まる。セクションならその種別の定番、「全体」レーンなら「全体」の定番
       const { lane, kind } = context;
       const owner = lane?.type === 'global' ? lane.name : kind?.name;
       const label = owner && `「${owner}」の定番`;
-      el.origin.replaceChildren(
-         h('span', { class: 'origin-badge is-custom' }, 'このプロジェクト固有'),
-         h('div', { class: 'drawer-promote' },
-            h('span', { class: 'field-label' }, '定番に昇格'),
-            label && h('button', { type: 'button', class: 'btn', onclick: () => promote(label) }, `${label}にする`),
-            h('p', { class: 'muted drawer-hint' }, label
-               ? 'タイトルとメモをライブラリにコピーします。'
-               : 'このセクションには種別がないので、定番にできません。')));
+      el.promoteArea.replaceChildren(
+         label && h('button', { type: 'button', class: 'btn', onclick: () => promote(label) }, `${label}に追加`),
+         h('p', { class: 'muted drawer-hint' }, label
+            ? 'タイトルとメモをライブラリにコピーします。'
+            : 'このセクションには種別がないので、定番にできません。'));
    }
 
    async function open(taskId) {

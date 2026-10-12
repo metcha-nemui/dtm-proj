@@ -142,14 +142,6 @@
    font-variant-numeric: tabular-nums;
 }
 
-.color-dot {
-   flex: none;
-   width: 10px;
-   height: 10px;
-   border-radius: 50%;
-   background: var(--accent);
-}
-
 .drag-handle {
    flex: none;
    display: grid;
@@ -189,7 +181,6 @@
    gap: var(--space-1) var(--space-2);
    padding: var(--space-2);
    border: 1px solid var(--border);
-   border-left: 4px solid var(--origin-standard);
    border-radius: var(--radius-sm);
    background: var(--surface);
 }
@@ -268,7 +259,6 @@
 }
 
 .kind-button {
-   border-left: 4px solid var(--lane-color);
    font-size: 13px;
 }
 

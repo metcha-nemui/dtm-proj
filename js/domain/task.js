@@ -14,8 +14,6 @@ function newTask(lane, fields) {
       title: '',
       memo: '',
       status: 'todo',
-      origin: 'custom',
-      sourceTemplateTaskId: null,
       order: 0,
       doneAt: null,
       ...fields,
@@ -27,13 +25,11 @@ export function tasksFromTemplates(lane, templateTasks) {
    return templateTasks.map((template, i) => newTask(lane, {
       title: template.title,
       memo: template.memo ?? '',
-      origin: 'standard',
-      sourceTemplateTaskId: template.id,
       order: i + 1,
    }));
 }
 
-/** このプロジェクト固有のタスクを、レーンの末尾に追加する。 */
+/** タスクをレーンの末尾に追加する。 */
 export function addTask(lane, laneTasks, title) {
    const trimmed = title.trim();
    if (!trimmed) throw new Error('タイトルを入力してください');
@@ -45,8 +41,6 @@ export function copyTask(task, lane) {
    return newTask(lane, {
       title: task.title,
       memo: task.memo,
-      origin: task.origin,
-      sourceTemplateTaskId: task.sourceTemplateTaskId,
       order: task.order,
    });
 }
@@ -87,26 +81,23 @@ export function moveTask(tasks, taskId, toLaneId, toIndex) {
 }
 
 /**
- * 固有タスクを、所属するレーンの定番に昇格する。
+ * タスクを、所属するレーンの定番に追加する(タイトルとメモのコピー。タスク自体は変わらない)。
  * セクションのタスクはそのセクション種別の定番に、「全体」レーンのタスクは「全体」の定番になる。
- * @returns {{ templateTask: object, task: object }}
+ * タスクは定番由来かどうかを覚えていないので、二重登録は同じタイトルの定番があるかで防ぐ。
+ * @returns {object} 追加する定番タスク
  */
 export function promoteTask(task, lane, templateTasks) {
-   if (task.origin === 'standard') throw new Error('すでに定番タスクです');
    const scope = lane.type === 'global' ? 'global' : 'kind';
    const kindId = scope === 'kind' ? lane.kindId : null;
    if (scope === 'kind' && !kindId) throw new Error('このセクションには種別がないので、定番にできません');
 
    const siblings = templateTasks.filter((t) => t.scope === scope && t.kindId === kindId);
-   const templateTask = newRecord({
+   if (siblings.some((t) => t.title === task.title)) throw new Error(`「${task.title}」は、すでに定番にあります`);
+   return newRecord({
       scope,
       kindId,
       title: task.title,
       memo: task.memo,
       order: orderAtEnd(siblings),
    });
-   return {
-      templateTask,
-      task: touch(task, { origin: 'standard', sourceTemplateTaskId: templateTask.id }),
-   };
 }

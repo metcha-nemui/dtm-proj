@@ -4,29 +4,6 @@
 import { orderAtEnd, reorder } from './order.js';
 import { newRecord, touch } from './record.js';
 
-// 種別の色の選択肢。系統の違う9色(Tailwind CSS の 500)と、それぞれを明るくした9色(同 300)。
-// 選択画面では9列に並べるので、上段が基本色、下段がその明るい色になる。
-export const KIND_COLORS = [
-   { name: '赤', value: '#ef4444' },
-   { name: 'オレンジ', value: '#f97316' },
-   { name: '黄', value: '#eab308' },
-   { name: '緑', value: '#22c55e' },
-   { name: '青緑', value: '#14b8a6' },
-   { name: '青', value: '#3b82f6' },
-   { name: '紫', value: '#8b5cf6' },
-   { name: 'ピンク', value: '#ec4899' },
-   { name: 'グレー', value: '#64748b' },
-   { name: '明るい赤', value: '#fca5a5' },
-   { name: '明るいオレンジ', value: '#fdba74' },
-   { name: '明るい黄', value: '#fde047' },
-   { name: '明るい緑', value: '#86efac' },
-   { name: '明るい青緑', value: '#5eead4' },
-   { name: '明るい青', value: '#93c5fd' },
-   { name: '明るい紫', value: '#c4b5fd' },
-   { name: '明るいピンク', value: '#f9a8d4' },
-   { name: '明るいグレー', value: '#cbd5e1' },
-];
-
 function requireText(value, message) {
    const trimmed = String(value ?? '').trim();
    if (!trimmed) throw new Error(message);
@@ -40,13 +17,9 @@ export function moveInList(items, id, toIndex) {
 
 // ---- セクション種別 ----
 
-/** 色を省略すると、まだ使われていない色(なければ順繰り)を割り当てる。 */
-export function newKind(kinds, { name, color }) {
-   const used = new Set(kinds.map((k) => k.color));
-   const palette = KIND_COLORS.map((c) => c.value);
+export function newKind(kinds, { name }) {
    return newRecord({
       name: requireText(name, '種別の名前を入力してください'),
-      color: color ?? palette.find((c) => !used.has(c)) ?? palette[kinds.length % palette.length],
       order: orderAtEnd(kinds),
    });
 }
@@ -54,7 +27,6 @@ export function newKind(kinds, { name, color }) {
 export function updateKind(kind, patch) {
    const next = {};
    if ('name' in patch) next.name = requireText(patch.name, '種別の名前を入力してください');
-   if ('color' in patch) next.color = patch.color;
    return touch(kind, next);
 }
 
