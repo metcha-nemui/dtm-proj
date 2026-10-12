@@ -1,0 +1,50 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+   <meta charset="utf-8">
+   <meta name="viewport" content="width=device-width, initial-scale=1">
+   <!-- 個人用なので、検索エンジンに載せない -->
+   <meta name="robots" content="noindex, nofollow, noarchive">
+   <title>ドメインロジックのテスト</title>
+   <link rel="icon" href="data:,">
+   <link rel="stylesheet" href="css/tokens.css">
+   <link rel="stylesheet" href="css/base.css">
+   <style>
+      .results { list-style: none; margin: var(--space-4) 0 0; padding: 0; }
+      .results li { padding: var(--space-1) 0; border-bottom: 1px solid var(--border); }
+      .results .ok::before { content: "✓ "; color: var(--done); }
+      .results .fail::before { content: "✗ "; color: var(--danger); }
+      .results pre { margin: var(--space-1) 0 0 var(--space-4); color: var(--danger); white-space: pre-wrap; }
+   </style>
+</head>
+<body>
+   <main id="app">
+      <div class="page">
+         <h1 class="page-title">ドメインロジックのテスト</h1>
+         <p id="summary" class="muted">実行中…</p>
+         <ul id="results" class="results"></ul>
+      </div>
+   </main>
+   <script type="module">
+      import { run } from './test/domain.test.js';
+
+      const results = await run();
+      const list = document.getElementById('results');
+      for (const r of results) {
+         const li = document.createElement('li');
+         li.className = r.ok ? 'ok' : 'fail';
+         li.append(r.name);
+         if (!r.ok) {
+            const pre = document.createElement('pre');
+            pre.textContent = r.error;
+            li.append(pre);
+         }
+         list.append(li);
+      }
+      const failed = results.filter((r) => !r.ok).length;
+      const summary = document.getElementById('summary');
+      summary.textContent = failed ? `${failed}件失敗 / 全${results.length}件` : `全${results.length}件 成功`;
+      summary.style.color = failed ? 'var(--danger)' : 'var(--done)';
+   </script>
+</body>
+</html>

@@ -1,0 +1,492 @@
+*,
+*::before,
+*::after {
+   box-sizing: border-box;
+}
+
+html,
+body {
+   height: 100%;
+}
+
+body {
+   margin: 0;
+   display: flex;
+   flex-direction: column;
+   background: var(--bg);
+   color: var(--text);
+   font-family: var(--font);
+   font-size: 14px;
+   line-height: 1.5;
+}
+
+h1,
+h2,
+h3,
+p {
+   margin: 0;
+}
+
+a {
+   color: var(--accent);
+}
+
+button,
+input,
+select,
+textarea {
+   font: inherit;
+   color: inherit;
+}
+
+[hidden] {
+   display: none !important;
+}
+
+/* ---- ヘッダー ---- */
+
+.app-header {
+   flex: none;
+   display: flex;
+   align-items: center;
+   gap: var(--space-5);
+   height: var(--header-h);
+   padding: 0 var(--space-4);
+   background: var(--surface);
+   border-bottom: 1px solid var(--border);
+}
+
+.app-brand {
+   font-weight: 700;
+   color: var(--text);
+   text-decoration: none;
+   white-space: nowrap;
+}
+
+.app-nav {
+   display: flex;
+   gap: var(--space-1);
+   overflow-x: auto;
+}
+
+.app-nav a {
+   padding: var(--space-1) var(--space-3);
+   border-radius: var(--radius-sm);
+   color: var(--text-muted);
+   text-decoration: none;
+   white-space: nowrap;
+}
+
+.app-nav a:hover {
+   background: var(--surface-2);
+}
+
+.app-nav a.is-active {
+   background: var(--accent-soft);
+   color: var(--accent);
+   font-weight: 600;
+}
+
+#app {
+   flex: 1;
+   min-height: 0;
+   overflow: auto;
+}
+
+/* ---- ページ共通 ---- */
+
+.page {
+   max-width: 1080px;
+   margin: 0 auto;
+   padding: var(--space-5) var(--space-4);
+}
+
+.page-head {
+   display: flex;
+   align-items: center;
+   justify-content: space-between;
+   gap: var(--space-3);
+   margin-bottom: var(--space-4);
+}
+
+.page-title {
+   font-size: 20px;
+}
+
+.muted {
+   color: var(--text-muted);
+}
+
+.empty {
+   padding: var(--space-6) var(--space-4);
+   text-align: center;
+   color: var(--text-muted);
+}
+
+.error-box {
+   margin: var(--space-5) auto;
+   max-width: 640px;
+   padding: var(--space-4);
+   border: 1px solid var(--danger);
+   border-radius: var(--radius);
+   background: var(--surface);
+   white-space: pre-wrap;
+}
+
+.card {
+   background: var(--surface);
+   border: 1px solid var(--border);
+   border-radius: var(--radius);
+   box-shadow: var(--shadow-1);
+}
+
+/* ---- ボタン・入力 ---- */
+
+.btn {
+   display: inline-flex;
+   align-items: center;
+   justify-content: center;
+   gap: var(--space-1);
+   padding: 6px var(--space-3);
+   border: 1px solid var(--border);
+   border-radius: var(--radius-sm);
+   background: var(--surface);
+   cursor: pointer;
+   white-space: nowrap;
+}
+
+.btn:hover {
+   background: var(--surface-2);
+}
+
+.btn:disabled {
+   opacity: 0.5;
+   cursor: default;
+}
+
+.btn-primary {
+   border-color: var(--accent);
+   background: var(--accent);
+   color: var(--accent-contrast);
+   font-weight: 600;
+}
+
+.btn-primary:hover {
+   background: var(--accent);
+   filter: brightness(1.1);
+}
+
+.btn-danger {
+   border-color: var(--danger);
+   color: var(--danger);
+}
+
+.btn-ghost {
+   border-color: transparent;
+   background: transparent;
+}
+
+.btn-icon {
+   width: 28px;
+   height: 28px;
+   padding: 0;
+   border-color: transparent;
+   background: transparent;
+   color: var(--text-muted);
+   line-height: 1;
+}
+
+.input,
+.select,
+.textarea {
+   width: 100%;
+   padding: 6px var(--space-2);
+   border: 1px solid var(--border);
+   border-radius: var(--radius-sm);
+   background: var(--surface);
+}
+
+.textarea {
+   min-height: 96px;
+   resize: vertical;
+}
+
+:is(.btn, .input, .select, .textarea, a, button, input):focus-visible {
+   outline: 2px solid var(--accent);
+   outline-offset: 1px;
+}
+
+.field {
+   display: flex;
+   flex-direction: column;
+   gap: var(--space-1);
+   margin-bottom: var(--space-3);
+}
+
+.field-label {
+   font-size: 12px;
+   font-weight: 600;
+   color: var(--text-muted);
+}
+
+.field-check {
+   flex-direction: row;
+   align-items: center;
+   gap: var(--space-2);
+}
+
+/* ---- 進捗バー ---- */
+
+.progress {
+   height: 6px;
+   border-radius: 3px;
+   background: var(--surface-2);
+   overflow: hidden;
+}
+
+.progress > span {
+   display: block;
+   height: 100%;
+   background: var(--done);
+   transition: width 0.2s;
+}
+
+/* ---- ダイアログ ---- */
+
+.dialog {
+   width: min(440px, calc(100vw - 32px));
+   padding: 0;
+   border: 1px solid var(--border);
+   border-radius: var(--radius);
+   background: var(--surface);
+   color: var(--text);
+   box-shadow: var(--shadow-2);
+}
+
+.dialog::backdrop {
+   background: rgb(0 0 0 / 0.45);
+}
+
+.dialog-form {
+   padding: var(--space-4);
+}
+
+.dialog-title {
+   margin-bottom: var(--space-3);
+   font-size: 16px;
+}
+
+.dialog-message {
+   margin-bottom: var(--space-3);
+   white-space: pre-wrap;
+}
+
+.dialog-actions {
+   display: flex;
+   justify-content: flex-end;
+   gap: var(--space-2);
+   margin-top: var(--space-4);
+}
+
+/* ---- メニュー ---- */
+
+.menu {
+   position: fixed;
+   z-index: 60;
+   min-width: 160px;
+   padding: var(--space-1);
+   border: 1px solid var(--border);
+   border-radius: var(--radius);
+   background: var(--surface);
+   box-shadow: var(--shadow-2);
+}
+
+.menu-item {
+   display: block;
+   width: 100%;
+   padding: 6px var(--space-3);
+   border: 0;
+   border-radius: var(--radius-sm);
+   background: transparent;
+   text-align: left;
+   cursor: pointer;
+}
+
+.menu-item:hover,
+.menu-item:focus-visible {
+   background: var(--surface-2);
+}
+
+.menu-item.is-danger {
+   color: var(--danger);
+}
+
+/* ---- トースト ---- */
+
+#toast-root {
+   position: fixed;
+   left: 50%;
+   bottom: var(--space-5);
+   z-index: 80;
+   transform: translateX(-50%);
+   pointer-events: none;
+}
+
+.toast {
+   display: flex;
+   align-items: center;
+   gap: var(--space-3);
+   max-width: calc(100vw - 32px);
+   padding: var(--space-2) var(--space-2) var(--space-2) var(--space-4);
+   border-radius: var(--radius);
+   background: var(--text);
+   color: var(--bg);
+   box-shadow: var(--shadow-2);
+   pointer-events: auto;
+}
+
+.toast-action {
+   padding: 4px var(--space-3);
+   border: 0;
+   border-radius: var(--radius-sm);
+   background: transparent;
+   color: inherit;
+   font-weight: 700;
+   text-decoration: underline;
+   cursor: pointer;
+}
+
+.toast:not(:has(.toast-action)) {
+   padding-right: var(--space-4);
+}
+
+/* ---- スマホ ---- */
+
+@media (max-width: 720px) {
+   .app-header {
+      gap: var(--space-3);
+      padding: 0 var(--space-3);
+   }
+
+   .page {
+      padding: var(--space-4) var(--space-3);
+   }
+
+   /* iOSは16px未満の入力欄にフォーカスすると画面を拡大するので、それを避ける */
+   .input,
+   .select,
+   .textarea {
+      font-size: 16px;
+   }
+}
+
+/* ---- アイコン(Lucide) ---- */
+
+.icon {
+   flex: none;
+   display: block;
+}
+
+/* ---- 色の選択肢 ---- */
+
+.swatches {
+   display: grid;
+   grid-template-columns: repeat(9, 28px);
+   gap: var(--space-2);
+   padding: var(--space-1) 0;
+}
+
+.swatch {
+   appearance: none;
+   width: 28px;
+   height: 28px;
+   margin: 0;
+   border-radius: 50%;
+   background: var(--swatch);
+   cursor: pointer;
+}
+
+.swatch:checked {
+   outline: 2px solid var(--text);
+   outline-offset: 2px;
+}
+
+.swatch:focus-visible:not(:checked) {
+   outline-offset: 2px;
+}
+
+/* ---- 締切 ---- */
+
+.due {
+   display: inline-flex;
+   align-items: center;
+   gap: var(--space-1);
+   color: var(--text-muted);
+   font-size: 12px;
+   white-space: nowrap;
+}
+
+.due.is-soon {
+   color: var(--doing);
+   font-weight: 600;
+}
+
+.due.is-overdue {
+   color: var(--danger);
+   font-weight: 600;
+}
+
+/* ---- ログイン ---- */
+
+.is-logged-out .app-nav {
+   display: none;
+}
+
+.login-page {
+   display: grid;
+   place-items: start center;
+   padding: var(--space-6) var(--space-4);
+}
+
+.login-card {
+   width: min(460px, 100%);
+   padding: var(--space-5);
+}
+
+.login-title {
+   margin-bottom: var(--space-2);
+   font-size: 20px;
+}
+
+.login-lead {
+   margin-bottom: var(--space-4);
+   font-size: 13px;
+}
+
+.login-error {
+   margin-bottom: var(--space-3);
+   padding: var(--space-2) var(--space-3);
+   border: 1px solid var(--danger);
+   border-radius: var(--radius-sm);
+   color: var(--danger);
+   font-size: 13px;
+}
+
+.login-actions {
+   display: flex;
+   flex-wrap: wrap;
+   align-items: center;
+   gap: var(--space-2);
+   margin-top: var(--space-4);
+}
+
+.login-actions .btn-ghost {
+   color: var(--text-muted);
+   font-size: 13px;
+}
+
+.error-actions {
+   display: flex;
+   gap: var(--space-2);
+   margin-top: var(--space-3);
+}

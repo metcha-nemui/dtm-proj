@@ -1,0 +1,31 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+   <meta charset="utf-8">
+   <meta name="viewport" content="width=device-width, initial-scale=1">
+   <!-- 個人用なので、検索エンジンに載せない -->
+   <meta name="robots" content="noindex, nofollow, noarchive">
+   <title>DTM工程管理</title>
+   <link rel="icon" href="data:,">
+   <link rel="stylesheet" href="css/tokens.css">
+   <link rel="stylesheet" href="css/base.css">
+   <link rel="stylesheet" href="css/board.css">
+   <link rel="stylesheet" href="css/library.css">
+   <script src="https://cdn.jsdelivr.net/npm/sortablejs@1.15.6/Sortable.min.js"></script>
+   <script src="https://cdn.jsdelivr.net/npm/lucide@0.469.0/dist/umd/lucide.min.js"></script>
+   <script type="module" src="js/main.js"></script>
+</head>
+<body>
+   <header class="app-header">
+      <a class="app-brand" href="#/">DTM工程管理</a>
+      <nav class="app-nav">
+         <a href="#/" data-nav="projects">プロジェクト</a>
+         <a href="#/library" data-nav="library">ライブラリ</a>
+         <a href="#/settings" data-nav="settings">設定</a>
+      </nav>
+   </header>
+   <main id="app"></main>
+   <div id="overlay-root"></div>
+   <div id="toast-root" aria-live="polite"></div>
+</body>
+</html>

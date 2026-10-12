@@ -1,0 +1,67 @@
+/* 色・余白などのCSS変数。ダークモードは prefers-color-scheme で切り替える。 */
+:root {
+   color-scheme: light dark;
+
+   --font: "Noto Sans JP", system-ui, -apple-system, "Segoe UI", "Hiragino Sans", "Yu Gothic UI", Meiryo, sans-serif;
+
+   --bg: #f3f4f7;
+   --surface: #ffffff;
+   --surface-2: #e9ebf0;
+   --border: #d5d9e2;
+   --text: #1b1e26;
+   --text-muted: #636b7c;
+
+   --accent: #4660e0;
+   --accent-contrast: #ffffff;
+   --accent-soft: #e3e8ff;
+   --danger: #cf3f58;
+   --done: #2c9a68;
+   --doing: #d98200;
+   --doing-soft: #fff1d6;
+
+   /* タスクの由来 */
+   --origin-standard: #a3abbb;
+   --origin-custom: #b65fd0;
+
+   --shadow-1: 0 1px 2px rgb(0 0 0 / 0.08);
+   --shadow-2: 0 8px 28px rgb(0 0 0 / 0.18);
+
+   --space-1: 4px;
+   --space-2: 8px;
+   --space-3: 12px;
+   --space-4: 16px;
+   --space-5: 24px;
+   --space-6: 32px;
+
+   --radius: 8px;
+   --radius-sm: 5px;
+
+   --header-h: 48px;
+   --lane-width: 280px;
+   --drawer-width: 380px;
+}
+
+@media (prefers-color-scheme: dark) {
+   :root {
+      --bg: #14161b;
+      --surface: #1e2129;
+      --surface-2: #2a2e39;
+      --border: #363b48;
+      --text: #e7e9ee;
+      --text-muted: #9aa2b3;
+
+      --accent: #8498ff;
+      --accent-contrast: #10131c;
+      --accent-soft: #2a3157;
+      --danger: #ff7087;
+      --done: #4cc38c;
+      --doing: #ffb340;
+      --doing-soft: #3b2f17;
+
+      --origin-standard: #5c6475;
+      --origin-custom: #cf85e6;
+
+      --shadow-1: 0 1px 2px rgb(0 0 0 / 0.4);
+      --shadow-2: 0 8px 28px rgb(0 0 0 / 0.55);
+   }
+}
