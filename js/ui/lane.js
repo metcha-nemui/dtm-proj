@@ -3,11 +3,12 @@
 import { STATUSES, STATUS_LABELS } from '../domain/task.js';
 import { h, icon, progressBar } from './components/dom.js';
 
-function taskItem(task, handlers, pending) {
+function taskItem(task, handlers, pending, isTemplate) {
    const next = STATUSES[(STATUSES.indexOf(task.status) + 1) % STATUSES.length];
 
-   return h('li', { class: `task is-${task.status}`, dataset: { taskId: task.id } },
-      h('button', {
+   // テンプレートはステータスを使わないので、丸を出さない
+   return h('li', { class: `task is-${task.status}${isTemplate ? ' is-plain' : ''}`, dataset: { taskId: task.id } },
+      !isTemplate && h('button', {
          type: 'button',
          // 変更を送っている間は、丸を回して待ち時間を伝える
          class: `task-status${pending ? ' is-pending' : ''}`,
@@ -33,12 +34,13 @@ function taskItem(task, handlers, pending) {
  * @param {object[]} props.tasks このレーンのタスク(並び順どおり)
  * @param {string|null} props.color セクションの色。「全体」レーンは null(CSS の色を使う)
  * @param {object} props.stats summarize() の結果
+ * @param {boolean} [props.isTemplate] テンプレートの編集中。ステータスと進捗を出さない
  * @param {{ has: (taskId: string) => boolean }} props.pendingStatus ステータスの変更を送っている途中のタスク
  * @param {object} props.handlers onCycleStatus(task) / onOpenTask(task) / onAddTask(lane, title) /
  *   onToggleCollapse(lane) / onMenu(lane, anchor) / onInsertBefore(lane)。
  *   メニューと「前に追加」はセクションにだけ出す(「全体」レーンは名前変更・複製・削除ができない)
  */
-export function renderLane({ lane, tasks, color, stats, pendingStatus, handlers }) {
+export function renderLane({ lane, tasks, color, stats, isTemplate = false, pendingStatus, handlers }) {
    const input = h('input', {
       class: 'input quick-add-input',
       placeholder: '+ タスクを追加',
@@ -90,9 +92,12 @@ export function renderLane({ lane, tasks, color, stats, pendingStatus, handlers 
          onclick: () => handlers.onToggleCollapse(lane),
       }, icon(lane.collapsed ? 'chevron-right' : 'chevron-down')),
       h('h2', { class: 'lane-name', title: lane.name }, lane.name),
-      h('span', { class: 'lane-count', title: '完了 / 全タスク' }, `${stats.done}/${stats.total}`),
+      isTemplate
+         ? h('span', { class: 'lane-count', title: 'タスクの数' }, String(stats.total))
+         : h('span', { class: 'lane-count', title: '完了 / 全タスク' }, `${stats.done}/${stats.total}`),
       lane.type === 'section' && menuButton,
-      h('div', { class: 'lane-sub' }, progressBar(stats.ratio))),
-   h('ul', { class: 'task-list', dataset: { laneId: lane.id } }, tasks.map((task) => taskItem(task, handlers, pendingStatus.has(task.id)))),
+      !isTemplate && h('div', { class: 'lane-sub' }, progressBar(stats.ratio))),
+   h('ul', { class: 'task-list', dataset: { laneId: lane.id } },
+      tasks.map((task) => taskItem(task, handlers, pendingStatus.has(task.id), isTemplate))),
    quickAdd);
 }

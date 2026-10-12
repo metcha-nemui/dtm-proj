@@ -3,7 +3,7 @@
 
 import { ORDER_STEP, placeAt, reorder, sortByOrder } from './order.js';
 import { newRecord, touch } from './record.js';
-import { copyTask, tasksFromTemplates } from './task.js';
+import { copyTask } from './task.js';
 
 /** 既存の名前と重ならない名前を返す。「Aメロ」が既にあれば「Aメロ2」「Aメロ3」…。 */
 export function uniqueLaneName(base, existingNames) {
@@ -34,14 +34,8 @@ export function daysUntilDue(dueDate, today = new Date()) {
    return Math.round((new Date(year, month - 1, day) - start) / 86400000);
 }
 
-/** テンプレートの定番タスクを、種別(kindId)または「全体」(kindId=null)で絞って登録順に返す。 */
-export function templatesFor(templateTasks, templateId, kindId) {
-   return sortByOrder(templateTasks.filter((t) => t.templateId === templateId
-      && (kindId ? t.scope === 'kind' && t.kindId === kindId : t.scope === 'global')));
-}
-
 function newLane(projectId, fields) {
-   return newRecord({ projectId, type: 'section', name: '', kindId: null, order: 0, collapsed: false, ...fields });
+   return newRecord({ projectId, type: 'section', name: '', order: 0, collapsed: false, ...fields });
 }
 
 // セクションに割り振る色。系統の違う9色(Tailwind CSS の 500)と、それぞれを明るくした9色(同 300)。
@@ -82,7 +76,7 @@ export function colorsInOrder(keys) {
 }
 
 /**
- * セクションの色を、並び順に割り振る。同じ種別のセクションは同じ色。
+ * セクションの色を、並び順に割り振る。同じ名前(末尾の番号を除く)のセクションは同じ色。
  * 色は保存せず、表示のたびに決める。だから並べ替えると、位置に合わせて色も入れ替わる。
  * @param {object[]} lanes プロジェクトの全レーン
  * @returns {Map<string, string>} レーンID → 色。「全体」レーンは含めない
@@ -98,9 +92,9 @@ export function laneBaseName(name) {
    return name.replace(/\d+$/, '') || name;
 }
 
-/** 「同じ種類のセクション」を見分けるキー。種別があれば種別、なければ名前(末尾の番号を除く)。 */
+/** 「同じ種類のセクション」を見分けるキー。名前から末尾の番号を除いたもの(「サビ」と「サビ2」は同じ)。 */
 export function sectionKey(lane) {
-   return lane.kindId ? `kind:${lane.kindId}` : `name:${laneBaseName(lane.name)}`;
+   return laneBaseName(lane.name);
 }
 
 export const GLOBAL_LANE_NAME = '全体';
@@ -115,45 +109,50 @@ export function assertSection(lane, action) {
    if (lane.type !== 'section') throw new Error(`「${lane.name}」レーンは${action}できません`);
 }
 
+// レーンとタスクを、新しいIDで別のプロジェクトへコピーする。
+// ステータスは未着手に戻し、メモは引き継ぐ。折りたたみは解除する。
+// source がなければ、空の「全体」レーンだけを作る(「全体」レーンは必ず1本)。
+function copyBoard(projectId, source) {
+   const lanes = [];
+   const tasks = [];
+   for (const lane of sortByOrder(source?.lanes ?? [])) {
+      const copied = newLane(projectId, { type: lane.type, name: lane.name, order: lane.order });
+      lanes.push(copied);
+      tasks.push(...source.tasks.filter((t) => t.laneId === lane.id).map((t) => copyTask(t, copied)));
+   }
+   if (!lanes.some((l) => l.type === 'global')) lanes.unshift(newGlobalLane(projectId));
+   return { lanes, tasks };
+}
+
 /**
- * テンプレートからプロジェクトを作る。定番タスクはコピーするので、
- * 後からライブラリを編集しても作成済みのプロジェクトには影響しない。
+ * プロジェクトを作る。テンプレートのレーンとタスクは丸ごとコピーし、作成元は覚えない。
+ * だから、後からテンプレートを編集・削除しても、作成済みのプロジェクトには影響しない。
  * @param {{ title: string, memo?: string, dueDate?: string|null }} input
- * @param {object|null} template null ならテンプレートなし(空の「全体」レーンだけ)
- * @param {{ kinds: object[], templateTasks: object[] }} library
+ * @param {{ lanes: object[], tasks: object[] }|null} [source] テンプレートの中身。なければ空の「全体」レーンだけ
  * @returns {{ project: object, lanes: object[], tasks: object[] }}
  */
-export function createProject({ title, memo = '', dueDate = null }, template, library) {
-   const templateId = template?.id ?? null;
+export function createProject({ title, memo = '', dueDate = null }, source = null) {
    const project = newRecord({
       title: title.trim() || '無題のプロジェクト',
       memo,
       dueDate: normalizeDueDate(dueDate),
-      templateId,
+      isTemplate: false,
    });
-   const kinds = new Map(library.kinds.filter((k) => k.templateId === templateId).map((k) => [k.id, k]));
-   const lanes = [];
-   const tasks = [];
-   const names = () => lanes.map((l) => l.name);
+   return { project, ...copyBoard(project.id, source) };
+}
 
-   // 「全体」レーンはテンプレートに関係なく必ず作り、そのテンプレートの「全体」の定番タスクを入れる
-   const global = newGlobalLane(project.id);
-   lanes.push(global);
-   tasks.push(...tasksFromTemplates(global, templatesFor(library.templateTasks, templateId, null)));
-
-   // 削除済みの種別は飛ばす
-   const sectionKinds = (template?.sections ?? []).map((id) => kinds.get(id)).filter(Boolean);
-   sectionKinds.forEach((kind, i) => {
-      const lane = newLane(project.id, {
-         name: uniqueLaneName(kind.name, names()),
-         kindId: kind.id,
-         order: (i + 1) * ORDER_STEP,
-      });
-      lanes.push(lane);
-      tasks.push(...tasksFromTemplates(lane, templatesFor(library.templateTasks, templateId, kind.id)));
-   });
-
-   return { project, lanes, tasks };
+/**
+ * テンプレートを作る。テンプレートは「ステータスを使わないプロジェクト」で、レーンとタスクの持ち方は同じ。
+ * 新規作成(source なし)、複製、プロジェクトからの保存(どちらも source に元の中身を渡す)で共用する。
+ * @param {{ name: string, memo?: string }} input
+ * @param {{ lanes: object[], tasks: object[] }|null} [source]
+ * @returns {{ project: object, lanes: object[], tasks: object[] }}
+ */
+export function createTemplate({ name, memo = '' }, source = null) {
+   const title = String(name ?? '').trim();
+   if (!title) throw new Error('テンプレートの名前を入力してください');
+   const project = newRecord({ title, memo, dueDate: null, isTemplate: true });
+   return { project, ...copyBoard(project.id, source) };
 }
 
 /** タイトル・メモ・締切を編集する。 */
@@ -170,26 +169,23 @@ export function updateProject(project, patch) {
 }
 
 /**
- * セクションを追加する。種別の定番タスクも一緒にコピーする(empty なら空で追加)。
+ * セクションを追加する。source を渡すと、そのセクション(テンプレートのものなど)をタスクごと取り込む。
+ * 取り込みはコピーで、取り込み元とのつながりは残さない。
  * @param {object} input
  * @param {string} input.projectId
  * @param {object[]} input.lanes プロジェクトの全レーン
- * @param {object|null} input.kind セクション種別。null なら種別なし
- * @param {object[]} input.templateTasks
  * @param {number} [input.index] セクションの並びでの挿入位置。省略すると末尾
- * @param {string} [input.name] 省略すると種別名から自動で付ける
- * @param {boolean} [input.empty]
+ * @param {string} [input.name] 省略すると、取り込み元の名前(なければ「セクション」)から付ける
+ * @param {{ lane: object, tasks: object[] }|null} [input.source] 取り込み元。tasks はそのレーンのタスク
  * @returns {{ lane: object, lanes: object[], tasks: object[] }} lanes は保存が必要なレーン(新レーンを含む)
  */
-export function addSection({ projectId, lanes, kind, templateTasks, index, name, empty = false }) {
+export function addSection({ projectId, lanes, index, name, source = null }) {
    const sections = lanes.filter((l) => l.type === 'section');
-   const draft = newLane(projectId, {
-      name: uniqueLaneName(name?.trim() || kind?.name || 'セクション', lanes.map((l) => l.name)),
-      kindId: kind?.id ?? null,
-   });
+   const base = name?.trim() || (source ? laneBaseName(source.lane.name) : 'セクション');
+   const draft = newLane(projectId, { name: uniqueLaneName(base, lanes.map((l) => l.name)) });
    const changed = placeAt(sections, draft, index);
    const lane = changed.find((l) => l.id === draft.id);
-   const tasks = empty || !kind ? [] : tasksFromTemplates(lane, templatesFor(templateTasks, kind.templateId, kind.id));
+   const tasks = (source?.tasks ?? []).map((t) => copyTask(t, lane));
    return { lane, lanes: changed.map((l) => (l.id === lane.id ? l : touch(l))), tasks };
 }
 
@@ -205,7 +201,6 @@ export function duplicateLane(laneId, lanes, tasks) {
    const draft = newLane(source.projectId, {
       type: source.type,
       name: uniqueLaneName(laneBaseName(source.name), lanes.map((l) => l.name)),
-      kindId: source.kindId,
    });
    const changed = placeAt(group, draft, group.findIndex((l) => l.id === laneId) + 1);
    const lane = changed.find((l) => l.id === draft.id);

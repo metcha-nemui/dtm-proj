@@ -1,71 +1,83 @@
-// 初期データ(シード)。内容は仮置きで、ユーザーが自分で育てる前提。
+// 初期データ(シード)。テンプレートを2つ入れる。内容は仮置きで、ユーザーが自分で育てる前提。
+// テンプレートはプロジェクトと同じ形(プロジェクト + レーン + タスク)で持つ。
 // IDは固定にしてある。どの保存先でも同じ初期データになり、テストからも名指しできる。
 
-// 種別は [キー, 名前, 定番タスク]。sections は種別のキーを並び順どおりに。
+const VERSE = ['コード確定', 'メロ確定', 'ドラム', 'ベース'];
+const CHORUS = [...VERSE, '上モノ', 'コーラス'];
+
+// sections は [キー, 名前, タスク] を並び順どおりに。global は「全体」レーンのタスク。
 const TEMPLATES = [
    {
       key: 'vocal',
       name: '歌モノ',
-      kinds: [
+      global: ['テンポ・キー決定', '仮タイトル', '歌詞', 'ミックス', 'マスタリング', '書き出し'],
+      sections: [
          ['intro', 'イントロ', []],
-         ['verse', 'Aメロ', ['コード確定', 'メロ確定', 'ドラム', 'ベース']],
-         ['bridge', 'Bメロ', []],
-         ['chorus', 'サビ', ['コード確定', 'メロ確定', 'ドラム', 'ベース', '上モノ', 'コーラス']],
+         ['verse1', 'Aメロ', VERSE],
+         ['bridge1', 'Bメロ', []],
+         ['chorus1', 'サビ', CHORUS],
          ['interlude', '間奏', []],
+         ['verse2', 'Aメロ2', VERSE],
+         ['bridge2', 'Bメロ2', []],
+         ['chorus2', 'サビ2', CHORUS],
          ['c', 'Cメロ', []],
+         ['chorus3', 'サビ3', CHORUS],
          ['outro', 'アウトロ', []],
       ],
-      sections: ['intro', 'verse', 'bridge', 'chorus', 'interlude', 'verse', 'bridge', 'chorus', 'c', 'chorus', 'outro'],
-      global: ['テンポ・キー決定', '仮タイトル', '歌詞', 'ミックス', 'マスタリング', '書き出し'],
    },
    {
       key: 'inst',
       name: 'インスト',
-      kinds: [['generic', '汎用', []]],
-      sections: ['generic', 'generic', 'generic', 'generic'],
       global: ['テンポ・キー決定', '仮タイトル', 'ミックス', 'マスタリング', '書き出し'],
+      sections: [
+         ['s1', 'セクション', []],
+         ['s2', 'セクション2', []],
+         ['s3', 'セクション3', []],
+         ['s4', 'セクション4', []],
+      ],
    },
 ];
 
-/** @returns {import('./repository.js').Library} */
+/** @returns {{ projects: object[], lanes: object[], tasks: object[] }} */
 export function buildSeed(now = new Date().toISOString()) {
    const stamp = { createdAt: now, updatedAt: now };
-   const templates = [];
-   const kinds = [];
-   const templateTasks = [];
+   const projects = [];
+   const lanes = [];
+   const tasks = [];
 
-   TEMPLATES.forEach((source, i) => {
-      const templateId = `seed-template-${source.key}`;
-      const kindId = (key) => `seed-kind-${source.key}-${key}`;
-      const addTasks = (key, titles) => titles.forEach((title, n) => templateTasks.push({
-         id: `seed-task-${source.key}-${key ?? 'global'}-${n + 1}`,
-         templateId,
-         scope: key ? 'kind' : 'global',
-         kindId: key ? kindId(key) : null,
-         title,
-         memo: '',
-         order: n + 1,
-         ...stamp,
-      }));
+   for (const source of TEMPLATES) {
+      const projectId = `seed-template-${source.key}`;
+      projects.push({ id: projectId, title: source.name, memo: '', dueDate: null, isTemplate: true, ...stamp });
 
-      templates.push({ id: templateId, name: source.name, sections: source.sections.map(kindId), order: i + 1, ...stamp });
-      source.kinds.forEach(([key, name, titles], n) => {
-         kinds.push({ id: kindId(key), templateId, name, order: n + 1, ...stamp });
-         addTasks(key, titles);
-      });
-      addTasks(null, source.global);
-   });
+      const addLane = (key, type, name, order, titles) => {
+         const laneId = `seed-lane-${source.key}-${key}`;
+         lanes.push({ id: laneId, projectId, type, name, order, collapsed: false, ...stamp });
+         titles.forEach((title, i) => tasks.push({
+            id: `seed-task-${source.key}-${key}-${i + 1}`,
+            projectId,
+            laneId,
+            title,
+            memo: '',
+            status: 'todo',
+            order: i + 1,
+            doneAt: null,
+            ...stamp,
+         }));
+      };
+      addLane('global', 'global', '全体', 1, source.global);
+      source.sections.forEach(([key, name, titles], i) => addLane(key, 'section', name, i + 1, titles));
+   }
 
-   return { templates, kinds, templateTasks };
+   return { projects, lanes, tasks };
 }
 
 /** 初回起動時だけ初期データを入れる。 */
 export async function ensureSeeded(repository) {
    if (await repository.getMeta('seeded')) return false;
    const seed = buildSeed();
-   await repository.saveTemplates(seed.templates);
-   await repository.saveKinds(seed.kinds);
-   await repository.saveTemplateTasks(seed.templateTasks);
+   for (const project of seed.projects) await repository.saveProject(project);
+   await repository.saveLanes(seed.lanes);
+   await repository.saveTasks(seed.tasks);
    await repository.setMeta('seeded', true);
    return true;
 }

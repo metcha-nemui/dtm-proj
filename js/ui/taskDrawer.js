@@ -2,8 +2,7 @@
 // 入力は欄を離れたとき(change)と閉じるときに保存する。
 
 import * as actions from '../actions.js';
-import { GLOBAL_LANE_NAME } from '../domain/project.js';
-import { promoteTarget, STATUSES, STATUS_LABELS } from '../domain/task.js';
+import { STATUSES, STATUS_LABELS } from '../domain/task.js';
 import { repo, subscribe } from '../state.js';
 import { h, icon } from './components/dom.js';
 import { reportError, showToast } from './components/toast.js';
@@ -19,16 +18,14 @@ export function createTaskDrawer(projectId, { onSelectionChange } = {}) {
    const run = (promise) => promise.catch(reportError);
 
    async function loadContext(taskId) {
-      const [tasks, lanes, library, project] = await Promise.all([
+      const [tasks, lanes, project] = await Promise.all([
          repo().getTasks(projectId),
          repo().getLanes(projectId),
-         repo().getLibrary(),
          repo().getProject(projectId),
       ]);
       const found = tasks.find((t) => t.id === taskId);
       if (!found) return null;
-      const lane = lanes.find((l) => l.id === found.laneId) ?? null;
-      return { task: found, lane, target: lane && project ? promoteTarget(lane, project, library) : null };
+      return { task: found, lane: lanes.find((l) => l.id === found.laneId) ?? null, isTemplate: Boolean(project?.isTemplate) };
    }
 
    // 入力欄の内容に変更があれば保存する
@@ -42,12 +39,6 @@ export function createTaskDrawer(projectId, { onSelectionChange } = {}) {
       if (!Object.keys(patch).length) return;
       task = { ...task, ...patch }; // 同じ変更を二度保存しないように先に反映しておく
       run(actions.updateTask(projectId, task.id, patch));
-   }
-
-   function promote(label) {
-      commit();
-      run(actions.promoteTask(projectId, task.id)
-         .then(() => showToast(`${label}に追加しました。これから作るプロジェクトやセクションで使われます`)));
    }
 
    function remove() {
@@ -71,7 +62,7 @@ export function createTaskDrawer(projectId, { onSelectionChange } = {}) {
          onclick: () => run(actions.setTaskStatus(projectId, task.id, status)),
       }, STATUS_LABELS[status]));
       const laneName = h('span', { class: 'drawer-lane muted' });
-      const promoteArea = h('div', { class: 'drawer-promote' });
+      const statusField = field('ステータス', h('div', { class: 'segments' }, statusButtons));
 
       const panel = h('aside', { class: 'drawer', role: 'dialog', 'aria-label': 'タスク詳細', tabIndex: -1 },
          h('header', { class: 'drawer-head' },
@@ -79,16 +70,15 @@ export function createTaskDrawer(projectId, { onSelectionChange } = {}) {
             h('button', { type: 'button', class: 'btn btn-icon', 'aria-label': '閉じる', onclick: () => close() }, icon('x'))),
          h('div', { class: 'drawer-body' },
             title,
-            field('ステータス', h('div', { class: 'segments' }, statusButtons)),
+            statusField,
             field('メモ', memo),
-            field('定番に追加', promoteArea),
             h('div', { class: 'drawer-foot' },
                h('button', { type: 'button', class: 'btn btn-danger', onclick: remove }, 'タスクを削除'))));
       const backdrop = h('div', { class: 'drawer-backdrop', onclick: () => close() });
 
       document.getElementById('overlay-root').append(backdrop, panel);
       document.body.classList.add('drawer-open');
-      el = { panel, backdrop, title, memo, statusButtons, laneName, promoteArea };
+      el = { panel, backdrop, title, memo, statusButtons, statusField, laneName };
    }
 
    // 読み込んだ内容を表示に反映する。編集中(フォーカス中)の欄は上書きしない
@@ -102,18 +92,9 @@ export function createTaskDrawer(projectId, { onSelectionChange } = {}) {
       for (const button of el.statusButtons) {
          button.setAttribute('aria-pressed', String(button.dataset.status === task.status));
       }
+      // テンプレートはステータスを使わない
+      el.statusField.hidden = context.isTemplate;
       el.laneName.textContent = context.lane?.name ?? '';
-
-      // 追加先は所属するレーンで決まる。セクションならその種別の定番、「全体」レーンならテンプレートの「全体」の定番
-      const { lane, target } = context;
-      const label = target && `「${target.template.name} / ${target.kind?.name ?? GLOBAL_LANE_NAME}」の定番`;
-      const reason = lane?.type === 'global'
-         ? 'このプロジェクトにはテンプレートがないので、定番にできません。'
-         : 'このセクションには種別がないので、定番にできません。';
-      el.promoteArea.replaceChildren(...[
-         label && h('button', { type: 'button', class: 'btn', onclick: () => promote(label) }, `${label}に追加`),
-         h('p', { class: 'muted drawer-hint' }, label ? 'タイトルとメモをテンプレートにコピーします。' : reason),
-      ].filter(Boolean));
    }
 
    async function open(taskId) {

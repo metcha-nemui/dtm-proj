@@ -8,14 +8,11 @@ const TABLES = {
    projects: 'projects',
    lanes: 'lanes',
    tasks: 'tasks',
-   templates: 'templates',
-   kinds: 'section_kinds',
-   templateTasks: 'template_tasks',
 };
 const META = 'app_meta';
 
 // 外部キーの向きに合わせた順番。入れるときは親から、消すときは子から。
-const INSERT_ORDER = ['projects', 'lanes', 'tasks', 'templates', 'kinds', 'templateTasks'];
+const INSERT_ORDER = ['projects', 'lanes', 'tasks'];
 const PAGE_SIZE = 1000; // API が1回に返す行数の上限(Supabase の既定値)
 const TIMESTAMPS = new Set(['createdAt', 'updatedAt', 'doneAt']);
 
@@ -101,7 +98,9 @@ export function createSupabaseRepository({ url, key }, fetchImpl = (...args) => 
    });
 
    return assertRepository({
-      getProjects: () => select('projects'),
+      // プロジェクトとテンプレートは同じテーブルに入っている
+      getProjects: () => select('projects', { is_template: 'eq.false' }),
+      getTemplates: () => select('projects', { is_template: 'eq.true' }),
       getProject: async (id) => (await select('projects', { id: `eq.${id}` }))[0] ?? null,
       saveProject: (p) => upsert('projects', [p]),
       // レーンとタスクは、外部キーの on delete cascade で一緒に消える
@@ -117,23 +116,6 @@ export function createSupabaseRepository({ url, key }, fetchImpl = (...args) => 
       saveTask: (t) => upsert('tasks', [t]),
       saveTasks: (ts) => upsert('tasks', ts),
       deleteTask: (id) => remove('tasks', id),
-
-      async getLibrary() {
-         const [templates, kinds, templateTasks] = await Promise.all([
-            select('templates'), select('kinds'), select('templateTasks'),
-         ]);
-         return { templates, kinds, templateTasks };
-      },
-      saveTemplate: (t) => upsert('templates', [t]),
-      saveTemplates: (ts) => upsert('templates', ts),
-      // 種別と定番タスクは、外部キーの on delete cascade で一緒に消える
-      deleteTemplate: (id) => remove('templates', id),
-      saveKind: (k) => upsert('kinds', [k]),
-      saveKinds: (ks) => upsert('kinds', ks),
-      deleteKind: (id) => remove('kinds', id),
-      saveTemplateTask: (t) => upsert('templateTasks', [t]),
-      saveTemplateTasks: (ts) => upsert('templateTasks', ts),
-      deleteTemplateTask: (id) => remove('templateTasks', id),
 
       async getMeta(metaKey) {
          const rows = await request('GET', META, { query: { select: 'value', key: `eq.${metaKey}` } });

@@ -3,7 +3,7 @@
 import { COLLECTIONS, SCHEMA_VERSION, assertRepository, migrate } from './repository.js';
 
 const DB_NAME = 'dtm-proj';
-const DB_VERSION = 2;
+const DB_VERSION = 3;
 const META = 'meta';
 
 function request(req) {
@@ -41,8 +41,8 @@ export function createIndexedDbRepository(dbName = DB_NAME) {
          const req = indexedDB.open(dbName, DB_VERSION);
          req.onupgradeneeded = (event) => {
             const db = req.result;
-            if (event.oldVersion < 2) {
-               // v2 でライブラリの形を変えた(種別と定番タスクをテンプレートの中に持つ)。
+            if (event.oldVersion < 3) {
+               // v3 でテンプレートの形を変えた(プロジェクトと同じ形で持ち、種別と定番タスクをやめた)。
                // 以前のデータは変換せずに捨て、空の状態から作り直す(初期データが入り直す)。
                for (const name of [...db.objectStoreNames]) db.deleteObjectStore(name);
                for (const name of COLLECTIONS) db.createObjectStore(name, { keyPath: 'id' });
@@ -51,8 +51,6 @@ export function createIndexedDbRepository(dbName = DB_NAME) {
                transaction.objectStore('lanes').createIndex('projectId', 'projectId');
                transaction.objectStore('tasks').createIndex('projectId', 'projectId');
                transaction.objectStore('tasks').createIndex('laneId', 'laneId');
-               transaction.objectStore('kinds').createIndex('templateId', 'templateId');
-               transaction.objectStore('templateTasks').createIndex('templateId', 'templateId');
             }
          };
          req.onsuccess = () => resolve(req.result);
@@ -90,7 +88,9 @@ export function createIndexedDbRepository(dbName = DB_NAME) {
    }
 
    return assertRepository({
-      getProjects: () => getAll('projects'),
+      // プロジェクトとテンプレートは同じストアに入っている(件数が少ないので、読んでから振り分ける)
+      getProjects: async () => (await getAll('projects')).filter((p) => !p.isTemplate),
+      getTemplates: async () => (await getAll('projects')).filter((p) => p.isTemplate),
       getProject: (id) => getOne('projects', id),
       saveProject: (p) => putAll('projects', [p]),
       async deleteProject(id) {
@@ -117,33 +117,6 @@ export function createIndexedDbRepository(dbName = DB_NAME) {
       saveTask: (t) => putAll('tasks', [t]),
       saveTasks: (ts) => putAll('tasks', ts),
       deleteTask: (id) => remove('tasks', id),
-
-      async getLibrary() {
-         const db = await open();
-         const tx = db.transaction(['templates', 'kinds', 'templateTasks']);
-         const [templates, kinds, templateTasks] = await Promise.all([
-            request(tx.objectStore('templates').getAll()),
-            request(tx.objectStore('kinds').getAll()),
-            request(tx.objectStore('templateTasks').getAll()),
-         ]);
-         return { templates, kinds, templateTasks };
-      },
-      saveTemplate: (t) => putAll('templates', [t]),
-      saveTemplates: (ts) => putAll('templates', ts),
-      async deleteTemplate(id) {
-         const db = await open();
-         const tx = db.transaction(['templates', 'kinds', 'templateTasks'], 'readwrite');
-         tx.objectStore('templates').delete(id);
-         deleteByIndex(tx.objectStore('kinds'), 'templateId', id);
-         deleteByIndex(tx.objectStore('templateTasks'), 'templateId', id);
-         await completed(tx);
-      },
-      saveKind: (k) => putAll('kinds', [k]),
-      saveKinds: (ks) => putAll('kinds', ks),
-      deleteKind: (id) => remove('kinds', id),
-      saveTemplateTask: (t) => putAll('templateTasks', [t]),
-      saveTemplateTasks: (ts) => putAll('templateTasks', ts),
-      deleteTemplateTask: (id) => remove('templateTasks', id),
 
       async getMeta(key) {
          return (await getOne(META, key))?.value;

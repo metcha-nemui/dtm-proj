@@ -1,19 +1,21 @@
 // repository のインターフェース定義。
-// UIとドメインロジックはここで定義したメソッドだけを使う。実装は indexeddb.js(将来は Supabase)。
+// UIとドメインロジックはここで定義したメソッドだけを使う。実装は indexeddb.js と supabase.js。
 // すべて非同期(Promise)で、実装を差し替えてもシグネチャは変えない。
 
-// v3: セクション種別と定番タスクを、テンプレートの中に持つようにした。
-// それより前のデータは形が違い、変換を用意していないので読み込めない。
-export const SCHEMA_VERSION = 3;
-const OLDEST_READABLE_VERSION = 3;
+// v4: テンプレートをプロジェクトと同じ形(isTemplate の付いたプロジェクト)で持つようにし、
+// セクション種別と定番タスクをやめた。それより前のデータは形が違い、変換を用意していないので読み込めない。
+export const SCHEMA_VERSION = 4;
+const OLDEST_READABLE_VERSION = 4;
 
 /**
+ * プロジェクトも、テンプレートも Project として扱う。テンプレートは「ステータスを使わないプロジェクト」で、
+ * レーンとタスクの持ち方は同じ。プロジェクトは、どのテンプレートから作ったかを覚えない。
  * @typedef {Object} Project
  * @property {string} id
- * @property {string} title
+ * @property {string} title テンプレートでは、テンプレートの名前
  * @property {string} memo
- * @property {string|null} dueDate 締切(YYYY-MM-DD)。なければ null
- * @property {string|null} templateId 作成元のテンプレート。セクション追加の選択肢と、定番の追加先に使う。なければ null
+ * @property {string|null} dueDate 締切(YYYY-MM-DD)。なければ null。テンプレートでは使わない
+ * @property {boolean} isTemplate
  * @property {string} createdAt
  * @property {string} updatedAt
  */
@@ -25,7 +27,6 @@ const OLDEST_READABLE_VERSION = 3;
  * @property {string} projectId
  * @property {'section'|'global'} type
  * @property {string} name
- * @property {string|null} kindId 由来するセクション種別。global なら null
  * @property {number} order
  * @property {boolean} collapsed
  * @property {string} createdAt
@@ -39,7 +40,7 @@ const OLDEST_READABLE_VERSION = 3;
  * @property {string} laneId
  * @property {string} title
  * @property {string} memo
- * @property {'todo'|'doing'|'done'} status
+ * @property {'todo'|'doing'|'done'} status テンプレートでは使わない(常に 'todo')
  * @property {number} order
  * @property {string|null} doneAt
  * @property {string} createdAt
@@ -47,63 +48,19 @@ const OLDEST_READABLE_VERSION = 3;
  */
 
 /**
- * セクション種別。テンプレートごとに持つ(他のテンプレートとは共有しない)。
- * @typedef {Object} SectionKind
- * @property {string} id
- * @property {string} templateId
- * @property {string} name
- * @property {number} order
- * @property {string} createdAt
- * @property {string} updatedAt
- */
-
-/**
- * @typedef {Object} TemplateTask
- * @property {string} id
- * @property {string} templateId
- * @property {'kind'|'global'} scope 種別の定番か、「全体」の定番か
- * @property {string|null} kindId scope='kind' のとき
- * @property {string} title
- * @property {string} memo
- * @property {number} order
- * @property {string} createdAt
- * @property {string} updatedAt
- */
-
-/**
- * プロジェクトのテンプレート。種別(SectionKind)と定番タスク(TemplateTask)は templateId でここに属する。
- * @typedef {Object} Template
- * @property {string} id
- * @property {string} name
- * @property {string[]} sections このテンプレートの kindId を並び順どおりに。「全体」レーンは含めない(常に作られる)
- * @property {number} order
- * @property {string} createdAt
- * @property {string} updatedAt
- */
-
-/**
- * @typedef {Object} Library
- * @property {Template[]} templates
- * @property {SectionKind[]} kinds
- * @property {TemplateTask[]} templateTasks
- */
-
-/**
  * @typedef {Object} ExportData
  * @property {number} schemaVersion
  * @property {string} exportedAt
- * @property {Project[]} projects
+ * @property {Project[]} projects テンプレートも含む
  * @property {Lane[]} lanes
  * @property {Task[]} tasks
- * @property {Template[]} templates
- * @property {SectionKind[]} kinds
- * @property {TemplateTask[]} templateTasks
  */
 
 /**
  * @typedef {Object} Repository
- * @property {() => Promise<Project[]>} getProjects
- * @property {(id: string) => Promise<Project|null>} getProject
+ * @property {() => Promise<Project[]>} getProjects テンプレートは含めない
+ * @property {() => Promise<Project[]>} getTemplates テンプレートだけ
+ * @property {(id: string) => Promise<Project|null>} getProject プロジェクトでもテンプレートでも
  * @property {(p: Project) => Promise<void>} saveProject
  * @property {(id: string) => Promise<void>} deleteProject レーンとタスクも一緒に消す
  *
@@ -117,17 +74,6 @@ const OLDEST_READABLE_VERSION = 3;
  * @property {(ts: Task[]) => Promise<void>} saveTasks
  * @property {(id: string) => Promise<void>} deleteTask
  *
- * @property {() => Promise<Library>} getLibrary
- * @property {(t: Template) => Promise<void>} saveTemplate
- * @property {(ts: Template[]) => Promise<void>} saveTemplates
- * @property {(id: string) => Promise<void>} deleteTemplate 種別と定番タスクも一緒に消す
- * @property {(k: SectionKind) => Promise<void>} saveKind
- * @property {(ks: SectionKind[]) => Promise<void>} saveKinds
- * @property {(id: string) => Promise<void>} deleteKind
- * @property {(t: TemplateTask) => Promise<void>} saveTemplateTask
- * @property {(ts: TemplateTask[]) => Promise<void>} saveTemplateTasks
- * @property {(id: string) => Promise<void>} deleteTemplateTask
- *
  * @property {(key: string) => Promise<any>} getMeta アプリ内部の状態(シード済みフラグなど)
  * @property {(key: string, value: any) => Promise<void>} setMeta
  *
@@ -135,16 +81,12 @@ const OLDEST_READABLE_VERSION = 3;
  * @property {(json: string|object) => Promise<void>} importAll 既存データをすべて置き換える
  */
 
-export const COLLECTIONS = ['projects', 'lanes', 'tasks', 'templates', 'kinds', 'templateTasks'];
+export const COLLECTIONS = ['projects', 'lanes', 'tasks'];
 
 const METHODS = [
-   'getProjects', 'getProject', 'saveProject', 'deleteProject',
+   'getProjects', 'getTemplates', 'getProject', 'saveProject', 'deleteProject',
    'getLanes', 'saveLane', 'saveLanes', 'deleteLane',
    'getTasks', 'saveTask', 'saveTasks', 'deleteTask',
-   'getLibrary',
-   'saveTemplate', 'saveTemplates', 'deleteTemplate',
-   'saveKind', 'saveKinds', 'deleteKind',
-   'saveTemplateTask', 'saveTemplateTasks', 'deleteTemplateTask',
    'getMeta', 'setMeta',
    'exportAll', 'importAll',
 ];

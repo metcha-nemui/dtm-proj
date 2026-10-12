@@ -114,6 +114,25 @@
    max-width: 240px;
 }
 
+/* テンプレートの編集中であることを示す印。プロジェクトのボードと取り違えないようにする */
+.board-kind {
+   display: inline-flex;
+   align-items: center;
+   gap: var(--space-1);
+   padding: 2px var(--space-2);
+   border-radius: var(--radius-sm);
+   background: var(--accent-soft);
+   color: var(--accent);
+   font-size: 12px;
+   font-weight: 600;
+   white-space: nowrap;
+}
+
+.board-summary {
+   font-size: 12px;
+   white-space: nowrap;
+}
+
 .board-filter {
    display: flex;
    align-items: center;
@@ -301,6 +320,11 @@
    text-align: left;
 }
 
+/* テンプレートではステータスの丸がないので、その分の余白を取る */
+.task.is-plain .task-body {
+   padding-left: var(--space-3);
+}
+
 .task-title {
    overflow-wrap: anywhere;
 }
@@ -480,18 +504,6 @@
 
 .segment[data-status="done"][aria-pressed="true"] {
    background: var(--done);
-}
-
-.drawer-promote {
-   display: flex;
-   flex-wrap: wrap;
-   align-items: center;
-   gap: var(--space-2);
-}
-
-.drawer-hint {
-   flex-basis: 100%;
-   font-size: 12px;
 }
 
 .drawer-foot {

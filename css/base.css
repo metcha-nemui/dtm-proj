@@ -109,6 +109,11 @@ textarea {
    margin-bottom: var(--space-4);
 }
 
+.page-lead {
+   margin-bottom: var(--space-4);
+   font-size: 13px;
+}
+
 .page-title {
    font-size: 20px;
 }

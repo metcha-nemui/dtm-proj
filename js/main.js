@@ -1,4 +1,4 @@
-// 起動とルーター。ルーティングはハッシュ方式(#/、#/p/:id、#/library、#/settings)。
+// 起動とルーター。ルーティングはハッシュ方式(#/、#/p/:id、#/templates、#/t/:id、#/settings)。
 // 未ログインならログイン画面を出し、ログイン後に保存先(repository)を決めてアプリを始める。
 
 import { clearSession, loadSession, saveSession } from './session.js';
@@ -8,16 +8,18 @@ import { createSupabaseRepository } from './store/supabase.js';
 import { setRepository } from './state.js';
 import * as board from './ui/board.js';
 import { h } from './ui/components/dom.js';
-import * as library from './ui/library.js';
 import * as login from './ui/login.js';
 import * as projectList from './ui/projectList.js';
 import * as settings from './ui/settings.js';
+import * as templateList from './ui/templateList.js';
 
 // 各画面は mount(container, params) を持ち、後片付けの関数を返す。
+// テンプレートの編集(#/t/:id)は、プロジェクトと同じボードを使う。
 const routes = [
    { name: 'projects', pattern: /^\/$/, view: projectList },
    { name: 'projects', pattern: /^\/p\/([^/]+)$/, params: ['id'], view: board },
-   { name: 'library', pattern: /^\/library$/, view: library },
+   { name: 'templates', pattern: /^\/templates$/, view: templateList },
+   { name: 'templates', pattern: /^\/t\/([^/]+)$/, params: ['id'], view: board },
    { name: 'settings', pattern: /^\/settings$/, view: settings },
 ];
 
@@ -48,7 +50,7 @@ const app = document.getElementById('app');
 const projectsLink = document.querySelector('[data-nav="projects"]');
 let started = false;
 let unmount = null;
-// 閲覧中のプロジェクト。ライブラリや設定を見てから「プロジェクト」タブで戻れるように覚えておく。
+// 閲覧中のプロジェクト。テンプレートや設定を見てから「プロジェクト」タブで戻れるように覚えておく。
 // プロジェクト一覧(タイトルのリンクや「←」で行ける)を開いたら忘れる。
 let currentProjectId = null;
 
@@ -61,7 +63,7 @@ function render() {
    for (const link of document.querySelectorAll('[data-nav]')) {
       link.classList.toggle('is-active', link.dataset.nav === route.name);
    }
-   if (route.view === board) currentProjectId = params.id;
+   if (route.view === board && route.name === 'projects') currentProjectId = params.id;
    else if (route.view === projectList) currentProjectId = null;
    projectsLink.href = currentProjectId ? `#/p/${encodeURIComponent(currentProjectId)}` : '#/';
 }
