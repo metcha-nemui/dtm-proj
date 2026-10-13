@@ -16,7 +16,8 @@ export async function newProjectDialog(templateId) {
       title: '新規プロジェクト',
       submitLabel: '作成',
       fields: [
-         { name: 'title', label: 'タイトル', placeholder: '曲名(仮でOK)', required: true },
+         // 曲名は作り始めの時点では決まっていないことが多いので、空欄でも作れる(「無題のプロジェクト」になる)
+         { name: 'title', label: 'タイトル', placeholder: '曲名(空欄なら「無題のプロジェクト」)' },
          { name: 'dueDate', label: '締切(任意)', type: 'date' },
          {
             name: 'templateId',
