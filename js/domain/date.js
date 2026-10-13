@@ -8,3 +8,9 @@ export function normalizeDate(value) {
    const date = new Date(year, month - 1, day);
    return date.getMonth() === month - 1 && date.getDate() === day ? value : null;
 }
+
+/** 端末の日付を 'YYYY-MM-DD' にする(時刻は見ない)。 */
+export function toDateString(date) {
+   const pad = (n) => String(n).padStart(2, '0');
+   return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
+}

@@ -78,7 +78,8 @@ export function createTaskDrawer(projectId, { onSelectionChange } = {}) {
       const statusField = field('ステータス', h('div', { class: 'segments' }, statusButtons));
       const startDate = h('input', { class: 'input', type: 'date', 'aria-label': '開始日', onchange: commit });
       const endDate = h('input', { class: 'input', type: 'date', 'aria-label': '終了日', onchange: commit });
-      const periodField = h('div', { class: 'drawer-period' }, field('開始日', startDate), field('終了日', endDate));
+      const startField = field('開始日', startDate);
+      const endField = field('終了日', endDate);
 
       const panel = h('aside', { class: 'drawer', role: 'dialog', 'aria-label': 'タスク詳細', tabIndex: -1 },
          h('header', { class: 'drawer-head' },
@@ -87,7 +88,7 @@ export function createTaskDrawer(projectId, { onSelectionChange } = {}) {
          h('div', { class: 'drawer-body' },
             title,
             statusField,
-            periodField,
+            h('div', { class: 'drawer-period' }, startField, endField),
             field('メモ', memo),
             h('div', { class: 'drawer-foot' },
                h('button', { type: 'button', class: 'btn btn-danger', onclick: remove }, 'タスクを削除'))));
@@ -95,7 +96,7 @@ export function createTaskDrawer(projectId, { onSelectionChange } = {}) {
 
       document.getElementById('overlay-root').append(backdrop, panel);
       document.body.classList.add('drawer-open');
-      el = { panel, backdrop, title, memo, statusButtons, statusField, startDate, endDate, periodField, laneName };
+      el = { panel, backdrop, title, memo, statusButtons, statusField, startDate, endDate, startField, endField, laneName };
    }
 
    // 読み込んだ内容を表示に反映する。編集中(フォーカス中)の欄は上書きしない
@@ -113,7 +114,10 @@ export function createTaskDrawer(projectId, { onSelectionChange } = {}) {
       }
       // テンプレートはステータスも、開始日・終了日も使わない
       el.statusField.hidden = context.isTemplate;
-      el.periodField.hidden = context.isTemplate;
+      // 日付は実績で、ステータスを変えたときに自動で入る。ここに出すのは、その修正のための欄。
+      // 着手していれば開始日を、完了していれば終了日も直せる
+      el.startField.hidden = context.isTemplate || task.status === 'todo';
+      el.endField.hidden = context.isTemplate || task.status !== 'done';
       el.laneName.textContent = context.lane?.name ?? '';
    }
 
