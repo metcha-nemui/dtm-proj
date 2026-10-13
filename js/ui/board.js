@@ -11,6 +11,7 @@ import { openMenu } from './components/menu.js';
 import { createSortable, domIndex } from './components/sortable.js';
 import { reportError, showToast } from './components/toast.js';
 import { dueBadge } from './dueBadge.js';
+import { renderGantt } from './gantt.js';
 import { renderLane } from './lane.js';
 import { deleteProjectDialog, editProjectDialog, newProjectDialog } from './projectDialogs.js';
 import { createTaskDrawer } from './taskDrawer.js';
@@ -207,9 +208,11 @@ export function mount(container, { id: projectId }) {
    // 再描画でスクロール位置が飛ばないように、前後で保存・復元する
    function captureScroll() {
       const board = root.querySelector('.board');
+      const gantt = root.querySelector('.gantt-scroll');
       return {
          left: board?.scrollLeft ?? 0,
          top: board?.scrollTop ?? 0,
+         gantt: gantt && { left: gantt.scrollLeft, top: gantt.scrollTop },
          lists: new Map([...root.querySelectorAll('.task-list')].map((el) => [el.dataset.laneId, el.scrollTop])),
       };
    }
@@ -219,6 +222,17 @@ export function mount(container, { id: projectId }) {
       board.scrollLeft = scroll.left;
       board.scrollTop = scroll.top;
       for (const el of root.querySelectorAll('.task-list')) el.scrollTop = scroll.lists.get(el.dataset.laneId) ?? 0;
+
+      const gantt = root.querySelector('.gantt-scroll');
+      if (!gantt) return;
+      if (scroll.gantt) {
+         gantt.scrollLeft = scroll.gantt.left;
+         gantt.scrollTop = scroll.gantt.top;
+         return;
+      }
+      // ガントチャートが出た最初だけ、今日が見える位置(右寄り)に合わせる
+      const today = gantt.querySelector('.gantt-day.is-today');
+      if (today) gantt.scrollLeft = today.offsetLeft - gantt.clientWidth * 0.7;
    }
 
    function toolbar() {
@@ -347,7 +361,9 @@ export function mount(container, { id: projectId }) {
          pendingStatus.delete(taskId);
       }
       const scroll = captureScroll();
-      keepFocus(root, () => root.replaceChildren(
+      // テンプレートは日付を使わないので、ガントチャートは出さない
+      const gantt = isTemplate ? null : renderGantt(data);
+      keepFocus(root, () => root.replaceChildren(...[
          toolbar(),
          laneChips(),
          h('div', { class: `board${hideDone && !isTemplate ? ' hide-done' : ''}` },
@@ -358,7 +374,9 @@ export function mount(container, { id: projectId }) {
                class: 'lane-add',
                dataset: { focusKey: 'lane-add' },
                onclick: () => run(addSectionDialog(sections().length)),
-            }, icon('plus'), 'セクションを追加'))));
+            }, icon('plus'), 'セクションを追加')),
+         gantt,
+      ].filter(Boolean)));
       restoreScroll(scroll);
       markSelected(drawer.taskId);
       setupSortables();

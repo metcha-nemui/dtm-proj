@@ -14,3 +14,22 @@ export function toDateString(date) {
    const pad = (n) => String(n).padStart(2, '0');
    return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
 }
+
+// 'YYYY-MM-DD' を、端末の時刻でその日の 0:00 にする
+function toLocalDate(dateString) {
+   const [year, month, day] = dateString.split('-').map(Number);
+   return new Date(year, month - 1, day);
+}
+
+/** 日付を n 日ずらす(n は負でもよい)。 */
+export function addDays(dateString, n) {
+   const date = toLocalDate(dateString);
+   date.setDate(date.getDate() + n);
+   return toDateString(date);
+}
+
+/** from から to までの日数。同じ日なら 0、to が前なら負の数。 */
+export function daysBetween(from, to) {
+   // 夏時間のある地域では1日が24時間ちょうどにならないので、丸める
+   return Math.round((toLocalDate(to) - toLocalDate(from)) / 86400000);
+}

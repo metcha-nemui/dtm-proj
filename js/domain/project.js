@@ -1,7 +1,7 @@
 // プロジェクトとレーンのドメインロジック。DOMにもrepositoryにも依存しない。
 // 受け取ったレコードは変更せず、保存すべき新しいレコードを返す。
 
-import { normalizeDate } from './date.js';
+import { daysBetween, normalizeDate, toDateString } from './date.js';
 import { ORDER_STEP, placeAt, reorder, sortByOrder } from './order.js';
 import { newRecord, touch } from './record.js';
 import { copyTask } from './task.js';
@@ -24,9 +24,7 @@ export const normalizeDueDate = normalizeDate;
  */
 export function daysUntilDue(dueDate, today = new Date()) {
    if (!dueDate) return null;
-   const [year, month, day] = dueDate.split('-').map(Number);
-   const start = new Date(today.getFullYear(), today.getMonth(), today.getDate());
-   return Math.round((new Date(year, month - 1, day) - start) / 86400000);
+   return daysBetween(toDateString(today), dueDate);
 }
 
 function newLane(projectId, fields) {

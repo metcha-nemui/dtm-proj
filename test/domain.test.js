@@ -1,6 +1,8 @@
 // ドメインロジックと保存まわりの簡易テスト。test.html をブラウザで開くと実行される。
 // Node でも動く: node -e "import('./test/domain.test.js').then(m => m.report()).then(ok => process.exit(ok ? 0 : 1))"
 
+import { addDays, daysBetween, toDateString } from '../js/domain/date.js';
+import { ganttRange, ganttRows } from '../js/domain/gantt.js';
 import { orderAtEnd, orderBetween, placeAt, reorder, sortByOrder } from '../js/domain/order.js';
 import {
    addSection, assertSection, colorsInOrder, createProject, createTemplate, daysUntilDue, duplicateLane, moveLane,
@@ -428,6 +430,60 @@ test('開始日と終了日: コピーには引き継がない(テンプレー�
    const source = { lane: chorus, tasks: dated.filter((t) => t.laneId === chorus.id) };
    assert(noDates(addSection({ projectId: project.id, lanes, source }).tasks), 'セクションの取り込み');
    assert(noDates(buildSeed().tasks), '初期データ');
+});
+
+// ---- date / gantt ----
+
+test('日付のヘルパー: 月や年をまたいで数える', () => {
+   equal(toDateString(new Date(2026, 0, 5, 23, 59)), '2026-01-05');
+   equal([addDays('2026-10-30', 3), addDays('2026-01-01', -1), addDays('2028-02-28', 1)], ['2026-11-02', '2025-12-31', '2028-02-29']);
+   equal([daysBetween('2026-10-13', '2026-10-13'), daysBetween('2026-10-30', '2026-11-02'), daysBetween('2026-11-02', '2026-10-30')], [0, 3, -3]);
+   equal(daysBetween('2026-01-01', '2027-01-01'), 365);
+});
+
+test('ganttRows: 着手済みで開始日のあるタスクを、開始日の早い順に出す', () => {
+   const { tasks, lanes, lane, inLane } = fixture();
+   const today = '2026-10-13';
+   const day = (d) => new Date(2026, 9, d, 12);
+   const [key, name, lyric] = inLane(tasks, '全体');
+   const [chord, melody, drums] = inLane(tasks, 'サビ');
+   const verse = inLane(tasks, 'Aメロ')[0];
+   const all = apply(tasks, [
+      setStatus(setStatus(chord, 'doing', day(5)), 'done', day(8)), // 10/5〜10/8
+      setStatus(melody, 'doing', day(10)), // 10/10〜(作業中)
+      setStatus(key, 'doing', day(5)), // 10/5〜(作業中)。同じ開始日なら、終わりの早い方が先
+      setStatus(verse, 'done', day(10)), // 10/10 の1日だけ
+      { ...setStatus(name, 'done', day(9)), startDate: '2026-10-07', endDate: null }, // 終了日を空にした完了
+      { ...drums, startDate: '2026-10-01' }, // 未着手は、日付が残っていても出さない
+      { ...setStatus(lyric, 'doing', day(6)), startDate: null }, // 開始日を空にした作業中
+   ]);
+   const rows = ganttRows(all, lanes, today);
+   equal(rows.map((r) => [r.task.title, r.start, r.end, r.ongoing]), [
+      ['コード確定', '2026-10-05', '2026-10-08', false],
+      ['テンポ・キー決定', '2026-10-05', today, true],
+      ['仮タイトル', '2026-10-07', '2026-10-09', false],
+      ['コード確定', '2026-10-10', '2026-10-10', false],
+      ['メロ確定', '2026-10-10', today, true],
+   ]);
+   equal([rows[0].lane.id, rows[3].lane.id], [lane('サビ').id, lane('Aメロ').id], 'レーンも返す');
+   equal(ganttRows(tasks, lanes, today), [], '着手したタスクがなければ空');
+
+   // 開始日も終了日も同じなら、ボードでの並び順(「全体」→ セクションの順 → レーン内の順)
+   const sameDay = apply(tasks, [melody, key, verse, chord].map((t) => setStatus(t, 'done', day(10))));
+   equal(ganttRows(sameDay, lanes, today).map((r) => `${r.lane.name}/${r.task.title}`),
+      ['全体/テンポ・キー決定', 'Aメロ/コード確定', 'サビ/コード確定', 'サビ/メロ確定']);
+
+   // 開始日を今日より後に直してある作業中のタスクは、開始日の1日分にする
+   const future = ganttRows([{ ...setStatus(chord, 'doing', day(13)), startDate: '2026-10-20' }], lanes, today)[0];
+   equal([future.start, future.end], ['2026-10-20', '2026-10-20']);
+});
+
+test('ganttRange: いちばん早い開始日から、今日・締切・終わりの遅い日まで(前後に余白)', () => {
+   const rows = [{ start: '2026-10-05', end: '2026-10-08' }, { start: '2026-09-29', end: '2026-10-13' }];
+   equal(ganttRange(rows, '2026-10-13'), { from: '2026-09-26', days: 21 });
+   equal(ganttRange(rows, '2026-10-13', '2026-10-31'), { from: '2026-09-26', days: 39 }, '締切まで延ばす');
+   equal(ganttRange(rows, '2026-10-13', '2026-09-01'), { from: '2026-08-29', days: 49 }, '過ぎた締切も入れる');
+   equal(ganttRange([{ start: '2026-10-20', end: '2026-10-20' }], '2026-10-13'), { from: '2026-10-10', days: 14 });
 });
 
 test('moveTask: レーン内の並べ替え', () => {
