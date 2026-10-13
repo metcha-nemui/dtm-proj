@@ -8,7 +8,7 @@ import {
 } from '../js/domain/project.js';
 import { summarize, summarizeByLane } from '../js/domain/stats.js';
 import {
-   addTask, cycleStatus, moveTask, setStatus, updateTask,
+   addTask, cycleStatus, isValidPeriod, moveTask, setStatus, updateTask,
 } from '../js/domain/task.js';
 import { normalizeProjectUrl } from '../js/session.js';
 import { buildSeed, ensureSeeded } from '../js/store/seed.js';
@@ -362,6 +362,44 @@ test('updateTask: タイトルとメモを編集、空タイトルは拒否', ()
    throws(() => updateTask(tasks[0], { title: '' }));
 });
 
+test('開始日と終了日: 片方だけでも持てる。空や不正な日付は日付なし、逆転は拒否', () => {
+   const { tasks, lane } = fixture();
+   equal([tasks[0].startDate, tasks[0].endDate], [null, null], '初めは日付なし');
+   equal(addTask(lane('サビ'), [], 'x').startDate, null);
+
+   const started = updateTask(tasks[0], { startDate: '2026-10-20' });
+   equal([started.startDate, started.endDate], ['2026-10-20', null]);
+   const planned = updateTask(started, { endDate: '2026-10-25' });
+   equal([planned.startDate, planned.endDate], ['2026-10-20', '2026-10-25']);
+   equal(updateTask(planned, { title: 'y' }).endDate, '2026-10-25', '他の項目だけ編集しても消えない');
+   equal(updateTask(planned, { endDate: '2026-10-20' }).endDate, '2026-10-20', '同じ日でもよい');
+   const cleared = updateTask(planned, { startDate: '', endDate: '2026-02-30' });
+   equal([cleared.startDate, cleared.endDate], [null, null]);
+   equal([planned.startDate, tasks[0].startDate], ['2026-10-20', null], '元のレコードは変更しない');
+
+   throws(() => updateTask(planned, { endDate: '2026-10-19' }), '終了日が開始日より前');
+   throws(() => updateTask(planned, { startDate: '2026-10-26' }), '開始日が終了日より後');
+   updateTask(planned, { startDate: '2026-11-01', endDate: '2026-11-03' });
+   assert(isValidPeriod(null, '2026-10-01') && isValidPeriod('2026-10-01', null) && !isValidPeriod('2026-10-02', '2026-10-01'));
+
+   // 日付を持つ前に作ったタスク(項目がない)も編集できる
+   const { startDate, endDate, ...old } = tasks[0];
+   equal(updateTask(old, { endDate: '2026-10-25' }).endDate, '2026-10-25');
+});
+
+test('開始日と終了日: コピーには引き継がない(テンプレートに入らない)', () => {
+   const { project, lanes, tasks } = fixture();
+   const dated = tasks.map((t) => updateTask(t, { startDate: '2026-10-20', endDate: '2026-10-25' }));
+   const noDates = (list) => list.length > 0 && list.every((t) => t.startDate === null && t.endDate === null);
+   assert(noDates(createTemplate({ name: '型' }, { lanes, tasks: dated }).tasks), 'テンプレートとして保存');
+   assert(noDates(createProject({ title: 'x' }, { lanes, tasks: dated }).tasks), 'テンプレートから作成');
+   const chorus = lanes.find((l) => l.name === 'サビ');
+   assert(noDates(duplicateLane(chorus.id, lanes, dated).tasks), 'セクションの複製');
+   const source = { lane: chorus, tasks: dated.filter((t) => t.laneId === chorus.id) };
+   assert(noDates(addSection({ projectId: project.id, lanes, source }).tasks), 'セクションの取り込み');
+   assert(noDates(buildSeed().tasks), '初期データ');
+});
+
 test('moveTask: レーン内の並べ替え', () => {
    const { tasks, lane, inLane } = fixture();
    const first = inLane(tasks, 'Aメロ')[0];
@@ -404,6 +442,12 @@ test('migrate: 検証して形を揃える', () => {
    throws(() => migrate({ projects: [] }), 'schemaVersion なし');
    throws(() => migrate({ schemaVersion: SCHEMA_VERSION + 1 }), '新しすぎる');
    throws(() => migrate({ schemaVersion: SCHEMA_VERSION, tasks: [{}] }), 'id なし');
+});
+
+test('migrate: 開始日と終了日を持つ前のデータ(v4)は、日付なしとして読み込む', () => {
+   const data = migrate({ schemaVersion: 4, tasks: [{ id: 'a' }, { id: 'b', startDate: '2026-10-20', endDate: null }] });
+   equal(data.schemaVersion, SCHEMA_VERSION);
+   equal(data.tasks, [{ id: 'a', startDate: null, endDate: null }, { id: 'b', startDate: '2026-10-20', endDate: null }]);
 });
 
 test('migrate: テンプレートの持ち方を変える前のデータは読み込まない', () => {
@@ -466,8 +510,10 @@ function fakeSupabase({ key = 'KEY', failWith = null } = {}) {
 test('supabase: 列名の対応(camelCase ↔ snake_case、order ↔ sort_order)と日時の形', () => {
    const { project, lanes, tasks } = createProject({ title: 'x', dueDate: '2026-10-31' }, template('vocal'));
    const row = toRow(tasks[0]);
-   equal(Object.keys(row).sort(), ['created_at', 'done_at', 'id', 'lane_id', 'memo', 'project_id',
-      'sort_order', 'status', 'title', 'updated_at']);
+   equal(Object.keys(row).sort(), ['created_at', 'done_at', 'end_date', 'id', 'lane_id', 'memo', 'project_id',
+      'sort_order', 'start_date', 'status', 'title', 'updated_at']);
+   const dated = updateTask(tasks[0], { startDate: '2026-10-20', endDate: '2026-10-25' });
+   equal(fromRow(toRow(dated)), dated, '開始日と終了日は日付のまま往復する');
    equal(fromRow(row), tasks[0], '往復しても変わらない');
    equal(Object.keys(toRow(project)).sort(), ['created_at', 'due_date', 'id', 'is_template', 'memo', 'title', 'updated_at']);
    equal(Object.keys(toRow(lanes[0])).sort(), ['collapsed', 'created_at', 'id', 'name', 'project_id', 'sort_order', 'type', 'updated_at']);

@@ -468,6 +468,18 @@
    min-height: 140px;
 }
 
+/* 開始日と終了日を横に並べる */
+.drawer-period {
+   display: grid;
+   grid-template-columns: 1fr 1fr;
+   gap: var(--space-3);
+}
+
+/* 日付の入力欄は中身の幅を持つので、列からはみ出さないようにする */
+.drawer-period .field {
+   min-width: 0;
+}
+
 .segments {
    display: flex;
    border: 1px solid var(--border);

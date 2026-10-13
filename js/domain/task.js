@@ -1,6 +1,7 @@
 // タスクのドメインロジック。DOMにもrepositoryにも依存しない。
 // 受け取ったレコードは変更せず、保存すべき新しいレコードを返す。
 
+import { normalizeDate } from './date.js';
 import { orderAtEnd, placeAt } from './order.js';
 import { newRecord, touch } from './record.js';
 
@@ -16,6 +17,8 @@ function newTask(lane, fields) {
       status: 'todo',
       order: 0,
       doneAt: null,
+      startDate: null,
+      endDate: null,
       ...fields,
    });
 }
@@ -27,7 +30,10 @@ export function addTask(lane, laneTasks, title) {
    return newTask(lane, { title: trimmed, order: orderAtEnd(laneTasks) });
 }
 
-/** タスクをコピーする(レーン複製用)。ステータスは未着手に戻し、メモは引き継ぐ。 */
+/**
+ * タスクをコピーする(レーンの複製、テンプレートとのやり取り用)。ステータスは未着手に戻し、メモは引き継ぐ。
+ * 開始日・終了日は引き継がない。日付はその曲の予定で、テンプレートや複製先に持ち越すものではないため。
+ */
 export function copyTask(task, lane) {
    return newTask(lane, {
       title: task.title,
@@ -36,7 +42,12 @@ export function copyTask(task, lane) {
    });
 }
 
-/** タイトルとメモを編集する。 */
+/** 開始日と終了日の両方があるとき、終了日が開始日より前になっていないか。 */
+export function isValidPeriod(startDate, endDate) {
+   return !startDate || !endDate || startDate <= endDate;
+}
+
+/** タイトル・メモ・開始日・終了日を編集する。日付は 'YYYY-MM-DD'。空や不正な日付は null(日付なし)。 */
 export function updateTask(task, patch) {
    const next = {};
    if ('title' in patch) {
@@ -45,6 +56,11 @@ export function updateTask(task, patch) {
       next.title = title;
    }
    if ('memo' in patch) next.memo = patch.memo;
+   if ('startDate' in patch) next.startDate = normalizeDate(patch.startDate);
+   if ('endDate' in patch) next.endDate = normalizeDate(patch.endDate);
+   // 日付を持つ前に作ったタスクには項目がないので、null として扱う
+   const period = { startDate: task.startDate ?? null, endDate: task.endDate ?? null, ...next };
+   if (!isValidPeriod(period.startDate, period.endDate)) throw new Error('終了日は開始日以降にしてください');
    return touch(task, next);
 }
 

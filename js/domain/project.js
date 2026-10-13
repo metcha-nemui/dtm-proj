@@ -1,6 +1,7 @@
 // プロジェクトとレーンのドメインロジック。DOMにもrepositoryにも依存しない。
 // 受け取ったレコードは変更せず、保存すべき新しいレコードを返す。
 
+import { normalizeDate } from './date.js';
 import { ORDER_STEP, placeAt, reorder, sortByOrder } from './order.js';
 import { newRecord, touch } from './record.js';
 import { copyTask } from './task.js';
@@ -15,13 +16,7 @@ export function uniqueLaneName(base, existingNames) {
 }
 
 /** 締切(YYYY-MM-DD)を正規化する。空や、存在しない日付は null(締切なし)。 */
-export function normalizeDueDate(value) {
-   const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value ?? '');
-   if (!m) return null;
-   const [year, month, day] = m.slice(1).map(Number);
-   const date = new Date(year, month - 1, day);
-   return date.getMonth() === month - 1 && date.getDate() === day ? value : null;
-}
+export const normalizeDueDate = normalizeDate;
 
 /**
  * 締切までの日数。今日が締切なら 0、過ぎていれば負の数。締切がなければ null。
@@ -110,7 +105,7 @@ export function assertSection(lane, action) {
 }
 
 // レーンとタスクを、新しいIDで別のプロジェクトへコピーする。
-// ステータスは未着手に戻し、メモは引き継ぐ。折りたたみは解除する。
+// ステータスは未着手に戻し、メモは引き継ぐ。開始日・終了日は引き継がない。折りたたみは解除する。
 // source がなければ、空の「全体」レーンだけを作る(「全体」レーンは必ず1本)。
 function copyBoard(projectId, source) {
    const lanes = [];

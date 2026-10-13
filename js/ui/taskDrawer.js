@@ -2,7 +2,7 @@
 // 入力は欄を離れたとき(change)と閉じるときに保存する。
 
 import * as actions from '../actions.js';
-import { STATUSES, STATUS_LABELS } from '../domain/task.js';
+import { STATUSES, STATUS_LABELS, isValidPeriod } from '../domain/task.js';
 import { repo, subscribe } from '../state.js';
 import { h, icon } from './components/dom.js';
 import { reportError, showToast } from './components/toast.js';
@@ -36,6 +36,19 @@ export function createTaskDrawer(projectId, { onSelectionChange } = {}) {
       if (!title) el.title.value = task.title;
       else if (title !== task.title) patch.title = title;
       if (el.memo.value !== task.memo) patch.memo = el.memo.value;
+      // 日付を持つ前に作ったタスクには項目がないので、null として比べる
+      const period = { startDate: task.startDate ?? null, endDate: task.endDate ?? null };
+      const startDate = el.startDate.value || null;
+      const endDate = el.endDate.value || null;
+      if (!isValidPeriod(startDate, endDate)) {
+         // 保存せずに、入力を保存済みの値へ戻す
+         el.startDate.value = period.startDate ?? '';
+         el.endDate.value = period.endDate ?? '';
+         reportError(new Error('終了日は開始日以降にしてください'));
+      } else {
+         if (startDate !== period.startDate) patch.startDate = startDate;
+         if (endDate !== period.endDate) patch.endDate = endDate;
+      }
       if (!Object.keys(patch).length) return;
       task = { ...task, ...patch }; // 同じ変更を二度保存しないように先に反映しておく
       run(actions.updateTask(projectId, task.id, patch));
@@ -63,6 +76,9 @@ export function createTaskDrawer(projectId, { onSelectionChange } = {}) {
       }, STATUS_LABELS[status]));
       const laneName = h('span', { class: 'drawer-lane muted' });
       const statusField = field('ステータス', h('div', { class: 'segments' }, statusButtons));
+      const startDate = h('input', { class: 'input', type: 'date', 'aria-label': '開始日', onchange: commit });
+      const endDate = h('input', { class: 'input', type: 'date', 'aria-label': '終了日', onchange: commit });
+      const periodField = h('div', { class: 'drawer-period' }, field('開始日', startDate), field('終了日', endDate));
 
       const panel = h('aside', { class: 'drawer', role: 'dialog', 'aria-label': 'タスク詳細', tabIndex: -1 },
          h('header', { class: 'drawer-head' },
@@ -71,6 +87,7 @@ export function createTaskDrawer(projectId, { onSelectionChange } = {}) {
          h('div', { class: 'drawer-body' },
             title,
             statusField,
+            periodField,
             field('メモ', memo),
             h('div', { class: 'drawer-foot' },
                h('button', { type: 'button', class: 'btn btn-danger', onclick: remove }, 'タスクを削除'))));
@@ -78,7 +95,7 @@ export function createTaskDrawer(projectId, { onSelectionChange } = {}) {
 
       document.getElementById('overlay-root').append(backdrop, panel);
       document.body.classList.add('drawer-open');
-      el = { panel, backdrop, title, memo, statusButtons, statusField, laneName };
+      el = { panel, backdrop, title, memo, statusButtons, statusField, startDate, endDate, periodField, laneName };
    }
 
    // 読み込んだ内容を表示に反映する。編集中(フォーカス中)の欄は上書きしない
@@ -89,11 +106,14 @@ export function createTaskDrawer(projectId, { onSelectionChange } = {}) {
       };
       set(el.title, task.title);
       set(el.memo, task.memo);
+      set(el.startDate, task.startDate ?? '');
+      set(el.endDate, task.endDate ?? '');
       for (const button of el.statusButtons) {
          button.setAttribute('aria-pressed', String(button.dataset.status === task.status));
       }
-      // テンプレートはステータスを使わない
+      // テンプレートはステータスも、開始日・終了日も使わない
       el.statusField.hidden = context.isTemplate;
+      el.periodField.hidden = context.isTemplate;
       el.laneName.textContent = context.lane?.name ?? '';
    }
 

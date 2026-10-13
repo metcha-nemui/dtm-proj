@@ -4,7 +4,8 @@
 
 // v4: テンプレートをプロジェクトと同じ形(isTemplate の付いたプロジェクト)で持つようにし、
 // セクション種別と定番タスクをやめた。それより前のデータは形が違い、変換を用意していないので読み込めない。
-export const SCHEMA_VERSION = 4;
+// v5: タスクに開始日と終了日(startDate / endDate)を足した。v4 のデータは、日付なしとして読み込む。
+export const SCHEMA_VERSION = 5;
 const OLDEST_READABLE_VERSION = 4;
 
 /**
@@ -43,6 +44,8 @@ const OLDEST_READABLE_VERSION = 4;
  * @property {'todo'|'doing'|'done'} status テンプレートでは使わない(常に 'todo')
  * @property {number} order
  * @property {string|null} doneAt
+ * @property {string|null} startDate 開始日(YYYY-MM-DD)。なければ null。テンプレートでは使わない(常に null)
+ * @property {string|null} endDate 終了日(YYYY-MM-DD)。なければ null。テンプレートでは使わない(常に null)
  * @property {string} createdAt
  * @property {string} updatedAt
  */
@@ -129,5 +132,7 @@ export function migrate(json) {
       }
       result[name] = records;
    }
+   // v4 → v5: タスクに開始日と終了日を足した。項目の有無が混ざると Supabase の一括保存が失敗するので、ここで揃える
+   result.tasks = result.tasks.map((t) => ({ ...t, startDate: t.startDate ?? null, endDate: t.endDate ?? null }));
    return result;
 }

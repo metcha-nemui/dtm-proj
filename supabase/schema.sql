@@ -55,9 +55,15 @@ create table if not exists public.tasks (
    status text not null default 'todo' check (status in ('todo', 'doing', 'done')),
    sort_order double precision not null,
    done_at timestamptz,
+   start_date date,
+   end_date date,
    created_at timestamptz not null default now(),
    updated_at timestamptz not null default now()
 );
+
+-- 開始日と終了日は後から足した。先に作ってあるテーブルにも列を足す
+alter table public.tasks add column if not exists start_date date;
+alter table public.tasks add column if not exists end_date date;
 
 create index if not exists tasks_project_idx on public.tasks (project_id);
 create index if not exists tasks_lane_idx on public.tasks (lane_id);

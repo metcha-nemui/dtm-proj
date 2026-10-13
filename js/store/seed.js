@@ -61,6 +61,8 @@ export function buildSeed(now = new Date().toISOString()) {
             status: 'todo',
             order: i + 1,
             doneAt: null,
+            startDate: null,
+            endDate: null,
             ...stamp,
          }));
       };
