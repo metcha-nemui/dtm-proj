@@ -707,14 +707,46 @@
    --gantt-row: 30px;
    flex: none;
    display: flex;
-   max-height: 50%;
-   border-top: 1px solid var(--border);
+   flex-direction: column;
+   /* --gantt-max は、上端のつまみをドラッグして決めた高さ。なければ半分まで */
+   max-height: min(50%, var(--gantt-max, 50%));
    background: var(--surface);
+}
+
+/* 上端のつまみ。ドラッグで高さを変える */
+.gantt-resize {
+   flex: none;
+   display: flex;
+   align-items: center;
+   justify-content: center;
+   height: 9px;
+   border-top: 1px solid var(--border);
+   cursor: ns-resize;
+   touch-action: none;
+}
+
+.gantt-resize::before {
+   content: "";
+   width: 36px;
+   height: 3px;
+   border-radius: 2px;
+   background: var(--border);
+}
+
+.gantt-resize:hover,
+.gantt-resize:focus-visible {
+   background: var(--surface-2);
+}
+
+.gantt-resize:hover::before,
+.gantt-resize:focus-visible::before {
+   background: var(--text-muted);
 }
 
 .gantt-scroll {
    flex: 1;
    min-width: 0;
+   min-height: 0;
    overflow: auto;
 }
 
