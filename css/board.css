@@ -839,14 +839,6 @@
    background: var(--surface);
 }
 
-.gantt-dot {
-   flex: none;
-   width: 10px;
-   height: 10px;
-   border-radius: 50%;
-   background: var(--lane-color);
-}
-
 .gantt-title {
    overflow: hidden;
    font-size: 13px;
@@ -880,7 +872,13 @@
    height: 16px;
    margin: 0 2px;
    border-radius: 4px;
-   background: var(--lane-color);
+   background: var(--accent);
+}
+
+/* 終わったものは灰色にして、いま進めているものを目立たせる */
+.gantt-bar.is-done {
+   background: var(--text-muted);
+   opacity: 0.45;
 }
 
 /* 作業中のものは今日まで伸ばしている。右端をぼかして、まだ終わっていないことを示す */

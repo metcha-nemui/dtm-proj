@@ -3,7 +3,6 @@
 
 import { addDays, daysBetween, toDateString } from '../domain/date.js';
 import { ganttRange, ganttRows } from '../domain/gantt.js';
-import { sectionColors } from '../domain/project.js';
 import { h, icon } from './components/dom.js';
 
 const HEAD_ROWS = 2; // 月の段と、日の段
@@ -24,7 +23,6 @@ export function renderGantt({ project, lanes, tasks }) {
 
    const { from, days } = ganttRange(rows, today, project.dueDate);
    const dates = Array.from({ length: days }, (_, i) => addDays(from, i));
-   const colors = sectionColors(lanes);
    const column = (date) => daysBetween(from, date) + 2; // 1列目はタスク名
    const isWeekend = (date) => [0, 6].includes(new Date(`${date}T00:00`).getDay());
    const mark = (date) => (date === today ? ' is-today' : date === project.dueDate ? ' is-due' : isWeekend(date) ? ' is-weekend' : '');
@@ -56,19 +54,17 @@ export function renderGantt({ project, lanes, tasks }) {
 
    const body = rows.flatMap(({ task, lane, start, end, ongoing }, i) => {
       const row = String(i + HEAD_ROWS + 1);
-      // 「全体」レーンには色を割り振っていないので、アクセント色にする
-      const color = { '--lane-color': colors.get(lane?.id) ?? 'var(--accent)' };
       const period = `${monthDay(start)}〜${ongoing ? '(作業中)' : monthDay(end)}`;
       return [
-         h('div', { class: 'gantt-label', style: { 'grid-row': row, ...color } },
-            h('span', { class: 'gantt-dot' }),
+         h('div', { class: 'gantt-label', style: { 'grid-row': row } },
             h('span', { class: 'gantt-title', title: task.title }, task.title),
             !ongoing && icon('check', 14),
             h('span', { class: 'gantt-lane' }, lane?.name ?? '')),
          h('div', { class: 'gantt-line', style: { 'grid-row': row } }),
          h('div', {
-            class: `gantt-bar${ongoing ? ' is-ongoing' : ''}`,
-            style: { 'grid-row': row, 'grid-column': `${column(start)} / ${column(end) + 1}`, ...color },
+            // 色はステータスで塗り分ける(作業中はアクセント色、完了は灰色)。セクションは左の列の名前で示す
+            class: `gantt-bar${ongoing ? ' is-ongoing' : ' is-done'}`,
+            style: { 'grid-row': row, 'grid-column': `${column(start)} / ${column(end) + 1}` },
             role: 'img',
             'aria-label': `${task.title} ${period}`,
             title: `${task.title} ${period}`,
