@@ -104,7 +104,8 @@ node -e "import('./test/domain.test.js').then(m => m.report()).then(ok => proces
 - ルーティングはハッシュ方式。
 - IDは `crypto.randomUUID()`(初期データだけは固定ID)。
 - 並び順は小数の `order`(fractional indexing)。間に入れるときは前後の中間値を使い、他の行を書き換えない。精度が尽きたときだけ全体を振り直す。
-- 全レコードに `createdAt` と `updatedAt`。エクスポートデータには `schemaVersion`(現在 5)。`migrate` は 4 より前のデータを読み込まない(変換を用意していない)。4 のデータは、タスクの開始日・終了日を「なし」で補って読み込む。
+- 全レコードに `createdAt` と `updatedAt`。エクスポートデータには `schemaVersion`(現在 6)。`migrate` は 4 より前のデータを読み込まない(変換を用意していない)。4 のデータは、タスクの開始日・終了日を「なし」で補って読み込む。4・5 のデータは、アレンジ(トラック・クリップ・マーカー)なしとして読み込む。
+- IndexedDB のデータベースのバージョンは 4。3 から上げるときは、アレンジのストアを足すだけで、既存のデータは消さない。
 
 ## 構成
 
@@ -166,9 +167,14 @@ Project  { id, title, memo, dueDate, isTemplate }   // dueDate は 'YYYY-MM-DD' 
 Lane     { id, projectId, type: 'section' | 'global', name, order, collapsed }
 Task     { id, projectId, laneId, title, memo, status: 'todo' | 'doing' | 'done', order, doneAt,
            startDate, endDate }                      // 実績。どちらも 'YYYY-MM-DD' または null
+Track    { id, projectId, name, order }              // アレンジ画面のトラック(プロジェクトだけ)
+Clip     { id, projectId, trackId, name, memo, startBar, bars }   // 小節は1始まりの整数。bars は1以上
+Marker   { id, projectId, laneId, bar }              // セクションマーカー。ボードのセクション(レーン)を指す
 ```
 
 テンプレートは `isTemplate` が true の Project で、レーンとタスクの持ち方はプロジェクトと同じ(ステータス、締切、タスクの開始日・終了日を使わないだけ)。開始日・終了日を足す前に作ったタスクには、この2つの項目がない(なしとして扱う)。テンプレート専用のデータはない。プロジェクトは、どのテンプレートから作ったかを覚えない。
+
+アレンジ(Track / Clip / Marker)はプロジェクトだけが持ち、テンプレートとのコピーには含めない。Clip はタスクとつながっていない。Marker の名前と色は、指しているレーンのものを使う(レーンを消すとマーカーも消える)。
 
 すべてに `createdAt` と `updatedAt` が付く。`Lane.type === 'global'` が「全体」レーン。詳しい型は `js/store/repository.js` にある。
 

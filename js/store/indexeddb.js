@@ -3,7 +3,7 @@
 import { COLLECTIONS, SCHEMA_VERSION, assertRepository, migrate } from './repository.js';
 
 const DB_NAME = 'dtm-proj';
-const DB_VERSION = 3;
+const DB_VERSION = 4;
 const META = 'meta';
 
 function request(req) {
@@ -45,12 +45,24 @@ export function createIndexedDbRepository(dbName = DB_NAME) {
                // v3 でテンプレートの形を変えた(プロジェクトと同じ形で持ち、種別と定番タスクをやめた)。
                // 以前のデータは変換せずに捨て、空の状態から作り直す(初期データが入り直す)。
                for (const name of [...db.objectStoreNames]) db.deleteObjectStore(name);
-               for (const name of COLLECTIONS) db.createObjectStore(name, { keyPath: 'id' });
+               // ここで作るのは v3 の時点のストアだけ。後から足したものは、下の分岐で作る
+               for (const name of ['projects', 'lanes', 'tasks']) db.createObjectStore(name, { keyPath: 'id' });
                db.createObjectStore(META, { keyPath: 'key' });
                const { transaction } = req;
                transaction.objectStore('lanes').createIndex('projectId', 'projectId');
                transaction.objectStore('tasks').createIndex('projectId', 'projectId');
                transaction.objectStore('tasks').createIndex('laneId', 'laneId');
+            }
+            if (event.oldVersion < 4) {
+               // v4 でアレンジ(トラック・クリップ・マーカー)を足した。既存のデータには触らない
+               const tracks = db.createObjectStore('tracks', { keyPath: 'id' });
+               tracks.createIndex('projectId', 'projectId');
+               const clips = db.createObjectStore('clips', { keyPath: 'id' });
+               clips.createIndex('projectId', 'projectId');
+               clips.createIndex('trackId', 'trackId');
+               const markers = db.createObjectStore('markers', { keyPath: 'id' });
+               markers.createIndex('projectId', 'projectId');
+               markers.createIndex('laneId', 'laneId');
             }
          };
          req.onsuccess = () => resolve(req.result);
@@ -95,10 +107,9 @@ export function createIndexedDbRepository(dbName = DB_NAME) {
       saveProject: (p) => putAll('projects', [p]),
       async deleteProject(id) {
          const db = await open();
-         const tx = db.transaction(['projects', 'lanes', 'tasks'], 'readwrite');
+         const tx = db.transaction(COLLECTIONS, 'readwrite');
          tx.objectStore('projects').delete(id);
-         deleteByIndex(tx.objectStore('lanes'), 'projectId', id);
-         deleteByIndex(tx.objectStore('tasks'), 'projectId', id);
+         for (const name of COLLECTIONS.filter((n) => n !== 'projects')) deleteByIndex(tx.objectStore(name), 'projectId', id);
          await completed(tx);
       },
 
@@ -107,9 +118,10 @@ export function createIndexedDbRepository(dbName = DB_NAME) {
       saveLanes: (ls) => putAll('lanes', ls),
       async deleteLane(id) {
          const db = await open();
-         const tx = db.transaction(['lanes', 'tasks'], 'readwrite');
+         const tx = db.transaction(['lanes', 'tasks', 'markers'], 'readwrite');
          tx.objectStore('lanes').delete(id);
          deleteByIndex(tx.objectStore('tasks'), 'laneId', id);
+         deleteByIndex(tx.objectStore('markers'), 'laneId', id);
          await completed(tx);
       },
 
@@ -117,6 +129,27 @@ export function createIndexedDbRepository(dbName = DB_NAME) {
       saveTask: (t) => putAll('tasks', [t]),
       saveTasks: (ts) => putAll('tasks', ts),
       deleteTask: (id) => remove('tasks', id),
+
+      getTracks: (projectId) => getAll('tracks', 'projectId', projectId),
+      saveTrack: (t) => putAll('tracks', [t]),
+      saveTracks: (ts) => putAll('tracks', ts),
+      async deleteTrack(id) {
+         const db = await open();
+         const tx = db.transaction(['tracks', 'clips'], 'readwrite');
+         tx.objectStore('tracks').delete(id);
+         deleteByIndex(tx.objectStore('clips'), 'trackId', id);
+         await completed(tx);
+      },
+
+      getClips: (projectId) => getAll('clips', 'projectId', projectId),
+      saveClip: (c) => putAll('clips', [c]),
+      saveClips: (cs) => putAll('clips', cs),
+      deleteClip: (id) => remove('clips', id),
+
+      getMarkers: (projectId) => getAll('markers', 'projectId', projectId),
+      saveMarker: (m) => putAll('markers', [m]),
+      saveMarkers: (ms) => putAll('markers', ms),
+      deleteMarker: (id) => remove('markers', id),
 
       async getMeta(key) {
          return (await getOne(META, key))?.value;

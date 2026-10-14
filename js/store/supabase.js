@@ -8,11 +8,14 @@ const TABLES = {
    projects: 'projects',
    lanes: 'lanes',
    tasks: 'tasks',
+   tracks: 'tracks',
+   clips: 'clips',
+   markers: 'markers',
 };
 const META = 'app_meta';
 
 // 外部キーの向きに合わせた順番。入れるときは親から、消すときは子から。
-const INSERT_ORDER = ['projects', 'lanes', 'tasks'];
+const INSERT_ORDER = ['projects', 'lanes', 'tasks', 'tracks', 'clips', 'markers'];
 const PAGE_SIZE = 1000; // API が1回に返す行数の上限(Supabase の既定値)
 const TIMESTAMPS = new Set(['createdAt', 'updatedAt', 'doneAt']);
 
@@ -103,19 +106,35 @@ export function createSupabaseRepository({ url, key }, fetchImpl = (...args) => 
       getTemplates: () => select('projects', { is_template: 'eq.true' }),
       getProject: async (id) => (await select('projects', { id: `eq.${id}` }))[0] ?? null,
       saveProject: (p) => upsert('projects', [p]),
-      // レーンとタスクは、外部キーの on delete cascade で一緒に消える
+      // レーン・タスク・アレンジは、外部キーの on delete cascade で一緒に消える
       deleteProject: (id) => remove('projects', id),
 
       getLanes: (projectId) => select('lanes', { project_id: `eq.${projectId}` }),
       saveLane: (l) => upsert('lanes', [l]),
       saveLanes: (ls) => upsert('lanes', ls),
-      // タスクは cascade で一緒に消える
+      // タスクと、レーンを指すマーカーは cascade で一緒に消える
       deleteLane: (id) => remove('lanes', id),
 
       getTasks: (projectId) => select('tasks', { project_id: `eq.${projectId}` }),
       saveTask: (t) => upsert('tasks', [t]),
       saveTasks: (ts) => upsert('tasks', ts),
       deleteTask: (id) => remove('tasks', id),
+
+      getTracks: (projectId) => select('tracks', { project_id: `eq.${projectId}` }),
+      saveTrack: (t) => upsert('tracks', [t]),
+      saveTracks: (ts) => upsert('tracks', ts),
+      // クリップは cascade で一緒に消える
+      deleteTrack: (id) => remove('tracks', id),
+
+      getClips: (projectId) => select('clips', { project_id: `eq.${projectId}` }),
+      saveClip: (c) => upsert('clips', [c]),
+      saveClips: (cs) => upsert('clips', cs),
+      deleteClip: (id) => remove('clips', id),
+
+      getMarkers: (projectId) => select('markers', { project_id: `eq.${projectId}` }),
+      saveMarker: (m) => upsert('markers', [m]),
+      saveMarkers: (ms) => upsert('markers', ms),
+      deleteMarker: (id) => remove('markers', id),
 
       async getMeta(metaKey) {
          const rows = await request('GET', META, { query: { select: 'value', key: `eq.${metaKey}` } });

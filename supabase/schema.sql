@@ -13,7 +13,8 @@
 -- そのままでは動かない。データの変換は用意していない。
 -- 次の文を先に実行して全テーブルを消してから、このファイルを実行する。
 --
---    drop table if exists public.tasks, public.lanes, public.projects, public.template_tasks,
+--    drop table if exists public.markers, public.clips, public.tracks,
+--       public.tasks, public.lanes, public.projects, public.template_tasks,
 --       public.section_kinds, public.structure_templates, public.templates, public.app_meta cascade;
 
 -- ---- プロジェクトとテンプレート ----
@@ -68,6 +69,52 @@ alter table public.tasks add column if not exists end_date date;
 create index if not exists tasks_project_idx on public.tasks (project_id);
 create index if not exists tasks_lane_idx on public.tasks (lane_id);
 
+-- ---- アレンジ(トラック・クリップ・セクションマーカー) ----
+-- プロジェクトだけが持つ。小節は1始まりの整数。
+
+create table if not exists public.tracks (
+   id text primary key,
+   project_id text not null references public.projects (id) on delete cascade,
+   name text not null,
+   sort_order double precision not null,
+   created_at timestamptz not null default now(),
+   updated_at timestamptz not null default now()
+);
+
+create index if not exists tracks_project_idx on public.tracks (project_id);
+
+-- 同じトラックのクリップが重ならないことは、アプリ側で確かめている
+create table if not exists public.clips (
+   id text primary key,
+   project_id text not null references public.projects (id) on delete cascade,
+   track_id text not null references public.tracks (id) on delete cascade,
+   name text not null default '',
+   memo text not null default '',
+   start_bar integer not null check (start_bar >= 1),
+   bars integer not null check (bars >= 1),
+   created_at timestamptz not null default now(),
+   updated_at timestamptz not null default now()
+);
+
+create index if not exists clips_project_idx on public.clips (project_id);
+create index if not exists clips_track_idx on public.clips (track_id);
+
+-- マーカーはボードのセクション(レーン)を指す。レーンを消すと、マーカーも消える
+create table if not exists public.markers (
+   id text primary key,
+   project_id text not null references public.projects (id) on delete cascade,
+   lane_id text not null references public.lanes (id) on delete cascade,
+   bar integer not null check (bar >= 1),
+   created_at timestamptz not null default now(),
+   updated_at timestamptz not null default now()
+);
+
+create index if not exists markers_project_idx on public.markers (project_id);
+create index if not exists markers_lane_idx on public.markers (lane_id);
+
+-- 同じ小節には、マーカーは1つだけ
+create unique index if not exists markers_one_per_bar on public.markers (project_id, bar);
+
 -- ---- アプリ内部の状態(初期データを投入済みか、など) ----
 
 create table if not exists public.app_meta (
@@ -83,7 +130,7 @@ declare
    t text;
 begin
    foreach t in array array[
-      'projects', 'lanes', 'tasks', 'app_meta'
+      'projects', 'lanes', 'tasks', 'tracks', 'clips', 'markers', 'app_meta'
    ]
    loop
       execute format('alter table public.%I enable row level security', t);

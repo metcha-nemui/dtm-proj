@@ -5,7 +5,8 @@
 // v4: テンプレートをプロジェクトと同じ形(isTemplate の付いたプロジェクト)で持つようにし、
 // セクション種別と定番タスクをやめた。それより前のデータは形が違い、変換を用意していないので読み込めない。
 // v5: タスクに開始日と終了日(startDate / endDate)を足した。v4 のデータは、日付なしとして読み込む。
-export const SCHEMA_VERSION = 5;
+// v6: アレンジ(トラック・クリップ・マーカー)を足した。v4・v5 のデータは、アレンジなしとして読み込む。
+export const SCHEMA_VERSION = 6;
 const OLDEST_READABLE_VERSION = 4;
 
 /**
@@ -51,12 +52,53 @@ const OLDEST_READABLE_VERSION = 4;
  */
 
 /**
+ * アレンジ画面のトラック。プロジェクトだけが持つ(テンプレートは持たず、コピーもしない)。
+ * @typedef {Object} Track
+ * @property {string} id
+ * @property {string} projectId
+ * @property {string} name
+ * @property {number} order
+ * @property {string} createdAt
+ * @property {string} updatedAt
+ */
+
+/**
+ * トラックに置くクリップ。startBar 小節目から bars 小節ぶんを占める。同じトラックのクリップどうしは重ならない。
+ * ボードのタスクとはつながっていない。
+ * @typedef {Object} Clip
+ * @property {string} id
+ * @property {string} projectId
+ * @property {string} trackId
+ * @property {string} name 空でもよい
+ * @property {string} memo 詳細
+ * @property {number} startBar 1始まりの整数
+ * @property {number} bars 1以上の整数
+ * @property {string} createdAt
+ * @property {string} updatedAt
+ */
+
+/**
+ * セクションマーカー。ボードのセクション(レーン)を指し、名前と色はレーンのものを使う。
+ * bar 小節目から、次のマーカーの手前までがそのセクション。同じ小節には1つだけ。
+ * @typedef {Object} Marker
+ * @property {string} id
+ * @property {string} projectId
+ * @property {string} laneId
+ * @property {number} bar 1始まりの整数
+ * @property {string} createdAt
+ * @property {string} updatedAt
+ */
+
+/**
  * @typedef {Object} ExportData
  * @property {number} schemaVersion
  * @property {string} exportedAt
  * @property {Project[]} projects テンプレートも含む
  * @property {Lane[]} lanes
  * @property {Task[]} tasks
+ * @property {Track[]} tracks
+ * @property {Clip[]} clips
+ * @property {Marker[]} markers
  */
 
 /**
@@ -65,17 +107,32 @@ const OLDEST_READABLE_VERSION = 4;
  * @property {() => Promise<Project[]>} getTemplates テンプレートだけ
  * @property {(id: string) => Promise<Project|null>} getProject プロジェクトでもテンプレートでも
  * @property {(p: Project) => Promise<void>} saveProject
- * @property {(id: string) => Promise<void>} deleteProject レーンとタスクも一緒に消す
+ * @property {(id: string) => Promise<void>} deleteProject レーンとタスク、アレンジも一緒に消す
  *
  * @property {(projectId: string) => Promise<Lane[]>} getLanes
  * @property {(l: Lane) => Promise<void>} saveLane
  * @property {(ls: Lane[]) => Promise<void>} saveLanes
- * @property {(id: string) => Promise<void>} deleteLane レーン内のタスクも一緒に消す
+ * @property {(id: string) => Promise<void>} deleteLane レーン内のタスクと、レーンを指すマーカーも一緒に消す
  *
  * @property {(projectId: string) => Promise<Task[]>} getTasks
  * @property {(t: Task) => Promise<void>} saveTask
  * @property {(ts: Task[]) => Promise<void>} saveTasks
  * @property {(id: string) => Promise<void>} deleteTask
+ *
+ * @property {(projectId: string) => Promise<Track[]>} getTracks
+ * @property {(t: Track) => Promise<void>} saveTrack
+ * @property {(ts: Track[]) => Promise<void>} saveTracks
+ * @property {(id: string) => Promise<void>} deleteTrack トラックのクリップも一緒に消す
+ *
+ * @property {(projectId: string) => Promise<Clip[]>} getClips
+ * @property {(c: Clip) => Promise<void>} saveClip
+ * @property {(cs: Clip[]) => Promise<void>} saveClips
+ * @property {(id: string) => Promise<void>} deleteClip
+ *
+ * @property {(projectId: string) => Promise<Marker[]>} getMarkers
+ * @property {(m: Marker) => Promise<void>} saveMarker
+ * @property {(ms: Marker[]) => Promise<void>} saveMarkers
+ * @property {(id: string) => Promise<void>} deleteMarker
  *
  * @property {(key: string) => Promise<any>} getMeta アプリ内部の状態(シード済みフラグなど)
  * @property {(key: string, value: any) => Promise<void>} setMeta
@@ -84,12 +141,15 @@ const OLDEST_READABLE_VERSION = 4;
  * @property {(json: string|object) => Promise<void>} importAll 既存データをすべて置き換える
  */
 
-export const COLLECTIONS = ['projects', 'lanes', 'tasks'];
+export const COLLECTIONS = ['projects', 'lanes', 'tasks', 'tracks', 'clips', 'markers'];
 
 const METHODS = [
    'getProjects', 'getTemplates', 'getProject', 'saveProject', 'deleteProject',
    'getLanes', 'saveLane', 'saveLanes', 'deleteLane',
    'getTasks', 'saveTask', 'saveTasks', 'deleteTask',
+   'getTracks', 'saveTrack', 'saveTracks', 'deleteTrack',
+   'getClips', 'saveClip', 'saveClips', 'deleteClip',
+   'getMarkers', 'saveMarker', 'saveMarkers', 'deleteMarker',
    'getMeta', 'setMeta',
    'exportAll', 'importAll',
 ];
@@ -125,6 +185,7 @@ export function migrate(json) {
    }
 
    const result = { schemaVersion: SCHEMA_VERSION, exportedAt: data.exportedAt ?? new Date().toISOString() };
+   // v4・v5 → v6: アレンジ(tracks / clips / markers)がないデータは、空として読み込む
    for (const name of COLLECTIONS) {
       const records = data[name] ?? [];
       if (!Array.isArray(records) || records.some((r) => !r || typeof r.id !== 'string')) {

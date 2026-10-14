@@ -613,6 +613,12 @@ test('migrate: 開始日と終了日を持つ前のデータ(v4)は、日付な�
    equal(data.tasks, [{ id: 'a', startDate: null, endDate: null }, { id: 'b', startDate: '2026-10-20', endDate: null }]);
 });
 
+test('migrate: アレンジを持つ前のデータ(v5)は、アレンジなしとして読み込む', () => {
+   const data = migrate({ schemaVersion: 5, projects: [{ id: 'p' }], tasks: [] });
+   equal([data.schemaVersion, data.tracks, data.clips, data.markers], [SCHEMA_VERSION, [], [], []]);
+   throws(() => migrate({ schemaVersion: SCHEMA_VERSION, clips: [{}] }), 'クリップに id なし');
+});
+
 test('migrate: テンプレートの持ち方を変える前のデータは読み込まない', () => {
    for (const schemaVersion of [1, 2, 3]) {
       let message = '';
@@ -681,6 +687,13 @@ test('supabase: 列名の対応(camelCase ↔ snake_case、order ↔ sort_order)
    equal(Object.keys(toRow(project)).sort(), ['created_at', 'due_date', 'id', 'is_template', 'memo', 'title', 'updated_at']);
    equal(Object.keys(toRow(lanes[0])).sort(), ['collapsed', 'created_at', 'id', 'name', 'project_id', 'sort_order', 'type', 'updated_at']);
    // データベースは日時を +00:00 の形で返す。IndexedDB 実装と同じ …Z に揃える
+   const { synth, a } = arrangementFixture();
+   equal(Object.keys(toRow(synth)).sort(), ['created_at', 'id', 'name', 'project_id', 'sort_order', 'updated_at']);
+   equal(Object.keys(toRow(a)).sort(), ['bars', 'created_at', 'id', 'memo', 'name', 'project_id', 'start_bar', 'track_id',
+      'updated_at']);
+   equal(fromRow(toRow(a)), a, 'クリップも往復する');
+   equal(Object.keys(toRow(addMarker('p', [], lanes[1], 1))).sort(), ['bar', 'created_at', 'id', 'lane_id', 'project_id',
+      'updated_at']);
    const back = fromRow({ created_at: '2026-10-12T04:25:44.487+00:00', done_at: null, due_date: '2026-10-31' });
    equal(back, { createdAt: '2026-10-12T04:25:44.487Z', doneAt: null, dueDate: '2026-10-31' });
 });
@@ -719,6 +732,20 @@ test('supabase: 保存して読み戻せる。初期データの投入は1回だ
    equal([saved.title, tables.tasks.filter((r) => r.project_id === project.id).length], ['変更', tasks.length], '同じIDは上書き');
    await repository.deleteTask(tasks[0].id);
    equal((await repository.getTasks(project.id)).length, tasks.length - 1);
+
+   const track = addTrack(project.id, [], 'ギター');
+   const clip = addClip(track, [], { startBar: 1, bars: 2 });
+   const marker = addMarker(project.id, [], lanes.find((l) => l.type === 'section'), 3);
+   await repository.saveTrack(track);
+   await repository.saveClip(clip);
+   await repository.saveMarker(marker);
+   equal([await repository.getTracks(project.id), await repository.getClips(project.id), await repository.getMarkers(project.id)],
+      [[track], [clip], [marker]]);
+   equal(await repository.getClips(other.project.id), [], 'プロジェクトで絞る');
+   assert(tables.clips[0].start_bar === 1 && tables.markers[0].lane_id === marker.laneId, '列名は snake_case');
+   await repository.deleteClip(clip.id);
+   await repository.deleteMarker(marker.id);
+   equal([(await repository.getClips(project.id)).length, (await repository.getMarkers(project.id)).length], [0, 0]);
    // テンプレートの削除はプロジェクトと同じ(レーンとタスクは、データベース側の cascade で消える)
    await repository.deleteProject('seed-template-inst');
    equal((await repository.getTemplates()).map((t) => t.id), ['seed-template-vocal']);
@@ -742,9 +769,16 @@ test('supabase: エクスポートとインポート(全部置き換える)', as
    await a.saveProject(project);
    await a.saveLanes(lanes);
    await a.saveTasks(tasks);
+   const track = addTrack(project.id, [], 'ピアノ');
+   const clip = addClip(track, [], { startBar: 5, bars: 4, name: 'リフ' });
+   const marker = addMarker(project.id, [], lanes.find((l) => l.type === 'section'), 1);
+   await a.saveTracks([track]);
+   await a.saveClips([clip]);
+   await a.saveMarkers([marker]);
    const exported = await a.exportAll();
    equal([exported.schemaVersion, exported.projects.length, exported.lanes.length, exported.tasks.length],
       [SCHEMA_VERSION, 3, 17 + 5, 37 + 5], 'テンプレートも含む');
+   equal([exported.tracks, exported.clips, exported.markers], [[track], [clip], [marker]], 'アレンジも含む');
 
    const b = fakeSupabase().repository;
    const old = createProject({ title: '消える' });
@@ -756,6 +790,8 @@ test('supabase: エクスポートとインポート(全部置き換える)', as
    equal((await b.getLanes(old.project.id)).length, 0);
    equal((await b.getTasks(project.id)).length, tasks.length);
    equal((await b.getTasks('seed-template-vocal')).length, 32);
+   equal([await b.getTracks(project.id), await b.getClips(project.id), await b.getMarkers(project.id)],
+      [[track], [clip], [marker]], 'アレンジも戻る');
    equal(await ensureSeeded(b), false, 'インポート後に初期データを重ねない');
    await rejects(b.importAll('{"x":1}'), 'エクスポートデータではありません');
 });
