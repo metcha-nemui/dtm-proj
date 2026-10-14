@@ -14,6 +14,7 @@ import { dueBadge } from './dueBadge.js';
 import { renderGantt } from './gantt.js';
 import { renderLane } from './lane.js';
 import { deleteProjectDialog, editProjectDialog, newProjectDialog } from './projectDialogs.js';
+import { projectTabs } from './projectTabs.js';
 import { createTaskDrawer } from './taskDrawer.js';
 
 // 「未完了のみ」は画面を行き来しても保つ
@@ -148,9 +149,12 @@ export function mount(container, { id: projectId }) {
 
    async function deleteLaneDialog(lane) {
       const count = data.tasks.filter((t) => t.laneId === lane.id).length;
+      // アレンジのマーカーはレーンを指しているので、レーンと一緒に消える
+      const markers = (await repo().getMarkers(projectId)).filter((m) => m.laneId === lane.id).length;
+      const parts = [count && `タスク${count}件`, markers && `アレンジのマーカー${markers}件`].filter(Boolean);
       const ok = await confirmDialog({
          title: `「${lane.name}」を削除`,
-         message: count ? `このレーンのタスク${count}件も一緒に削除します。` : 'このレーンを削除します。',
+         message: parts.length ? `このレーンの${parts.join('と、')}も一緒に削除します。` : 'このレーンを削除します。',
          okLabel: '削除',
          danger: true,
       });
@@ -274,6 +278,7 @@ export function mount(container, { id: projectId }) {
 
       return h('div', { class: 'board-toolbar' },
          head,
+         projectTabs(projectId, 'board'),
          h('div', { class: 'board-progress' },
             progressBar(stats.ratio),
             h('span', { class: 'muted' }, `${stats.done}/${stats.total} 完了`),

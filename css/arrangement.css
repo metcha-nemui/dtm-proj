@@ -1,0 +1,437 @@
+/* アレンジ画面(トラック・クリップ・セクションマーカー)と、プロジェクトの表示切り替えタブ。 */
+
+/* ---- 表示切り替えタブ(ボード / アレンジ) ---- */
+
+.project-tabs {
+   display: inline-flex;
+   padding: 2px;
+   border-radius: var(--radius-sm);
+   background: var(--surface-2);
+}
+
+.project-tab {
+   display: inline-flex;
+   align-items: center;
+   gap: var(--space-1);
+   padding: 3px var(--space-3);
+   border-radius: 4px;
+   color: var(--text-muted);
+   font-size: 13px;
+   text-decoration: none;
+   white-space: nowrap;
+}
+
+.project-tab:hover {
+   color: var(--text);
+}
+
+.project-tab.is-active {
+   background: var(--surface);
+   box-shadow: var(--shadow-1);
+   color: var(--text);
+   font-weight: 600;
+}
+
+/* ---- アレンジ画面 ---- */
+
+.arr-page {
+   --bar: 28px; /* 1小節の幅 */
+   --arr-head: 168px; /* 左のトラック名の列の幅 */
+   --arr-ruler-h: 22px;
+   --arr-marker-h: 28px;
+   --arr-track-h: 48px;
+
+   display: flex;
+   flex-direction: column;
+   height: 100%;
+}
+
+/* 縦横にスクロールする本体。ルーラーとマーカーの段は上に、トラック名の列は左に貼り付ける */
+.arr {
+   flex: 1;
+   min-height: 0;
+   overflow: auto;
+   background: var(--bg);
+}
+
+.arr-inner {
+   width: max-content;
+   min-width: 100%;
+   padding-bottom: var(--space-6);
+}
+
+.arr-row {
+   display: flex;
+}
+
+.arr-corner,
+.arr-head {
+   position: sticky;
+   left: 0;
+   z-index: 2;
+   flex: none;
+   width: var(--arr-head);
+   border-right: 1px solid var(--border);
+   background: var(--surface);
+}
+
+.arr-ruler-row,
+.arr-marker-row {
+   position: sticky;
+   z-index: 4;
+}
+
+.arr-ruler-row {
+   top: 0;
+   height: var(--arr-ruler-h);
+}
+
+.arr-marker-row {
+   top: var(--arr-ruler-h);
+   height: var(--arr-marker-h);
+   border-bottom: 1px solid var(--border);
+}
+
+.arr-ruler-row .arr-corner,
+.arr-marker-row .arr-corner {
+   z-index: 5;
+}
+
+.arr-corner-label {
+   display: flex;
+   align-items: center;
+   padding: 0 var(--space-3);
+   color: var(--text-muted);
+   font-size: 12px;
+}
+
+/* 小節の位置と幅。--start(1始まり)と --len(小節数)から決める */
+.arr-slot,
+.arr-band,
+.arr-flag,
+.arr-boundary,
+.clip,
+.clip-ghost {
+   position: absolute;
+   left: calc((var(--start) - 1) * var(--bar));
+}
+
+/* ルーラー(小節番号) */
+.arr-ruler {
+   display: flex;
+   flex: none;
+   width: calc(var(--bars) * var(--bar));
+   background: var(--surface);
+   border-bottom: 1px solid var(--border);
+}
+
+.arr-bar-num {
+   flex: none;
+   width: var(--bar);
+   padding-left: 3px;
+   border-left: 1px solid var(--border);
+   color: var(--text-muted);
+   font-size: 10px;
+   line-height: var(--arr-ruler-h);
+   font-variant-numeric: tabular-nums;
+}
+
+.arr-bar-num.is-strong {
+   border-left-color: var(--text-muted);
+   color: var(--text);
+   font-weight: 600;
+}
+
+/* マーカーの段 */
+.arr-markers {
+   position: relative;
+   flex: none;
+   width: calc(var(--bars) * var(--bar));
+   background: var(--surface);
+}
+
+.arr-slot {
+   top: 0;
+   bottom: 0;
+   width: var(--bar);
+   padding: 0;
+   border: 0;
+   background: transparent;
+   cursor: pointer;
+}
+
+.arr-slot:hover,
+.arr-slot:focus-visible {
+   background: var(--accent-soft);
+}
+
+.arr-slot:focus-visible {
+   outline-offset: -2px;
+}
+
+/* セクションの区間の色帯。下の小節ボタンを押せるように、ポインタは素通りさせる */
+.arr-band {
+   top: 4px;
+   bottom: 4px;
+   width: calc(var(--len) * var(--bar));
+   border-left: 3px solid var(--lane-color);
+   background: color-mix(in srgb, var(--lane-color) 22%, transparent);
+   pointer-events: none;
+}
+
+/* マーカーの旗(セクション名)。区間の左端に置き、押すとメニュー、横にドラッグで移動 */
+.arr-flag {
+   top: 4px;
+   bottom: 4px;
+   z-index: 1;
+   max-width: calc(var(--len) * var(--bar));
+   padding: 0 var(--space-2) 0 calc(var(--space-1) + 3px);
+   overflow: hidden;
+   border: 0;
+   border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
+   background: color-mix(in srgb, var(--lane-color) 45%, var(--surface));
+   color: var(--text);
+   font-size: 12px;
+   font-weight: 600;
+   text-overflow: ellipsis;
+   white-space: nowrap;
+   cursor: grab;
+   touch-action: none;
+}
+
+.arr-flag::before {
+   content: "";
+   position: absolute;
+   top: 0;
+   bottom: 0;
+   left: 0;
+   width: 3px;
+   background: var(--lane-color);
+}
+
+.arr-flag.is-moving {
+   box-shadow: var(--shadow-2);
+   cursor: grabbing;
+}
+
+.arr-flag.is-invalid {
+   outline: 2px solid var(--danger);
+}
+
+/* トラック */
+.arr-track {
+   height: var(--arr-track-h);
+   border-bottom: 1px solid var(--border);
+}
+
+.arr-head {
+   display: flex;
+   align-items: center;
+   gap: var(--space-1);
+   padding: 0 var(--space-1) 0 var(--space-2);
+   color: var(--text-muted);
+   cursor: grab;
+}
+
+.arr-head-name {
+   flex: 1;
+   min-width: 0;
+   overflow: hidden;
+   color: var(--text);
+   font-weight: 600;
+   text-overflow: ellipsis;
+   white-space: nowrap;
+}
+
+.arr-head .btn-icon:hover {
+   background: var(--surface-2);
+}
+
+.arr-track.is-dragging,
+.arr-track.is-drag-ghost {
+   background: var(--surface);
+}
+
+/* 小節のグリッド。1小節ごとの細い線と、4小節ごとの濃い線 */
+.arr-lane {
+   position: relative;
+   flex: none;
+   width: calc(var(--bars) * var(--bar));
+   background-color: var(--surface);
+   background-image:
+      linear-gradient(to right, color-mix(in srgb, var(--text-muted) 45%, transparent) 1px, transparent 1px),
+      linear-gradient(to right, var(--border) 1px, transparent 1px);
+   background-size: calc(var(--bar) * 4) 100%, var(--bar) 100%;
+   cursor: crosshair;
+   /* 縦横のスクロールは効かせる(スクロールが始まると、ドラッグは pointercancel で終わる) */
+   touch-action: pan-x pan-y;
+}
+
+/* セクションの境目(マーカーの位置)を、トラックの上にも線で出す */
+.arr-boundary {
+   top: 0;
+   bottom: 0;
+   width: 0;
+   border-left: 2px dashed var(--text-muted);
+   opacity: 0.45;
+   pointer-events: none;
+}
+
+/* クリップ */
+.clip {
+   top: 5px;
+   bottom: 5px;
+   z-index: 1;
+   display: flex;
+   align-items: center;
+   gap: var(--space-1);
+   width: calc(var(--len) * var(--bar));
+   padding: 0 6px;
+   overflow: hidden;
+   border: 1px solid var(--accent);
+   border-radius: var(--radius-sm);
+   background: var(--accent-soft);
+   color: var(--text);
+   font-size: 12px;
+   cursor: grab;
+   touch-action: none;
+}
+
+.clip:focus-visible {
+   outline: 2px solid var(--accent);
+   outline-offset: 1px;
+}
+
+.clip.is-selected {
+   outline: 2px solid var(--accent);
+   outline-offset: 1px;
+   box-shadow: var(--shadow-1);
+}
+
+.clip.is-moving {
+   opacity: 0.35;
+}
+
+.clip-name {
+   flex: 1;
+   min-width: 0;
+   overflow: hidden;
+   font-weight: 600;
+   text-overflow: ellipsis;
+   white-space: nowrap;
+}
+
+.clip.is-untitled .clip-name {
+   color: var(--text-muted);
+   font-weight: normal;
+}
+
+.clip .icon {
+   flex: none;
+   color: var(--text-muted);
+}
+
+/* 左右の端。掴むと長さを変えられる */
+.clip-edge {
+   position: absolute;
+   top: 0;
+   bottom: 0;
+   width: 7px;
+   cursor: ew-resize;
+}
+
+.clip-edge.is-start {
+   left: 0;
+}
+
+.clip-edge.is-end {
+   right: 0;
+}
+
+.clip-edge:hover {
+   background: color-mix(in srgb, var(--accent) 35%, transparent);
+}
+
+/* ドラッグ中の置き先 */
+.clip-ghost {
+   top: 5px;
+   bottom: 5px;
+   z-index: 2;
+   width: calc(var(--len) * var(--bar));
+   border: 2px dashed var(--accent);
+   border-radius: var(--radius-sm);
+   background: color-mix(in srgb, var(--accent) 15%, transparent);
+   pointer-events: none;
+}
+
+.clip-ghost.is-invalid {
+   border-color: var(--danger);
+   background: color-mix(in srgb, var(--danger) 15%, transparent);
+}
+
+/* トラックの追加 */
+.arr-foot {
+   align-items: center;
+   gap: var(--space-3);
+}
+
+.arr-add {
+   position: sticky;
+   left: 0;
+   display: inline-flex;
+   align-items: center;
+   gap: var(--space-1);
+   flex: none;
+   width: var(--arr-head);
+   padding: var(--space-2) var(--space-3);
+   border: 0;
+   border-right: 1px solid var(--border);
+   background: var(--surface);
+   color: var(--text-muted);
+   cursor: pointer;
+}
+
+.arr-add:hover {
+   background: var(--surface-2);
+   color: var(--text);
+}
+
+.arr-hint {
+   position: sticky;
+   left: calc(var(--arr-head) + var(--space-3));
+   font-size: 13px;
+}
+
+@media (min-width: 721px) {
+   /* ドロワーの下に隠れる小節にもスクロールで届くようにする */
+   .drawer-open .arr-inner {
+      padding-right: var(--drawer-width);
+   }
+
+   .drawer-open .arr-page .board-toolbar {
+      padding-right: calc(var(--drawer-width) + var(--space-4));
+   }
+}
+
+@media (max-width: 720px) {
+   .arr-page {
+      --arr-head: 104px;
+   }
+
+   /* 狭いので、件数は出さず、タブは2行目へ回す余地を残す */
+   .arr-page .board-summary {
+      display: none;
+   }
+
+   /* トラック名を少しでも長く見せる(並べ替えは見出しのどこを掴んでもできる) */
+   .arr-head > .icon:first-child {
+      display: none;
+   }
+
+   .arr-add {
+      overflow: hidden;
+      padding: var(--space-2);
+      font-size: 13px;
+      white-space: nowrap;
+   }
+}

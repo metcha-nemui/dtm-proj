@@ -1,6 +1,7 @@
 // 画面から呼ぶ操作。repository から読み、ドメインロジックで計算し、保存して notify する。
 // 計算そのものは domain/ にあり、ここは読み書きの配線だけを受け持つ。
 
+import * as arrangementDomain from './domain/arrangement.js';
 import * as projectDomain from './domain/project.js';
 import * as taskDomain from './domain/task.js';
 import { touch } from './domain/record.js';
@@ -130,19 +131,26 @@ export const moveLane = serial(async (projectId, laneId, toIndex) => {
    await changed(projectId);
 });
 
-/** @returns 削除したレーンとタスク。restoreLane に渡すと元に戻せる */
+/** @returns 削除したレーンとタスク、レーンを指していたマーカー。restoreLane に渡すと元に戻せる */
 export const deleteLane = serial(async (projectId, laneId) => {
-   const { lanes, tasks } = await load(projectId);
-   const snapshot = { lane: find(lanes, laneId, 'レーン'), tasks: tasks.filter((t) => t.laneId === laneId) };
+   const [{ lanes, tasks }, markers] = await Promise.all([load(projectId), repo().getMarkers(projectId)]);
+   const snapshot = {
+      lane: find(lanes, laneId, 'レーン'),
+      tasks: tasks.filter((t) => t.laneId === laneId),
+      markers: markers.filter((m) => m.laneId === laneId),
+   };
    projectDomain.assertSection(snapshot.lane, '削除');
    await repo().deleteLane(laneId);
    await changed(projectId);
    return snapshot;
 });
 
-export const restoreLane = serial(async ({ lane, tasks }) => {
+export const restoreLane = serial(async ({ lane, tasks, markers = [] }) => {
    await repo().saveLane(lane);
    await repo().saveTasks(tasks);
+   // 消している間に同じ小節へ別のマーカーを置いていたら、そちらを残す
+   const taken = new Set((await repo().getMarkers(lane.projectId)).map((m) => m.bar));
+   await repo().saveMarkers(markers.filter((m) => !taken.has(m.bar)));
    await changed(lane.projectId);
 });
 
@@ -192,4 +200,109 @@ export const deleteTask = serial(async (projectId, taskId) => {
 export const restoreTask = serial(async (task) => {
    await repo().saveTask(task);
    await changed(task.projectId);
+});
+
+// ---- アレンジ(トラック・クリップ・マーカー) ----
+// プロジェクトだけが持つ。ボードのタスクとはつながっていない。
+
+export const addTrack = serial(async (projectId, name = '') => {
+   const track = arrangementDomain.addTrack(projectId, await repo().getTracks(projectId), name);
+   await repo().saveTrack(track);
+   await changed(projectId);
+   return track;
+});
+
+export const renameTrack = serial(async (projectId, trackId, name) => {
+   const tracks = await repo().getTracks(projectId);
+   await repo().saveTrack(arrangementDomain.renameTrack(find(tracks, trackId, 'トラック'), name));
+   await changed(projectId);
+});
+
+export const moveTrack = serial(async (projectId, trackId, toIndex) => {
+   await repo().saveTracks(arrangementDomain.moveTrack(await repo().getTracks(projectId), trackId, toIndex));
+   await changed(projectId);
+});
+
+/** @returns 削除したトラックとクリップ。restoreTrack に渡すと元に戻せる */
+export const deleteTrack = serial(async (projectId, trackId) => {
+   const [tracks, clips] = await Promise.all([repo().getTracks(projectId), repo().getClips(projectId)]);
+   const snapshot = { track: find(tracks, trackId, 'トラック'), clips: clips.filter((c) => c.trackId === trackId) };
+   await repo().deleteTrack(trackId);
+   await changed(projectId);
+   return snapshot;
+});
+
+export const restoreTrack = serial(async ({ track, clips }) => {
+   await repo().saveTrack(track);
+   await repo().saveClips(clips);
+   await changed(track.projectId);
+});
+
+export const addClip = serial(async (projectId, trackId, { startBar, bars, name }) => {
+   const [tracks, clips] = await Promise.all([repo().getTracks(projectId), repo().getClips(projectId)]);
+   const clip = arrangementDomain.addClip(find(tracks, trackId, 'トラック'), clips, { startBar, bars, name });
+   await repo().saveClip(clip);
+   await changed(projectId);
+   return clip;
+});
+
+export const updateClip = serial(async (projectId, clipId, patch) => {
+   const clips = await repo().getClips(projectId);
+   await repo().saveClip(arrangementDomain.updateClip(find(clips, clipId, 'クリップ'), patch));
+   await changed(projectId);
+});
+
+/** クリップの移動・伸縮・トラック間の移動。patch は { trackId?, startBar?, bars? } */
+export const placeClip = serial(async (projectId, clipId, patch) => {
+   const [tracks, clips] = await Promise.all([repo().getTracks(projectId), repo().getClips(projectId)]);
+   if (patch.trackId) find(tracks, patch.trackId, 'トラック');
+   await repo().saveClip(arrangementDomain.placeClip(clips, clipId, patch));
+   await changed(projectId);
+});
+
+/** @returns 削除したクリップ。restoreClip に渡すと元に戻せる */
+export const deleteClip = serial(async (projectId, clipId) => {
+   const clip = find(await repo().getClips(projectId), clipId, 'クリップ');
+   await repo().deleteClip(clipId);
+   await changed(projectId);
+   return clip;
+});
+
+export const restoreClip = serial(async (clip) => {
+   // 消している間に、同じ場所へ別のクリップを置いていたら戻せない
+   const clips = await repo().getClips(clip.projectId);
+   if (!arrangementDomain.canPlace(clips, clip, clip.id)) throw new Error('同じ場所にほかのクリップがあるので、元に戻せません');
+   await repo().saveClip(clip);
+   await changed(clip.projectId);
+});
+
+export const addMarker = serial(async (projectId, laneId, bar) => {
+   const [{ lanes }, markers] = await Promise.all([load(projectId), repo().getMarkers(projectId)]);
+   const marker = arrangementDomain.addMarker(projectId, markers, find(lanes, laneId, 'セクション'), bar);
+   await repo().saveMarker(marker);
+   await changed(projectId);
+   return marker;
+});
+
+/** マーカーの小節か、指すセクションを変える。patch は { bar?, laneId? } */
+export const updateMarker = serial(async (projectId, markerId, { bar, laneId }) => {
+   const [{ lanes }, markers] = await Promise.all([load(projectId), repo().getMarkers(projectId)]);
+   const lane = laneId ? find(lanes, laneId, 'セクション') : null;
+   await repo().saveMarker(arrangementDomain.updateMarker(markers, markerId, { bar, lane }));
+   await changed(projectId);
+});
+
+/** @returns 削除したマーカー。restoreMarker に渡すと元に戻せる */
+export const deleteMarker = serial(async (projectId, markerId) => {
+   const marker = find(await repo().getMarkers(projectId), markerId, 'マーカー');
+   await repo().deleteMarker(markerId);
+   await changed(projectId);
+   return marker;
+});
+
+export const restoreMarker = serial(async (marker) => {
+   const markers = await repo().getMarkers(marker.projectId);
+   if (markers.some((m) => m.bar === marker.bar)) throw new Error(`${marker.bar}小節目にほかのマーカーがあるので、元に戻せません`);
+   await repo().saveMarker(marker);
+   await changed(marker.projectId);
 });

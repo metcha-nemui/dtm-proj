@@ -1,4 +1,4 @@
-// 起動とルーター。ルーティングはハッシュ方式(#/、#/p/:id、#/templates、#/t/:id、#/settings)。
+// 起動とルーター。ルーティングはハッシュ方式(#/、#/p/:id、#/p/:id/arrange、#/templates、#/t/:id、#/settings)。
 // 未ログインならログイン画面を出し、ログイン後に保存先(repository)を決めてアプリを始める。
 
 import { clearSession, loadSession, saveSession } from './session.js';
@@ -6,6 +6,7 @@ import { createIndexedDbRepository } from './store/indexeddb.js';
 import { ensureSeeded } from './store/seed.js';
 import { createSupabaseRepository } from './store/supabase.js';
 import { setRepository } from './state.js';
+import * as arrangement from './ui/arrangement.js';
 import * as board from './ui/board.js';
 import { h } from './ui/components/dom.js';
 import * as login from './ui/login.js';
@@ -18,6 +19,7 @@ import * as templateList from './ui/templateList.js';
 const routes = [
    { name: 'projects', pattern: /^\/$/, view: projectList },
    { name: 'projects', pattern: /^\/p\/([^/]+)$/, params: ['id'], view: board },
+   { name: 'projects', pattern: /^\/p\/([^/]+)\/arrange$/, params: ['id'], view: arrangement },
    { name: 'templates', pattern: /^\/templates$/, view: templateList },
    { name: 'templates', pattern: /^\/t\/([^/]+)$/, params: ['id'], view: board },
    { name: 'settings', pattern: /^\/settings$/, view: settings },
@@ -50,9 +52,9 @@ const app = document.getElementById('app');
 const projectsLink = document.querySelector('[data-nav="projects"]');
 let started = false;
 let unmount = null;
-// 閲覧中のプロジェクト。テンプレートや設定を見てから「プロジェクト」タブで戻れるように覚えておく。
+// 閲覧中のプロジェクトの画面(ボードかアレンジ)。テンプレートや設定を見てから「プロジェクト」タブで戻れるように覚えておく。
 // プロジェクト一覧(タイトルのリンクや「←」で行ける)を開いたら忘れる。
-let currentProjectId = null;
+let currentProjectHash = null;
 
 function render() {
    unmount?.();
@@ -63,9 +65,9 @@ function render() {
    for (const link of document.querySelectorAll('[data-nav]')) {
       link.classList.toggle('is-active', link.dataset.nav === route.name);
    }
-   if (route.view === board && route.name === 'projects') currentProjectId = params.id;
-   else if (route.view === projectList) currentProjectId = null;
-   projectsLink.href = currentProjectId ? `#/p/${encodeURIComponent(currentProjectId)}` : '#/';
+   if ((route.view === board || route.view === arrangement) && route.name === 'projects') currentProjectHash = location.hash;
+   else if (route.view === projectList) currentProjectHash = null;
+   projectsLink.href = currentProjectHash ?? '#/';
 }
 
 // 保存先を用意してアプリを始める。保存先に届かなければ失敗する
