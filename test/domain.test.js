@@ -1,6 +1,10 @@
 // ドメインロジックと保存まわりの簡易テスト。test.html をブラウザで開くと実行される。
 // Node でも動く: node -e "import('./test/domain.test.js').then(m => m.report()).then(ok => process.exit(ok ? 0 : 1))"
 
+import {
+   addClip, addMarker, addTrack, arrangementBars, canPlace, clipEnd, markerSpans, moveTrack, placeClip, renameTrack,
+   updateClip, updateMarker,
+} from '../js/domain/arrangement.js';
 import { addDays, daysBetween, toDateString } from '../js/domain/date.js';
 import { ganttRange, ganttRows } from '../js/domain/gantt.js';
 import { orderAtEnd, orderBetween, placeAt, reorder, sortByOrder } from '../js/domain/order.js';
@@ -502,6 +506,79 @@ test('moveTask: レーン間の移動', () => {
    equal(inLane(moved, 'サビ').length, 5);
    const again = apply(moved, moveTask(moved, task.id, lane('Aメロ').id, 1));
    equal(titles(inLane(again, 'Aメロ')), ['コード確定', 'コーラス', 'メロ確定', 'ドラム', 'ベース']);
+});
+
+// ---- arrangement ----
+
+function arrangementFixture() {
+   const { project, lanes } = createProject({ title: 'x' }, template('vocal'));
+   const lane = (name) => lanes.find((l) => l.name === name);
+   const synth = addTrack(project.id, [], 'シンセ');
+   const drums = addTrack(project.id, [synth], 'ドラム');
+   const a = addClip(synth, [], { startBar: 1, bars: 4, name: ' イントロ ' });
+   const b = addClip(synth, [a], { startBar: 9, bars: 2 });
+   return { project, lanes, lane, synth, drums, clips: [a, b], a, b };
+}
+
+test('addTrack: 末尾に追加し、名前が重なったら番号を振る。空なら「トラック」', () => {
+   const one = addTrack('p', []);
+   const two = addTrack('p', [one], ' ');
+   const three = addTrack('p', [one, two], 'Bass');
+   equal([one.name, two.name, three.name], ['トラック', 'トラック2', 'Bass']);
+   assert(one.order < two.order && two.order < three.order, '末尾に足す');
+   equal(titles(apply([one, two, three], moveTrack([one, two, three], three.id, 0))), ['Bass', 'トラック', 'トラック2']);
+   equal(renameTrack(one, ' Lead ').name, 'Lead');
+   throws(() => renameTrack(one, ' '), '空の名前は拒否');
+});
+
+test('addClip: 同じトラックでは重ならない。別のトラックなら同じ小節に置ける', () => {
+   const { synth, drums, clips, a, b } = arrangementFixture();
+   equal([a.name, a.memo, a.trackId, clipEnd(a), clipEnd(b)], ['イントロ', '', synth.id, 4, 10]);
+   throws(() => addClip(synth, clips, { startBar: 4, bars: 1 }), '終わりの小節に重なる');
+   throws(() => addClip(synth, clips, { startBar: 7, bars: 3 }), '後ろのクリップに重なる');
+   equal(addClip(synth, clips, { startBar: 5, bars: 4 }).startBar, 5, 'ちょうど隙間に収まる');
+   equal(addClip(drums, clips, { startBar: 1, bars: 16 }).trackId, drums.id, '別のトラック');
+   throws(() => addClip(synth, [], { startBar: 0, bars: 1 }), '0小節目はない');
+   throws(() => addClip(synth, [], { startBar: 1, bars: 0 }), '長さは1以上');
+   throws(() => addClip(synth, [], { startBar: 1.5, bars: 1 }), '整数だけ');
+   equal(canPlace(clips, { trackId: synth.id, startBar: 3, bars: 2 }, a.id), true, '自分自身とは重ならない');
+});
+
+test('placeClip: 移動・伸縮・トラック間の移動。重なるなら拒否', () => {
+   const { synth, drums, clips, a, b } = arrangementFixture();
+   equal([placeClip(clips, a.id, { startBar: 3 }).startBar, placeClip(clips, a.id, { bars: 8 }).bars], [3, 8]);
+   throws(() => placeClip(clips, a.id, { startBar: 7 }), '移動先が重なる');
+   throws(() => placeClip(clips, a.id, { bars: 9 }), '伸ばすと重なる');
+   const moved = placeClip(clips, b.id, { trackId: drums.id, startBar: 1 });
+   equal([moved.trackId, moved.startBar, moved.bars, moved.name], [drums.id, 1, 2, b.name], '別のトラックへ');
+   equal(clips.find((c) => c.id === b.id).trackId, synth.id, '元のレコードは変えない');
+   equal(updateClip(a, { name: ' ', memo: 'メモ' }), { ...a, name: '', memo: 'メモ', updatedAt: updateClip(a, {}).updatedAt });
+});
+
+test('マーカー: セクションを指し、同じ小節には1つだけ。「全体」レーンは置けない', () => {
+   const { project, lanes, lane } = arrangementFixture();
+   const intro = addMarker(project.id, [], lane('イントロ'), 1);
+   const verse = addMarker(project.id, [intro], lane('Aメロ'), 9);
+   throws(() => addMarker(project.id, [intro, verse], lane('Bメロ'), 9), '同じ小節');
+   throws(() => addMarker(project.id, [], lanes.find((l) => l.type === 'global'), 5), '全体レーン');
+   throws(() => addMarker(project.id, [], lane('Bメロ'), 0), '0小節目');
+   const markers = [verse, intro];
+   const spans = markerSpans(markers, lanes, 32);
+   equal(spans.map((s) => [s.lane.name, s.from, s.to]), [['イントロ', 1, 8], ['Aメロ', 9, 32]], '次のマーカーの手前まで');
+
+   throws(() => updateMarker(markers, verse.id, { bar: 1 }), '移動先にマーカーがある');
+   equal(updateMarker(markers, verse.id, { bar: 9 }).bar, 9, '自分の小節には置ける');
+   const changed = updateMarker(markers, verse.id, { bar: 17, lane: lane('サビ') });
+   equal([changed.bar, changed.laneId], [17, lane('サビ').id]);
+});
+
+test('arrangementBars: 中身の後ろに余白を取り、4小節単位で伸びる', () => {
+   const { clips } = arrangementFixture();
+   equal(arrangementBars([], []), 32, '空なら32小節');
+   equal(arrangementBars(clips, []), 32, '短いうちは32小節');
+   equal(arrangementBars([{ startBar: 30, bars: 3 }], []), 40, '32小節目まで + 余白8');
+   equal(arrangementBars([{ startBar: 30, bars: 4 }], []), 44, '33小節目まで + 余白8 を4の倍数に切り上げ');
+   equal(arrangementBars([], [{ bar: 41 }]), 52, 'マーカーも数える');
 });
 
 // ---- stats ----
