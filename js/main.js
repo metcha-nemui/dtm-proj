@@ -1,4 +1,4 @@
-// 起動とルーター。ルーティングはハッシュ方式(#/、#/p/:id、#/p/:id/arrange、#/p/:id/refs、#/templates、#/t/:id、#/settings)。
+// 起動とルーター。ルーティングはハッシュ方式(#/、#/p/:id、#/p/:id/arrange、#/templates、#/t/:id、#/settings)。
 // 未ログインならログイン画面を出し、ログイン後に保存先(repository)を決めてアプリを始める。
 
 import { clearSession, loadSession, saveSession } from './session.js';
@@ -12,7 +12,6 @@ import * as board from './ui/board.js';
 import { h } from './ui/components/dom.js';
 import * as login from './ui/login.js';
 import * as projectList from './ui/projectList.js';
-import * as references from './ui/references.js';
 import * as settings from './ui/settings.js';
 import * as templateList from './ui/templateList.js';
 
@@ -22,7 +21,6 @@ const routes = [
    { name: 'projects', pattern: /^\/$/, view: projectList },
    { name: 'projects', pattern: /^\/p\/([^/]+)$/, params: ['id'], view: board },
    { name: 'projects', pattern: /^\/p\/([^/]+)\/arrange$/, params: ['id'], view: arrangement },
-   { name: 'projects', pattern: /^\/p\/([^/]+)\/refs$/, params: ['id'], view: references },
    { name: 'templates', pattern: /^\/templates$/, view: templateList },
    { name: 'templates', pattern: /^\/t\/([^/]+)$/, params: ['id'], view: board },
    { name: 'settings', pattern: /^\/settings$/, view: settings },
@@ -55,7 +53,7 @@ const app = document.getElementById('app');
 const projectsLink = document.querySelector('[data-nav="projects"]');
 let started = false;
 let unmount = null;
-// 閲覧中のプロジェクトの画面(ボード、アレンジ、リファレンス)。テンプレートや設定を見てから「プロジェクト」タブで戻れるように覚えておく。
+// 閲覧中のプロジェクトの画面(ボードかアレンジ)。テンプレートや設定を見てから「プロジェクト」タブで戻れるように覚えておく。
 // プロジェクト一覧(タイトルのリンクや「←」で行ける)を開いたら忘れる。
 let currentProjectHash = null;
 
@@ -68,7 +66,7 @@ function render() {
    for (const link of document.querySelectorAll('[data-nav]')) {
       link.classList.toggle('is-active', link.dataset.nav === route.name);
    }
-   if ([board, arrangement, references].includes(route.view) && route.name === 'projects') currentProjectHash = location.hash;
+   if ((route.view === board || route.view === arrangement) && route.name === 'projects') currentProjectHash = location.hash;
    else if (route.view === projectList) currentProjectHash = null;
    projectsLink.href = currentProjectHash ?? '#/';
 }

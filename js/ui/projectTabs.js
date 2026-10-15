@@ -1,16 +1,15 @@
-// プロジェクトの中の画面を切り替えるタブ(ボード / アレンジ / リファレンス)。テンプレートには出さない。
+// プロジェクトの中の画面を切り替えるタブ(ボード / アレンジ)。テンプレートには出さない。
 
 import { h, icon } from './components/dom.js';
 
 const TABS = [
    { key: 'board', label: 'ボード', icon: 'columns-3', href: (id) => `#/p/${encodeURIComponent(id)}` },
    { key: 'arrange', label: 'アレンジ', icon: 'audio-lines', href: (id) => `#/p/${encodeURIComponent(id)}/arrange` },
-   { key: 'refs', label: 'リファレンス', icon: 'music', href: (id) => `#/p/${encodeURIComponent(id)}/refs` },
 ];
 
 /**
  * @param {string} projectId
- * @param {'board'|'arrange'|'refs'} active
+ * @param {'board'|'arrange'} active
  */
 export function projectTabs(projectId, active) {
    return h('nav', { class: 'project-tabs', 'aria-label': '表示の切り替え' }, TABS.map((tab) => h('a', {

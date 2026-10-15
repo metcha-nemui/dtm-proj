@@ -32,18 +32,6 @@
    font-weight: 600;
 }
 
-@media (max-width: 720px) {
-   /* タブが3つあると、横に並べたときにプロジェクト名が潰れる。スマホでは2行目に回し、幅いっぱいに均等に並べる */
-   .board-toolbar .project-tabs {
-      flex-basis: 100%;
-   }
-
-   .board-toolbar .project-tab {
-      flex: 1;
-      justify-content: center;
-   }
-}
-
 /* ---- アレンジ画面 ---- */
 
 .arr-page {

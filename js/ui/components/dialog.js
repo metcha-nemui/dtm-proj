@@ -1,4 +1,4 @@
-// モーダルダイアログ(<dialog> 要素)。確認ダイアログと、簡単な入力フォーム。
+// モーダルダイアログ(<dialog> 要素)。確認ダイアログ、簡単な入力フォーム、見るだけのダイアログ。
 
 import { h } from './dom.js';
 
@@ -46,6 +46,20 @@ export function confirmDialog({ title, message, okLabel = 'OK', danger = false }
       h('button', { type: 'button', class: 'btn', onclick: () => close(false) }, 'キャンセル'),
       h('button', { type: 'submit', class: `btn ${danger ? 'btn-danger' : 'btn-primary'}`, autofocus: true }, okLabel)),
    )).then(Boolean);
+}
+
+/**
+ * 見るだけのダイアログ。ボタンは「閉じる」だけ。
+ * @param {{ title: string, body: Node }} options
+ * @returns {Promise<void>}
+ */
+export function viewDialog({ title, body }) {
+   return showDialog((close) => h('div', { class: 'dialog-form' },
+      h('h2', { class: 'dialog-title' }, title),
+      body,
+      h('div', { class: 'dialog-actions' },
+         h('button', { type: 'button', class: 'btn', autofocus: true, onclick: () => close(null) }, '閉じる')),
+   )).then(() => {});
 }
 
 function readValue(field, el) {

@@ -771,6 +771,25 @@
    background: var(--surface-2);
 }
 
+/* リファレンスの一覧(ボードのボタンから開くダイアログ。見るだけ) */
+.ref-dialog-list {
+   max-height: 60vh;
+   margin: 0;
+   padding: 0;
+   overflow-y: auto;
+   list-style: none;
+}
+
+.ref-dialog-list li {
+   padding: var(--space-2) 0;
+   border-bottom: 1px solid var(--border);
+   overflow-wrap: anywhere;
+}
+
+.ref-dialog-list li:last-child {
+   border-bottom: 0;
+}
+
 .segments {
    display: flex;
    border: 1px solid var(--border);
