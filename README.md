@@ -31,7 +31,7 @@ node -e "import('./test/domain.test.js').then(m => m.report()).then(ok => proces
 
 - **擬似ログイン**:ログイン画面で Supabase の Project URL と公開キー(anon / publishable key)を入力する。接続を確かめてから、入力値をそのブラウザの localStorage に保存する(`js/session.js`)。Supabase Auth によるユーザー認証はしていない。
 - **1つの Supabase プロジェクトを1人で使う前提**。Project URL と公開キーを知っていれば全データを読み書きできる。だから公開キーはリポジトリに入れず、人にも渡さない。
-- **テーブルの用意**:`supabase/schema.sql` を Supabase の SQL Editor に貼り付けて実行する(初回だけ。何度実行してもよい)。テーブルは、レコードを jsonb のまま入れる `records` と、`app_meta` の2つだけ。アプリ側で項目を足したり変えたりしても、実行し直す必要はない。
+- **テーブルの用意**:`supabase/schema.sql` を Supabase の SQL Editor に貼り付けて実行する(初回だけ。何度実行してもよい)。テーブルは、レコードを jsonb のまま入れる `records` と、`app_meta` の2つだけ。アプリ側で項目を足したり変えたりしても、実行し直す必要はない。空の状態から作り直したいときは、先に `supabase/drop.sql` を実行する(データはすべて消える)。
 - **データの形の変換は起動時に自動で行う**(保存先が Supabase でも IndexedDB でも同じ)。詳しくは「技術方針」。
 - **ログインせずに使う**こともできる。その場合の保存先はそのブラウザの IndexedDB。Supabase 側とは別のデータで、自動では移らない(移すには、エクスポートしてからログイン後にインポートする)。
 - **使い分け**:実際の作業の記録は Supabase に置く。Supabase の実データに触らずに試したいとき(画面の動作確認など)は、ログインせずに(IndexedDB で)使う。IndexedDB のデータは「そのブラウザの、そのURL(ポート番号を含む)」にしかない。
@@ -137,6 +137,7 @@ index.html
 test.html                 ドメインロジックのテストをブラウザで実行
 test/domain.test.js       テスト本体(Nodeでも動く)。Supabase 実装は、APIのふりをする fetch で確かめている
 supabase/schema.sql       Supabase のテーブル定義(SQL Editor に貼り付けて実行する)
+supabase/drop.sql         Supabase のテーブルをすべて消す(作り直す前に実行する。データも消える)
 css/
   tokens.css              色・余白などのCSS変数(ダークモード対応)
   base.css                共通部品(ボタン、入力、ダイアログ、メニュー、トースト)
@@ -212,7 +213,7 @@ Marker   { id, projectId, laneId, bar }              // セクションマーカ
 - **「次やる」ビュー**:各レーンの未完了タスクの先頭と作業中のタスクを横断して一覧にする。使ってみて欲しくなったら追加する。
 - **Supabase に乗り換える**(以前の、項目ごとに列を持つテーブルで作ってある場合):
    1. ローカル(IndexedDB)か古い Supabase から JSON をエクスポートしておく。
-   2. `supabase/schema.sql` の冒頭にある `drop table` を実行してから、`schema.sql` を実行する(古いテーブルのデータは消える)。
+   2. SQL Editor で `supabase/drop.sql` を貼り付けて実行し、続けて `supabase/schema.sql` を貼り付けて実行する(古いテーブルのデータは消える)。
    3. ログイン → インポート。
 - **GitHub Pages でのホスト**:GitHub にリポジトリを作って push し、Settings → Pages で `main` ブランチのルートを公開する。ビルドは不要。
 - **速度と通信の改善**:Supabase では1操作あたりの通信回数が多い。読み直しを減らす(手元の状態を先に更新する)、オフライン時に書き込みをキューに貯めて再送する、など。

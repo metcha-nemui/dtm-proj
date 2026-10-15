@@ -10,15 +10,8 @@
 --   データの形の変換は、アプリが起動時に行う(app_meta の schemaVersion を見る。変換前のデータは
 --   app_meta の 'backup:v{旧バージョン}:{日時}' に残す)。
 -- ・参照の整合(レーンを消したらタスクも消す、など)と値の検証は、アプリ側で行う。外部キーや制約は持たない。
-
---
--- 【以前の定義(項目ごとに列を持つテーブル)で作ってある場合】
--- 次の文を先に実行して古いテーブルを消してから、このファイルを実行する(データは消える。
--- 残したいデータは、先に古いアプリでエクスポートしておき、あとでインポートする)。
---
---    drop table if exists public.markers, public.clips, public.tracks,
---       public.tasks, public.lanes, public.projects, public.template_tasks,
---       public.section_kinds, public.structure_templates, public.templates, public.app_meta cascade;
+-- ・以前の定義(項目ごとに列を持つテーブル)で作ってあるときや、空の状態から作り直したいときは、
+--   先に drop.sql を実行してから、このファイルを実行する(データは消える)。
 
 create table if not exists public.records (
    collection text not null,
