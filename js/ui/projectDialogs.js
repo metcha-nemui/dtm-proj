@@ -23,8 +23,9 @@ export async function newProjectDialog(templateId) {
             name: 'templateId',
             label: 'テンプレート',
             type: 'select',
-            value: templateId ?? templates[0]?.id ?? '',
-            options: [...templates.map((t) => ({ value: t.id, label: t.title })), { value: '', label: '(テンプレートなし)' }],
+            // テンプレートのボードから開いたときだけそのテンプレートを選んでおく。それ以外は意図しない取り込みを避けて「なし」から始める
+            value: templateId ?? '',
+            options: [{ value: '', label: '(テンプレートなし)' }, ...templates.map((t) => ({ value: t.id, label: t.title }))],
          },
       ],
    });
