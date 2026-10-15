@@ -24,6 +24,7 @@
   ```
 
 - `js/domain/` を変えたら `test/domain.test.js` にテストを足す。画面の変更は、実際にブラウザで操作して確かめる(この環境には Chrome と Edge がある)。
+- ヘッドレス Chrome などで確かめたあとは、確認のために起動したプロセスだけを終了する(コマンドラインの `--remote-debugging-port` や `--user-data-dir`、`http.server` のポートで見分ける)。`taskkill /IM chrome.exe` のようにプロセス名でまとめて終了すると、ユーザーが普段使っているブラウザまで閉じてしまうので、しない。
 
 ## コーディング規約
 
