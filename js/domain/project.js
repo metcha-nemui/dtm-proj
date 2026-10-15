@@ -183,7 +183,7 @@ export function addSection({ projectId, lanes, index, name, source = null }) {
 }
 
 /**
- * レーンをタスクごと複製し、元のレーンの直後に置く。ステータスは未着手に戻し、メモは引き継ぐ。
+ * レーンをタスクごと複製し、元のレーンの直後に置く。ステータスは未着手に戻し、メモとリファレンスは引き継ぐ。
  * @returns {{ lane: object, lanes: object[], tasks: object[] }}
  */
 export function duplicateLane(laneId, lanes, tasks) {
@@ -200,7 +200,8 @@ export function duplicateLane(laneId, lanes, tasks) {
    return {
       lane,
       lanes: changed.map((l) => (l.id === lane.id ? l : touch(l))),
-      tasks: tasks.filter((t) => t.laneId === laneId).map((t) => copyTask(t, lane)),
+      // 同じプロジェクトの中のコピーなので、リファレンスも引き継ぐ
+      tasks: tasks.filter((t) => t.laneId === laneId).map((t) => copyTask(t, lane, { keepReferences: true })),
    };
 }
 

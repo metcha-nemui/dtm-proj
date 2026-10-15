@@ -51,6 +51,7 @@ const UNTRACKED_VERSION = 6;
  * @property {string|null} doneAt
  * @property {string|null} startDate 開始日(YYYY-MM-DD)。なければ null。テンプレートでは使わない(常に null)
  * @property {string|null} endDate 終了日(YYYY-MM-DD)。なければ null。テンプレートでは使わない(常に null)
+ * @property {string[]} [references] リファレンス(参考にする楽曲の曲名)。項目がなければなし。テンプレートでは使わない(常に空)
  * @property {string} createdAt
  * @property {string} updatedAt
  */

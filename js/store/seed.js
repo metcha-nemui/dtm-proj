@@ -63,6 +63,7 @@ export function buildSeed(now = new Date().toISOString()) {
             doneAt: null,
             startDate: null,
             endDate: null,
+            references: [],
             ...stamp,
          }));
       };

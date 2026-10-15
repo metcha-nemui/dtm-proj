@@ -13,6 +13,9 @@ import {
    addSection, assertSection, colorsInOrder, createProject, createTemplate, daysUntilDue, duplicateLane, moveLane,
    normalizeDueDate, renameLane, SECTION_COLORS, sectionColors, uniqueLaneName, updateProject,
 } from '../js/domain/project.js';
+import {
+   canonicalizeReference, cleanReferences, collectReferences, normalizeReference, suggestReferences,
+} from '../js/domain/reference.js';
 import { isFinished, summarize, summarizeByLane } from '../js/domain/stats.js';
 import {
    addTask, cycleStatus, isValidPeriod, moveTask, setStatus, updateTask,
@@ -435,6 +438,70 @@ test('開始日と終了日: コピーには引き継がない(テンプレー�
    const source = { lane: chorus, tasks: dated.filter((t) => t.laneId === chorus.id) };
    assert(noDates(addSection({ projectId: project.id, lanes, source }).tasks), 'セクションの取り込み');
    assert(noDates(buildSeed().tasks), '初期データ');
+});
+
+// ---- reference ----
+
+test('normalizeReference: 全角・半角、大文字・小文字、空白、記号の違いを無視する', () => {
+   equal(normalizeReference('ｱｲﾄﾞﾙ'), normalizeReference('アイドル'));
+   equal(normalizeReference(' Ｂｏｈｅｍｉａｎ  Rhapsody '), 'bohemianrhapsody');
+   equal(normalizeReference("Don't Stop Me Now!"), normalizeReference('dont stop me now'));
+   equal(normalizeReference('!!!'), '!!!', '記号だけなら記号を残す');
+   equal(normalizeReference('  '), '');
+});
+
+test('cleanReferences: 空と、表記の違いだけで同じものを落とす(先に出た表記を残す)', () => {
+   equal(cleanReferences([' 夜に駆ける ', '', '夜に駆ける', 'Lemon', 'lemon', '   ']), ['夜に駆ける', 'Lemon']);
+   equal(cleanReferences(undefined), []);
+});
+
+test('collectReferences: プロジェクトの曲名を、よく使う順にまとめる', () => {
+   const tasks = [
+      { references: ['Lemon', '夜に駆ける'] },
+      { references: ['lemon'] },
+      {},
+      { references: ['アイドル', 'ＬＥＭＯＮ'] },
+   ];
+   equal(collectReferences(tasks), ['Lemon', 'アイドル', '夜に駆ける']);
+});
+
+test('suggestReferences: 前方一致を先に、部分一致を後に。付いているものは出さない', () => {
+   const known = ['Lemon', 'アイドル', 'Pale Blue', 'Blue Bird'];
+   equal(suggestReferences('blue', known), ['Blue Bird', 'Pale Blue']);
+   equal(suggestReferences('ｱｲ', known), ['アイドル']);
+   equal(suggestReferences('', known, ['lemon']), ['アイドル', 'Pale Blue', 'Blue Bird']);
+   equal(suggestReferences('zzz', known), []);
+});
+
+test('canonicalizeReference: 表記の違いだけなら既存の表記に揃える', () => {
+   const known = ['アイドル', 'Lemon'];
+   equal(canonicalizeReference('ｱｲﾄﾞﾙ', known), 'アイドル');
+   equal(canonicalizeReference(' LEMON ', known), 'Lemon');
+   equal(canonicalizeReference(' 新しい曲 ', known), '新しい曲');
+});
+
+test('updateTask: リファレンスを整えて保存する', () => {
+   const { tasks } = fixture();
+   equal(tasks[0].references, [], '初めはなし');
+   equal(updateTask(tasks[0], { references: [' Lemon ', 'lemon', ''] }).references, ['Lemon']);
+   equal(updateTask(tasks[0], { title: 'y' }).references, [], '他の項目だけ編集しても変わらない');
+});
+
+test('リファレンス: セクションの複製では引き継ぎ、テンプレートとのやり取りでは引き継がない', () => {
+   const { project, lanes, tasks } = fixture();
+   const withRefs = tasks.map((t) => updateTask(t, { references: ['Lemon'] }));
+   const none = (list) => list.length > 0 && list.every((t) => t.references.length === 0);
+   assert(none(createTemplate({ name: '型' }, { lanes, tasks: withRefs }).tasks), 'テンプレートとして保存');
+   assert(none(createProject({ title: 'x' }, { lanes, tasks: withRefs }).tasks), 'テンプレートから作成');
+   const chorus = lanes.find((l) => l.name === 'サビ');
+   const source = { lane: chorus, tasks: withRefs.filter((t) => t.laneId === chorus.id) };
+   assert(none(addSection({ projectId: project.id, lanes, source }).tasks), 'セクションの取り込み');
+   const dup = duplicateLane(chorus.id, lanes, withRefs).tasks;
+   assert(dup.length > 0 && dup.every((t) => t.references[0] === 'Lemon'), 'セクションの複製');
+   assert(dup[0].references !== source.tasks[0].references, '配列は共有しない');
+   // リファレンスを持つ前に作ったタスク(項目がない)でも複製できる
+   const { references, ...old } = tasks.find((t) => t.laneId === chorus.id);
+   equal(duplicateLane(chorus.id, lanes, [old]).tasks[0].references, []);
 });
 
 // ---- deadline ----

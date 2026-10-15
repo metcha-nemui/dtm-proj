@@ -687,6 +687,90 @@
    min-width: 0;
 }
 
+/* リファレンス:付いている曲名のチップと、その下の入力欄(候補は入力欄の下に重ねて出す) */
+.ref-field {
+   display: flex;
+   flex-direction: column;
+   gap: var(--space-2);
+}
+
+.ref-chips {
+   display: flex;
+   flex-wrap: wrap;
+   gap: var(--space-1);
+   margin: 0;
+   padding: 0;
+   list-style: none;
+}
+
+.ref-chip {
+   display: inline-flex;
+   align-items: center;
+   gap: 2px;
+   max-width: 100%;
+   padding: 2px 2px 2px var(--space-2);
+   border-radius: 999px;
+   background: var(--accent-soft);
+   font-size: 13px;
+}
+
+.ref-chip-name {
+   overflow: hidden;
+   text-overflow: ellipsis;
+   white-space: nowrap;
+}
+
+.ref-chip-remove {
+   flex: none;
+   display: inline-flex;
+   padding: 2px;
+   border: 0;
+   border-radius: 999px;
+   background: transparent;
+   color: var(--text-muted);
+   cursor: pointer;
+}
+
+.ref-chip-remove:hover {
+   background: var(--surface);
+   color: var(--text);
+}
+
+.ref-input {
+   position: relative;
+}
+
+.ref-suggestions {
+   position: absolute;
+   top: calc(100% + 2px);
+   left: 0;
+   right: 0;
+   z-index: 1;
+   max-height: 240px;
+   margin: 0;
+   padding: var(--space-1);
+   overflow-y: auto;
+   border: 1px solid var(--border);
+   border-radius: var(--radius);
+   background: var(--surface);
+   box-shadow: var(--shadow-2);
+   list-style: none;
+}
+
+.ref-suggestion {
+   padding: 6px var(--space-3);
+   border-radius: var(--radius-sm);
+   cursor: pointer;
+   overflow: hidden;
+   text-overflow: ellipsis;
+   white-space: nowrap;
+}
+
+.ref-suggestion:hover,
+.ref-suggestion[aria-selected="true"] {
+   background: var(--surface-2);
+}
+
 .segments {
    display: flex;
    border: 1px solid var(--border);

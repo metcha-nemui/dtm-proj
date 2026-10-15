@@ -4,6 +4,7 @@
 import { normalizeDate, toDateString } from './date.js';
 import { orderAtEnd, placeAt } from './order.js';
 import { newRecord, touch } from './record.js';
+import { cleanReferences } from './reference.js';
 
 export const STATUSES = ['todo', 'doing', 'done'];
 export const STATUS_LABELS = { todo: '未着手', doing: '作業中', done: '完了' };
@@ -19,6 +20,7 @@ function newTask(lane, fields) {
       doneAt: null,
       startDate: null,
       endDate: null,
+      references: [],
       ...fields,
    });
 }
@@ -33,12 +35,15 @@ export function addTask(lane, laneTasks, title) {
 /**
  * タスクをコピーする(レーンの複製、テンプレートとのやり取り用)。ステータスは未着手に戻し、メモは引き継ぐ。
  * 開始日・終了日は引き継がない。日付は作業の実績で、未着手に戻したコピーには当てはまらないため。
+ * リファレンスは曲ごとのものなので、ふつうは引き継がない(テンプレートに入れない)。
+ * 同じプロジェクトの中でのコピー(セクションの複製)だけ、keepReferences で引き継ぐ。
  */
-export function copyTask(task, lane) {
+export function copyTask(task, lane, { keepReferences = false } = {}) {
    return newTask(lane, {
       title: task.title,
       memo: task.memo,
       order: task.order,
+      references: keepReferences ? [...(task.references ?? [])] : [],
    });
 }
 
@@ -48,7 +53,8 @@ export function isValidPeriod(startDate, endDate) {
 }
 
 /**
- * タイトル・メモ・開始日・終了日を編集する。日付は 'YYYY-MM-DD'。空や不正な日付は null(日付なし)。
+ * タイトル・メモ・開始日・終了日・リファレンスを編集する。日付は 'YYYY-MM-DD'。空や不正な日付は null(日付なし)。
+ * リファレンスは曲名の配列で、空のものと、表記の違いだけで同じものは落とす。
  * 日付は実績(着手した日・終わった日)で、ふつうは setStatus が入れる。ここでは、その修正だけを受け付ける。
  * だから、未着手のタスクに開始日は入れられず、完了していないタスクに終了日は入れられない。
  */
@@ -60,6 +66,7 @@ export function updateTask(task, patch) {
       next.title = title;
    }
    if ('memo' in patch) next.memo = patch.memo;
+   if ('references' in patch) next.references = cleanReferences(patch.references);
    if ('startDate' in patch) next.startDate = normalizeDate(patch.startDate);
    if ('endDate' in patch) next.endDate = normalizeDate(patch.endDate);
    if (next.startDate && task.status === 'todo') throw new Error('未着手のタスクに開始日は入れられません');
