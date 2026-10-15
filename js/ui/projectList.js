@@ -5,6 +5,7 @@ import { repo, subscribe } from '../state.js';
 import { h, icon, progressBar } from './components/dom.js';
 import { openMenu } from './components/menu.js';
 import { reportError } from './components/toast.js';
+import { renderDeadlinePanel } from './deadlinePanel.js';
 import { dueBadge } from './dueBadge.js';
 import { deleteProjectDialog, editProjectDialog, newProjectDialog } from './projectDialogs.js';
 
@@ -35,6 +36,8 @@ function projectCard(project, stats) {
 
 export function mount(container) {
    const grid = h('div', { class: 'project-grid' });
+   // 締切パネルの差し込み口。締切のある未完了のプロジェクトがなければ空のまま
+   const deadlines = h('div', { class: 'deadline-slot' });
    const create = () => newProjectDialog()
       .then((project) => { if (project) location.hash = `#/p/${project.id}`; })
       .catch(reportError);
@@ -43,6 +46,7 @@ export function mount(container) {
       h('div', { class: 'page-head' },
          h('h1', { class: 'page-title' }, 'プロジェクト'),
          h('button', { type: 'button', class: 'btn btn-primary', onclick: create }, icon('plus'), '新規プロジェクト')),
+      deadlines,
       grid));
 
    let alive = true;
@@ -50,8 +54,9 @@ export function mount(container) {
       const projects = await repo().getProjects();
       const stats = await Promise.all(projects.map(async (p) => summarize(await repo().getTasks(p.id))));
       if (!alive) return;
-      const cards = projects
-         .map((project, i) => ({ project, stats: stats[i] }))
+      const items = projects.map((project, i) => ({ project, stats: stats[i] }));
+      deadlines.replaceChildren(...[renderDeadlinePanel(items)].filter(Boolean));
+      const cards = [...items]
          .sort((a, b) => (a.project.updatedAt < b.project.updatedAt ? 1 : -1))
          .map(({ project, stats: s }) => projectCard(project, s));
       grid.replaceChildren(...(cards.length ? cards : [

@@ -14,6 +14,11 @@ export function summarize(tasks) {
    return stats;
 }
 
+/** すべてのタスクが完了しているか。タスクが1件もなければ完了とはみなさない。 */
+export function isFinished(stats) {
+   return stats.total > 0 && stats.done === stats.total;
+}
+
 /** レーンIDごとの集計を Map で返す。 */
 export function summarizeByLane(lanes, tasks) {
    return new Map(lanes.map((lane) => [lane.id, summarize(tasks.filter((t) => t.laneId === lane.id))]));

@@ -6,13 +6,14 @@ import {
    updateClip, updateMarker,
 } from '../js/domain/arrangement.js';
 import { addDays, daysBetween, toDateString } from '../js/domain/date.js';
+import { deadlineRange, deadlineRows } from '../js/domain/deadline.js';
 import { ganttRange, ganttRows } from '../js/domain/gantt.js';
 import { orderAtEnd, orderBetween, placeAt, reorder, sortByOrder } from '../js/domain/order.js';
 import {
    addSection, assertSection, colorsInOrder, createProject, createTemplate, daysUntilDue, duplicateLane, moveLane,
    normalizeDueDate, renameLane, SECTION_COLORS, sectionColors, uniqueLaneName, updateProject,
 } from '../js/domain/project.js';
-import { summarize, summarizeByLane } from '../js/domain/stats.js';
+import { isFinished, summarize, summarizeByLane } from '../js/domain/stats.js';
 import {
    addTask, cycleStatus, isValidPeriod, moveTask, setStatus, updateTask,
 } from '../js/domain/task.js';
@@ -434,6 +435,40 @@ test('開始日と終了日: コピーには引き継がない(テンプレー�
    const source = { lane: chorus, tasks: dated.filter((t) => t.laneId === chorus.id) };
    assert(noDates(addSection({ projectId: project.id, lanes, source }).tasks), 'セクションの取り込み');
    assert(noDates(buildSeed().tasks), '初期データ');
+});
+
+// ---- deadline ----
+
+test('isFinished: タスクがあり、すべて完了しているときだけ', () => {
+   equal([
+      isFinished({ total: 3, done: 3 }),
+      isFinished({ total: 3, done: 2 }),
+      isFinished({ total: 0, done: 0 }),
+   ], [true, false, false]);
+});
+
+test('deadlineRows: 締切のある未完了のプロジェクトを、締切の早い順に(同じ日はタイトル順)', () => {
+   const open = { total: 4, done: 1 };
+   const item = (title, dueDate, stats = open) => ({ project: { id: title, title, dueDate }, stats });
+   const items = [
+      item('さくら', '2026-10-20'),
+      item('締切なし', null),
+      item('完了済み', '2026-10-14', { total: 2, done: 2 }),
+      item('あおぞら', '2026-10-20'),
+      item('過ぎた', '2026-10-10'),
+      item('空のプロジェクト', '2026-11-01', { total: 0, done: 0 }),
+   ];
+   const rows = deadlineRows(items, '2026-10-15');
+   equal(rows.map((r) => [r.project.title, r.days]),
+      [['過ぎた', -5], ['あおぞら', 5], ['さくら', 5], ['空のプロジェクト', 17]]);
+   equal(deadlineRows([item('完了済み', '2026-10-14', { total: 1, done: 1 })], '2026-10-15'), [], '出すものがなければ空');
+});
+
+test('deadlineRange: 今日と全締切のうち、いちばん早い日からいちばん遅い日まで(前後に余白)', () => {
+   const row = (dueDate) => ({ project: { dueDate } });
+   equal(deadlineRange([row('2026-10-20'), row('2026-11-01')], '2026-10-15'), { from: '2026-10-12', days: 24 });
+   equal(deadlineRange([row('2026-10-10')], '2026-10-15'), { from: '2026-10-07', days: 12 }, '過ぎた締切も入れる');
+   equal(deadlineRange([row('2026-10-15')], '2026-10-15'), { from: '2026-10-12', days: 7 }, '今日が締切');
 });
 
 // ---- date / gantt ----
