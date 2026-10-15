@@ -14,7 +14,7 @@ import {
    normalizeDueDate, renameLane, SECTION_COLORS, sectionColors, uniqueLaneName, updateProject,
 } from '../js/domain/project.js';
 import {
-   canonicalizeReference, cleanReferences, collectReferences, normalizeReference, suggestReferences,
+   canonicalizeReference, cleanReferences, collectReferences, listReferences, normalizeReference, suggestReferences,
 } from '../js/domain/reference.js';
 import { isFinished, summarize, summarizeByLane } from '../js/domain/stats.js';
 import {
@@ -463,6 +463,16 @@ test('collectReferences: プロジェクトの曲名を、よく使う順にま�
       { references: ['アイドル', 'ＬＥＭＯＮ'] },
    ];
    equal(collectReferences(tasks), ['Lemon', 'アイドル', '夜に駆ける']);
+});
+
+test('listReferences: 一覧の画面には、まとめた曲名を名前順に出す', () => {
+   const tasks = [
+      { references: ['夜に駆ける', 'Lemon'] },
+      { references: ['lemon', 'アイドル'] },
+      {},
+   ];
+   equal(listReferences(tasks), ['Lemon', 'アイドル', '夜に駆ける']);
+   equal(listReferences([]), []);
 });
 
 test('suggestReferences: 前方一致を先に、部分一致を後に。付いているものは出さない', () => {

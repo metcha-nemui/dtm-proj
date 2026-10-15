@@ -51,6 +51,15 @@ export function collectReferences(tasks) {
 }
 
 /**
+ * リファレンス一覧の画面に出す曲名。collectReferences と同じくまとめ、名前順に並べる。
+ * @param {object[]} tasks
+ * @returns {string[]}
+ */
+export function listReferences(tasks) {
+   return collectReferences(tasks).sort((a, b) => a.localeCompare(b, 'ja'));
+}
+
+/**
  * 入力に合う候補。比べる形で入力を含むものを、前方一致を先に出す(それぞれの中では known の順)。
  * exclude(そのタスクに付いているもの)は出さない。入力が空なら、known をそのまま出す。
  * @param {string} input
