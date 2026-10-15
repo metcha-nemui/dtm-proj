@@ -9,12 +9,12 @@ import { repo, subscribe } from '../state.js';
 import { h, icon } from './components/dom.js';
 import { reportError, showToast } from './components/toast.js';
 
+const SUGGESTION_LIMIT = 8; // リファレンスの候補を一度に出す数
+
 /**
  * @param {string} projectId
  * @param {{ onSelectionChange?: (taskId: string|null) => void }} [options]
  */
-const SUGGESTION_LIMIT = 8; // リファレンスの候補を一度に出す数
-
 export function createTaskDrawer(projectId, { onSelectionChange } = {}) {
    let task = null; // 表示中のタスク(最後に読み込んだ、または保存した状態)
    let knownReferences = []; // プロジェクトのタスクに付いている曲名(候補の元)
