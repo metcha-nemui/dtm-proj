@@ -1,5 +1,7 @@
-// repository のインターフェース定義。
-// UIとドメインロジックはここで定義したメソッドだけを使う。実装は indexeddb.js と supabase.js。
+// repository のインターフェース定義と、その共通の実装。
+// UIとドメインロジックはここで定義したメソッドだけを使う。
+// 保存先ごとの実装(indexeddb.js と supabase.js)は「文書ストア」(DocumentStore)の基本操作だけを持ち、
+// repository はその上に createRepository で1回だけ組み立てる。連鎖削除やスキーマの変換を二重に持たないため。
 // すべて非同期(Promise)で、実装を差し替えてもシグネチャは変えない。
 
 // v4: テンプレートをプロジェクトと同じ形(isTemplate の付いたプロジェクト)で持つようにし、
@@ -8,6 +10,8 @@
 // v6: アレンジ(トラック・クリップ・マーカー)を足した。v4・v5 のデータは、アレンジなしとして読み込む。
 export const SCHEMA_VERSION = 6;
 const OLDEST_READABLE_VERSION = 4;
+// 保存先に schemaVersion を記録し始めたときのバージョン。記録がない保存先は、このバージョンのデータとみなす
+const UNTRACKED_VERSION = 6;
 
 /**
  * プロジェクトも、テンプレートも Project として扱う。テンプレートは「ステータスを使わないプロジェクト」で、
@@ -141,6 +145,20 @@ const OLDEST_READABLE_VERSION = 4;
  * @property {(json: string|object) => Promise<void>} importAll 既存データをすべて置き換える
  */
 
+/**
+ * 保存先ごとに用意する基本操作。レコードは JSON のまま出し入れし、項目の形は知らない
+ * (項目を足したり変えたりしても、保存先の作り直しが要らないようにするため)。
+ * filter は1項目の一致だけ。使う項目は id、projectId、laneId、trackId。
+ * @typedef {Object} DocumentStore
+ * @property {(collection: string, filter?: Object<string, string>) => Promise<Object[]>} find filter がなければ全件
+ * @property {(collection: string, id: string) => Promise<Object|null>} get
+ * @property {(collection: string, records: Object[]) => Promise<void>} put あれば上書き、なければ追加
+ * @property {(collection: string, filter: Object<string, string>) => Promise<void>} remove
+ * @property {(key: string) => Promise<any>} getMeta
+ * @property {(key: string, value: any) => Promise<void>} setMeta
+ * @property {(data: ExportData) => Promise<void>} replaceAll 全コレクションの中身を data に置き換える
+ */
+
 export const COLLECTIONS = ['projects', 'lanes', 'tasks', 'tracks', 'clips', 'markers'];
 
 const METHODS = [
@@ -159,6 +177,120 @@ export function assertRepository(impl) {
    const missing = METHODS.filter((name) => typeof impl?.[name] !== 'function');
    if (missing.length) throw new Error(`repository に未実装のメソッドがあります: ${missing.join(', ')}`);
    return impl;
+}
+
+/**
+ * 文書ストアの上に repository を組み立てる。
+ * @param {DocumentStore} store
+ * @returns {Repository}
+ */
+export function createRepository(store) {
+   const ofProject = (name) => (projectId) => store.find(name, { projectId });
+   const saveOne = (name) => (record) => store.put(name, [record]);
+   const saveMany = (name) => (records) => store.put(name, records);
+   const removeById = (name) => (id) => store.remove(name, { id });
+   // 子を先に消し、親は最後に消す。途中で失敗しても親が残るので、もう一度消せば揃う
+   // (先に親を消すと、どこからも見えない子が残り、進捗の集計などに混ざる)
+   const removeWithChildren = async (name, id, children) => {
+      await Promise.all(children.map(([child, field]) => store.remove(child, { [field]: id })));
+      await store.remove(name, { id });
+   };
+
+   return assertRepository({
+      // プロジェクトとテンプレートは同じコレクションに入っている(件数が少ないので、読んでから振り分ける)
+      getProjects: async () => (await store.find('projects')).filter((p) => !p.isTemplate),
+      getTemplates: async () => (await store.find('projects')).filter((p) => p.isTemplate),
+      getProject: (id) => store.get('projects', id),
+      saveProject: saveOne('projects'),
+      deleteProject: (id) => removeWithChildren('projects', id,
+         COLLECTIONS.filter((name) => name !== 'projects').map((name) => [name, 'projectId'])),
+
+      getLanes: ofProject('lanes'),
+      saveLane: saveOne('lanes'),
+      saveLanes: saveMany('lanes'),
+      deleteLane: (id) => removeWithChildren('lanes', id, [['tasks', 'laneId'], ['markers', 'laneId']]),
+
+      getTasks: ofProject('tasks'),
+      saveTask: saveOne('tasks'),
+      saveTasks: saveMany('tasks'),
+      deleteTask: removeById('tasks'),
+
+      getTracks: ofProject('tracks'),
+      saveTrack: saveOne('tracks'),
+      saveTracks: saveMany('tracks'),
+      deleteTrack: (id) => removeWithChildren('tracks', id, [['clips', 'trackId']]),
+
+      getClips: ofProject('clips'),
+      saveClip: saveOne('clips'),
+      saveClips: saveMany('clips'),
+      deleteClip: removeById('clips'),
+
+      getMarkers: ofProject('markers'),
+      saveMarker: saveOne('markers'),
+      saveMarkers: saveMany('markers'),
+      deleteMarker: removeById('markers'),
+
+      getMeta: (key) => store.getMeta(key),
+      setMeta: (key, value) => store.setMeta(key, value),
+
+      async exportAll() {
+         const lists = await Promise.all(COLLECTIONS.map((name) => store.find(name)));
+         const data = { schemaVersion: SCHEMA_VERSION, exportedAt: new Date().toISOString() };
+         COLLECTIONS.forEach((name, i) => { data[name] = lists[i]; });
+         return data;
+      },
+
+      async importAll(json) {
+         await store.replaceAll(migrate(json));
+         // インポート後に初期データを重ねて投入しないようにする
+         await store.setMeta('seeded', true);
+      },
+   });
+}
+
+// ---- 保存先のスキーマバージョン ----
+// 保存先には、データ全体で1つの schemaVersion を記録する(meta の 'schemaVersion')。
+// アプリより古ければ起動時に変換して保存し直し、新しければ書き込ませずに止める。
+
+/** 保存先のデータがアプリより新しい(古いアプリが開いたままになっている、など)。 */
+export class NewerSchemaError extends Error {
+   constructor(version) {
+      super(`データがこのアプリより新しい形式になっています(schemaVersion ${version})。ページを再読み込みしてください`);
+      this.name = 'NewerSchemaError';
+   }
+}
+
+/**
+ * 保存先のスキーマバージョンを確かめる。アプリより新しければ NewerSchemaError で失敗する。
+ * @param {Repository} repository
+ * @returns {Promise<number>} 保存先のバージョン
+ */
+export async function checkSchema(repository) {
+   return notNewer((await repository.getMeta('schemaVersion')) ?? UNTRACKED_VERSION);
+}
+
+function notNewer(version) {
+   if (version > SCHEMA_VERSION) throw new NewerSchemaError(version);
+   return version;
+}
+
+/**
+ * 起動時に呼ぶ。保存先のデータが古ければ、変換前の全データを meta にバックアップしてから、
+ * 現在の形に変換して保存し直す。変換に失敗してもバージョンは上げないので、次の起動でやり直される。
+ * @param {Repository} repository
+ * @returns {Promise<boolean>} 変換したら true
+ */
+export async function upgradeStorage(repository) {
+   const recorded = await repository.getMeta('schemaVersion');
+   const version = notNewer(recorded ?? UNTRACKED_VERSION);
+   if (version < SCHEMA_VERSION) {
+      // exportAll は現在のバージョンを名乗るので、保存先の実際のバージョンに付け替える
+      const snapshot = { ...(await repository.exportAll()), schemaVersion: version };
+      await repository.setMeta(`backup:v${version}:${snapshot.exportedAt}`, snapshot);
+      await repository.importAll(snapshot);
+   }
+   if (recorded !== SCHEMA_VERSION) await repository.setMeta('schemaVersion', SCHEMA_VERSION);
+   return version < SCHEMA_VERSION;
 }
 
 /**

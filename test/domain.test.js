@@ -19,7 +19,7 @@ import {
 import { normalizeProjectUrl } from '../js/session.js';
 import { buildSeed, ensureSeeded } from '../js/store/seed.js';
 import { checkConnection, createSupabaseRepository, fromRow, toRow } from '../js/store/supabase.js';
-import { migrate, SCHEMA_VERSION } from '../js/store/repository.js';
+import { checkSchema, migrate, NewerSchemaError, SCHEMA_VERSION, upgradeStorage } from '../js/store/repository.js';
 
 const tests = [];
 const test = (name, fn) => tests.push({ name, fn });
@@ -634,11 +634,18 @@ test('migrate: テンプレートの持ち方を変える前のデータは読�
 // ---- store: Supabase 実装 ----
 
 // Supabase の REST API(PostgREST)のふりをする fetch。テーブルをメモリに持ち、
-// supabase.js が使う機能(eq / not.is.null の絞り込み、limit と offset、upsert、delete)だけに応える。
-// 外部キーの cascade など、データベース側の動きは再現しない。
+// supabase.js が使う機能(eq / in の絞り込み、data->>項目 の絞り込み、limit と offset、upsert、delete)だけに応える。
 function fakeSupabase({ key = 'KEY', failWith = null } = {}) {
    const tables = {};
    const respond = (status, body) => ({ ok: status < 400, status, json: async () => body });
+   const keyOf = (table, row) => (table === 'app_meta' ? row.key : `${row.collection}/${row.id}`);
+   const valueOf = (row, column) => (column.startsWith('data->>') ? row.data?.[column.slice(7)] : row[column]);
+   const satisfies = (value, condition) => {
+      if (condition.startsWith('in.(')) {
+         return condition.slice(4, -1).split(',').map((v) => v.replace(/^"|"$/g, '')).includes(String(value));
+      }
+      return String(value) === condition.replace(/^eq\./, '');
+   };
    const fetchImpl = async (input, { method, headers, body }) => {
       const url = new URL(input);
       const table = url.pathname.split('/').pop();
@@ -647,21 +654,20 @@ function fakeSupabase({ key = 'KEY', failWith = null } = {}) {
       }
       if (failWith) return respond(failWith.status, failWith.body);
 
-      const pk = table === 'app_meta' ? 'key' : 'id';
       const rows = (tables[table] ??= []);
       const options = ['select', 'order', 'limit', 'offset'];
-      const matches = (row) => [...url.searchParams].every(([column, condition]) => options.includes(column)
-         || (condition === 'not.is.null' ? row[column] != null : String(row[column]) === condition.replace(/^eq\./, '')));
+      const matches = (row) => [...url.searchParams]
+         .every(([column, condition]) => options.includes(column) || satisfies(valueOf(row, column), condition));
 
       if (method === 'GET') {
          const offset = Number(url.searchParams.get('offset') ?? 0);
          const limit = Number(url.searchParams.get('limit') ?? 1000);
-         const found = rows.filter(matches).sort((a, b) => (a[pk] < b[pk] ? -1 : 1));
+         const found = rows.filter(matches).sort((a, b) => (keyOf(table, a) < keyOf(table, b) ? -1 : 1));
          return respond(200, found.slice(offset, offset + limit));
       }
       if (method === 'POST') {
          for (const row of JSON.parse(body)) {
-            const i = rows.findIndex((r) => r[pk] === row[pk]);
+            const i = rows.findIndex((r) => keyOf(table, r) === keyOf(table, row));
             if (i >= 0) rows[i] = { ...rows[i], ...row };
             else rows.push(row);
          }
@@ -676,37 +682,24 @@ function fakeSupabase({ key = 'KEY', failWith = null } = {}) {
    return { tables, repository: createSupabaseRepository({ url: 'https://example.supabase.co', key: 'KEY' }, fetchImpl) };
 }
 
-test('supabase: 列名の対応(camelCase ↔ snake_case、order ↔ sort_order)と日時の形', () => {
-   const { project, lanes, tasks } = createProject({ title: 'x', dueDate: '2026-10-31' }, template('vocal'));
-   const row = toRow(tasks[0]);
-   equal(Object.keys(row).sort(), ['created_at', 'done_at', 'end_date', 'id', 'lane_id', 'memo', 'project_id',
-      'sort_order', 'start_date', 'status', 'title', 'updated_at']);
-   const dated = setStatus(tasks[0], 'done');
-   equal(fromRow(toRow(dated)), dated, '開始日と終了日は日付のまま往復する');
-   equal(fromRow(row), tasks[0], '往復しても変わらない');
-   equal(Object.keys(toRow(project)).sort(), ['created_at', 'due_date', 'id', 'is_template', 'memo', 'title', 'updated_at']);
-   equal(Object.keys(toRow(lanes[0])).sort(), ['collapsed', 'created_at', 'id', 'name', 'project_id', 'sort_order', 'type', 'updated_at']);
-   // データベースは日時を +00:00 の形で返す。IndexedDB 実装と同じ …Z に揃える
-   const { synth, a } = arrangementFixture();
-   equal(Object.keys(toRow(synth)).sort(), ['created_at', 'id', 'name', 'project_id', 'sort_order', 'updated_at']);
-   equal(Object.keys(toRow(a)).sort(), ['bars', 'created_at', 'id', 'memo', 'name', 'project_id', 'start_bar', 'track_id',
-      'updated_at']);
-   equal(fromRow(toRow(a)), a, 'クリップも往復する');
-   equal(Object.keys(toRow(addMarker('p', [], lanes[1], 1))).sort(), ['bar', 'created_at', 'id', 'lane_id', 'project_id',
-      'updated_at']);
-   const back = fromRow({ created_at: '2026-10-12T04:25:44.487+00:00', done_at: null, due_date: '2026-10-31' });
-   equal(back, { createdAt: '2026-10-12T04:25:44.487Z', doneAt: null, dueDate: '2026-10-31' });
+// テーブルに入っている、あるコレクションのレコード
+const stored = (tables, collection) => tables.records.filter((r) => r.collection === collection).map((r) => r.data);
+
+test('supabase: レコードは形を問わず data(jsonb)に入れる。列に出すのはコレクション名・id・プロジェクトの id だけ', () => {
+   const { project, tasks } = createProject({ title: 'x', dueDate: '2026-10-31' }, template('vocal'));
+   equal(toRow('tasks', tasks[0]), { collection: 'tasks', id: tasks[0].id, project_id: project.id, data: tasks[0] });
+   equal(toRow('projects', project).project_id, project.id, 'プロジェクトは自身の id');
+   const extra = { ...setStatus(tasks[0], 'done'), removedLater: 1 };
+   equal(fromRow(toRow('tasks', extra)), extra, '知らない項目もそのまま往復する');
 });
 
 test('supabase: 保存して読み戻せる。初期データの投入は1回だけ', async () => {
    const { tables, repository } = fakeSupabase();
    equal(await ensureSeeded(repository), true);
    equal(await ensureSeeded(repository), false, '2回目は入れない');
-   // 初期データはテンプレート2つ。プロジェクトと同じテーブルに入る
-   equal(Object.keys(tables).sort(), ['app_meta', 'lanes', 'projects', 'tasks']);
-   equal([tables.projects.length, tables.lanes.length, tables.tasks.length], [2, 17, 37]);
-   assert('sort_order' in tables.lanes[0] && !('order' in tables.lanes[0]), '列名は sort_order');
-   assert(tables.projects.every((r) => r.is_template === true), '列名は is_template');
+   // 初期データはテンプレート2つ。プロジェクトと同じコレクションに入る
+   equal(Object.keys(tables).sort(), ['app_meta', 'records']);
+   equal(['projects', 'lanes', 'tasks'].map((name) => stored(tables, name).length), [2, 17, 37]);
    equal((await repository.getTemplates()).map((t) => t.title).sort(), ['インスト', '歌モノ']);
    equal(await repository.getProjects(), [], 'テンプレートはプロジェクト一覧に混ざらない');
 
@@ -727,9 +720,10 @@ test('supabase: 保存して読み戻せる。初期データの投入は1回だ
    equal((await repository.getTasks(project.id)).length, 32);
    equal((await repository.getTasks(other.project.id)).length, 0);
 
-   await repository.saveTask({ ...tasks[0], title: '変更' });
+   await repository.saveTask({ ...tasks[0], title: '変更', removedLater: 1 });
    const saved = (await repository.getTasks(project.id)).find((t) => t.id === tasks[0].id);
-   equal([saved.title, tables.tasks.filter((r) => r.project_id === project.id).length], ['変更', tasks.length], '同じIDは上書き');
+   equal([saved.title, saved.removedLater, stored(tables, 'tasks').filter((t) => t.projectId === project.id).length],
+      ['変更', 1, tasks.length], '同じIDは上書き。知らない項目があっても保存できる');
    await repository.deleteTask(tasks[0].id);
    equal((await repository.getTasks(project.id)).length, tasks.length - 1);
 
@@ -742,13 +736,44 @@ test('supabase: 保存して読み戻せる。初期データの投入は1回だ
    equal([await repository.getTracks(project.id), await repository.getClips(project.id), await repository.getMarkers(project.id)],
       [[track], [clip], [marker]]);
    equal(await repository.getClips(other.project.id), [], 'プロジェクトで絞る');
-   assert(tables.clips[0].start_bar === 1 && tables.markers[0].lane_id === marker.laneId, '列名は snake_case');
    await repository.deleteClip(clip.id);
    await repository.deleteMarker(marker.id);
    equal([(await repository.getClips(project.id)).length, (await repository.getMarkers(project.id)).length], [0, 0]);
-   // テンプレートの削除はプロジェクトと同じ(レーンとタスクは、データベース側の cascade で消える)
-   await repository.deleteProject('seed-template-inst');
-   equal((await repository.getTemplates()).map((t) => t.id), ['seed-template-vocal']);
+});
+
+test('supabase: 削除すると、つながっているレコードも消える', async () => {
+   const { tables, repository } = fakeSupabase();
+   const save = async ({ project, lanes, tasks }) => {
+      await repository.saveProject(project);
+      await repository.saveLanes(lanes);
+      await repository.saveTasks(tasks);
+   };
+   const a = createProject({ title: 'A' }, template('vocal'));
+   const b = createProject({ title: 'B' }, template('inst'));
+   await save(a);
+   await save(b);
+   const section = a.lanes.find((l) => l.type === 'section' && a.tasks.some((t) => t.laneId === l.id));
+   const otherSection = b.lanes.find((l) => l.type === 'section');
+   const [track, otherTrack] = [addTrack(a.project.id, [], 'ギター'), addTrack(a.project.id, [], 'ベース')];
+   await repository.saveTracks([track, otherTrack]);
+   await repository.saveClips([addClip(track, [], { startBar: 1, bars: 2 }), addClip(otherTrack, [], { startBar: 1, bars: 2 })]);
+   await repository.saveMarkers([addMarker(a.project.id, [], section, 1), addMarker(b.project.id, [], otherSection, 1)]);
+
+   // レーン → そのレーンのタスクとマーカー
+   const inSection = a.tasks.filter((t) => t.laneId === section.id).length;
+   await repository.deleteLane(section.id);
+   equal([(await repository.getTasks(a.project.id)).length, (await repository.getMarkers(a.project.id)).length],
+      [a.tasks.length - inSection, 0]);
+   equal((await repository.getMarkers(b.project.id)).length, 1, '別のプロジェクトのマーカーは残る');
+
+   // トラック → そのトラックのクリップ
+   await repository.deleteTrack(track.id);
+   equal((await repository.getClips(a.project.id)).map((c) => c.trackId), [otherTrack.id]);
+
+   // プロジェクト → すべて
+   await repository.deleteProject(a.project.id);
+   assert(tables.records.every((r) => r.project_id !== a.project.id), 'プロジェクトのレコードが残っていない');
+   equal((await repository.getLanes(b.project.id)).length, b.lanes.length, '別のプロジェクトは残る');
 });
 
 test('supabase: 1回の上限(1000行)を超えても全部読める', async () => {
@@ -780,20 +805,60 @@ test('supabase: エクスポートとインポート(全部置き換える)', as
       [SCHEMA_VERSION, 3, 17 + 5, 37 + 5], 'テンプレートも含む');
    equal([exported.tracks, exported.clips, exported.markers], [[track], [clip], [marker]], 'アレンジも含む');
 
-   const b = fakeSupabase().repository;
+   const { tables, repository: b } = fakeSupabase();
    const old = createProject({ title: '消える' });
    await b.saveProject(old.project);
    await b.saveLanes(old.lanes);
    await b.importAll(JSON.stringify(exported));
    equal((await b.getProjects()).map((p) => p.title), ['曲A']);
    equal((await b.getTemplates()).length, 2);
-   equal((await b.getLanes(old.project.id)).length, 0);
+   equal((await b.getLanes(old.project.id)).length, 0, '元からあったレコードは消える');
+   equal(tables.records.length, 3 + 22 + 42 + 3, '余分な行が残らない');
    equal((await b.getTasks(project.id)).length, tasks.length);
    equal((await b.getTasks('seed-template-vocal')).length, 32);
    equal([await b.getTracks(project.id), await b.getClips(project.id), await b.getMarkers(project.id)],
       [[track], [clip], [marker]], 'アレンジも戻る');
    equal(await ensureSeeded(b), false, 'インポート後に初期データを重ねない');
    await rejects(b.importAll('{"x":1}'), 'エクスポートデータではありません');
+});
+
+test('upgradeStorage: 記録がなければ現在のバージョンを記録する。同じなら何もしない', async () => {
+   const { repository } = fakeSupabase();
+   equal(await upgradeStorage(repository), false);
+   equal(await repository.getMeta('schemaVersion'), SCHEMA_VERSION);
+   equal(await upgradeStorage(repository), false);
+   equal(await checkSchema(repository), SCHEMA_VERSION);
+});
+
+test('upgradeStorage: 古ければ、変換前のデータを残してから変換して保存し直す', async () => {
+   const { tables, repository } = fakeSupabase();
+   const { project, lanes } = createProject({ title: '曲A' });
+   // v4 のタスク(開始日と終了日がない)
+   const { startDate, endDate, ...v4task } = setStatus(addTask(lanes[0], [], '作業中'), 'doing');
+   await repository.saveProject(project);
+   await repository.saveLanes(lanes);
+   await repository.saveTasks([v4task]);
+   await repository.setMeta('schemaVersion', 4);
+
+   equal(await upgradeStorage(repository), true);
+   equal(await repository.getMeta('schemaVersion'), SCHEMA_VERSION);
+   const [task] = await repository.getTasks(project.id);
+   equal([task.startDate, task.endDate], [null, null], '日付なしとして変換された');
+   const backups = tables.app_meta.filter((m) => m.key.startsWith('backup:v4:'));
+   equal(backups.length, 1, 'バックアップは1つ');
+   equal([backups[0].value.schemaVersion, backups[0].value.tasks], [4, [v4task]], '変換前のまま残る');
+   equal(await upgradeStorage(repository), false, '2回目は何もしない');
+});
+
+test('upgradeStorage: 新しければ止める(何も書き換えない)', async () => {
+   const { tables, repository } = fakeSupabase();
+   await repository.setMeta('schemaVersion', SCHEMA_VERSION + 1);
+   const before = JSON.stringify(tables);
+   await rejects(upgradeStorage(repository), '再読み込み');
+   await rejects(checkSchema(repository), '再読み込み');
+   equal(JSON.stringify(tables), before, '何も書き換えない');
+   const error = await checkSchema(repository).catch((e) => e);
+   assert(error instanceof NewerSchemaError, 'NewerSchemaError で失敗する');
 });
 
 test('supabase: つながらない理由を伝える', async () => {

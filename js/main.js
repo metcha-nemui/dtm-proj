@@ -3,9 +3,10 @@
 
 import { clearSession, loadSession, saveSession } from './session.js';
 import { createIndexedDbRepository } from './store/indexeddb.js';
+import { checkSchema, NewerSchemaError, upgradeStorage } from './store/repository.js';
 import { ensureSeeded } from './store/seed.js';
 import { createSupabaseRepository } from './store/supabase.js';
-import { setRepository } from './state.js';
+import { repo, setRepository } from './state.js';
 import * as arrangement from './ui/arrangement.js';
 import * as board from './ui/board.js';
 import { h } from './ui/components/dom.js';
@@ -70,9 +71,11 @@ function render() {
    projectsLink.href = currentProjectHash ?? '#/';
 }
 
-// 保存先を用意してアプリを始める。保存先に届かなければ失敗する
+// 保存先を用意してアプリを始める。保存先に届かなければ失敗する。
+// 保存先のデータが古い形なら、ここで変換する(新しい形なら NewerSchemaError で止まる)
 async function start(session) {
    const repository = session.mode === 'supabase' ? createSupabaseRepository(session) : createIndexedDbRepository();
+   await upgradeStorage(repository);
    await ensureSeeded(repository);
    setRepository(repository);
    document.body.classList.remove('is-logged-out');
@@ -96,6 +99,30 @@ function showLogin() {
    });
 }
 
+// アプリを止めて理由を出す。書き込ませないように、画面ごと差し替える
+function showStopped(error, { canLogout }) {
+   started = false;
+   unmount?.();
+   unmount = null;
+   document.body.classList.add('is-logged-out');
+   app.replaceChildren(h('div', { class: 'error-box' },
+      h('p', null, error instanceof NewerSchemaError
+         ? error.message
+         : `データを読み込めませんでした。
+${error?.message ?? error}`),
+      h('div', { class: 'error-actions' },
+         h('button', { type: 'button', class: 'btn btn-primary', onclick: () => location.reload() },
+            error instanceof NewerSchemaError ? '再読み込み' : '再試行'),
+         canLogout && h('button', {
+            type: 'button',
+            class: 'btn',
+            onclick: () => {
+               clearSession();
+               location.reload();
+            },
+         }, 'ログアウト'))));
+}
+
 async function boot() {
    const session = loadSession();
    if (!session) {
@@ -107,21 +134,19 @@ async function boot() {
    } catch (error) {
       console.error(error);
       // 一時的な通信の失敗かもしれないので、ログイン情報は消さずに選んでもらう
-      document.body.classList.add('is-logged-out');
-      app.replaceChildren(h('div', { class: 'error-box' },
-         h('p', null, `データを読み込めませんでした。\n${error?.message ?? error}`),
-         h('div', { class: 'error-actions' },
-            h('button', { type: 'button', class: 'btn btn-primary', onclick: () => location.reload() }, '再試行'),
-            h('button', {
-               type: 'button',
-               class: 'btn',
-               onclick: () => {
-                  clearSession();
-                  location.reload();
-               },
-            }, 'ログアウト'))));
+      showStopped(error, { canLogout: !(error instanceof NewerSchemaError) });
    }
 }
+
+// 開いたままのタブに戻ってきたとき、別の端末やタブが新しいアプリでデータを変換していないか確かめる。
+// 古い形のまま書き込むとデータが壊れるので、新しくなっていたら止める
+document.addEventListener('visibilitychange', () => {
+   if (!started || document.visibilityState !== 'visible') return;
+   checkSchema(repo()).catch((error) => {
+      // 通信の失敗は、次の操作で改めて分かるので、ここでは止めない
+      if (error instanceof NewerSchemaError) showStopped(error, { canLogout: false });
+   });
+});
 
 window.addEventListener('hashchange', () => {
    if (started) render();

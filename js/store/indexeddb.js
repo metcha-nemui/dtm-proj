@@ -1,6 +1,7 @@
-// repository の IndexedDB 実装(MVP)。
+// 文書ストア(DocumentStore)の IndexedDB 実装。ログインせずに使うときの保存先。
+// コレクションごとにオブジェクトストアを持ち、絞り込みに使う項目(projectId, laneId, trackId)にインデックスを張っている。
 
-import { COLLECTIONS, SCHEMA_VERSION, assertRepository, migrate } from './repository.js';
+import { COLLECTIONS, createRepository } from './repository.js';
 
 const DB_NAME = 'dtm-proj';
 const DB_VERSION = 4;
@@ -72,111 +73,54 @@ export function createIndexedDbRepository(dbName = DB_NAME) {
       return dbPromise;
    }
 
-   async function getAll(storeName, indexName, key) {
+   // filter は1項目の一致。id は主キーで、それ以外は同じ名前のインデックスで引く
+   async function getAll(name, filter) {
       const db = await open();
-      const store = db.transaction(storeName).objectStore(storeName);
-      return request(indexName ? store.index(indexName).getAll(key) : store.getAll());
+      const store = db.transaction(name).objectStore(name);
+      if (!filter) return request(store.getAll());
+      const [[field, value]] = Object.entries(filter);
+      return request(field === 'id' ? store.getAll(value) : store.index(field).getAll(value));
    }
 
-   async function getOne(storeName, id) {
+   async function write(names, fn) {
       const db = await open();
-      return (await request(db.transaction(storeName).objectStore(storeName).get(id))) ?? null;
-   }
-
-   async function putAll(storeName, records) {
-      if (!records.length) return;
-      const db = await open();
-      const tx = db.transaction(storeName, 'readwrite');
-      const store = tx.objectStore(storeName);
-      for (const record of records) store.put(record);
+      const tx = db.transaction(names, 'readwrite');
+      fn(tx);
       await completed(tx);
    }
 
-   async function remove(storeName, id) {
-      const db = await open();
-      const tx = db.transaction(storeName, 'readwrite');
-      tx.objectStore(storeName).delete(id);
-      await completed(tx);
-   }
-
-   return assertRepository({
-      // プロジェクトとテンプレートは同じストアに入っている(件数が少ないので、読んでから振り分ける)
-      getProjects: async () => (await getAll('projects')).filter((p) => !p.isTemplate),
-      getTemplates: async () => (await getAll('projects')).filter((p) => p.isTemplate),
-      getProject: (id) => getOne('projects', id),
-      saveProject: (p) => putAll('projects', [p]),
-      async deleteProject(id) {
+   return createRepository({
+      find: getAll,
+      async get(name, id) {
          const db = await open();
-         const tx = db.transaction(COLLECTIONS, 'readwrite');
-         tx.objectStore('projects').delete(id);
-         for (const name of COLLECTIONS.filter((n) => n !== 'projects')) deleteByIndex(tx.objectStore(name), 'projectId', id);
-         await completed(tx);
+         return (await request(db.transaction(name).objectStore(name).get(id))) ?? null;
       },
-
-      getLanes: (projectId) => getAll('lanes', 'projectId', projectId),
-      saveLane: (l) => putAll('lanes', [l]),
-      saveLanes: (ls) => putAll('lanes', ls),
-      async deleteLane(id) {
-         const db = await open();
-         const tx = db.transaction(['lanes', 'tasks', 'markers'], 'readwrite');
-         tx.objectStore('lanes').delete(id);
-         deleteByIndex(tx.objectStore('tasks'), 'laneId', id);
-         deleteByIndex(tx.objectStore('markers'), 'laneId', id);
-         await completed(tx);
+      async put(name, records) {
+         if (!records.length) return;
+         await write(name, (tx) => {
+            const store = tx.objectStore(name);
+            for (const record of records) store.put(record);
+         });
       },
-
-      getTasks: (projectId) => getAll('tasks', 'projectId', projectId),
-      saveTask: (t) => putAll('tasks', [t]),
-      saveTasks: (ts) => putAll('tasks', ts),
-      deleteTask: (id) => remove('tasks', id),
-
-      getTracks: (projectId) => getAll('tracks', 'projectId', projectId),
-      saveTrack: (t) => putAll('tracks', [t]),
-      saveTracks: (ts) => putAll('tracks', ts),
-      async deleteTrack(id) {
-         const db = await open();
-         const tx = db.transaction(['tracks', 'clips'], 'readwrite');
-         tx.objectStore('tracks').delete(id);
-         deleteByIndex(tx.objectStore('clips'), 'trackId', id);
-         await completed(tx);
-      },
-
-      getClips: (projectId) => getAll('clips', 'projectId', projectId),
-      saveClip: (c) => putAll('clips', [c]),
-      saveClips: (cs) => putAll('clips', cs),
-      deleteClip: (id) => remove('clips', id),
-
-      getMarkers: (projectId) => getAll('markers', 'projectId', projectId),
-      saveMarker: (m) => putAll('markers', [m]),
-      saveMarkers: (ms) => putAll('markers', ms),
-      deleteMarker: (id) => remove('markers', id),
+      remove: (name, filter) => write(name, (tx) => {
+         const store = tx.objectStore(name);
+         const [[field, value]] = Object.entries(filter);
+         if (field === 'id') store.delete(value);
+         else deleteByIndex(store, field, value);
+      }),
 
       async getMeta(key) {
-         return (await getOne(META, key))?.value;
-      },
-      setMeta: (key, value) => putAll(META, [{ key, value }]),
-
-      async exportAll() {
          const db = await open();
-         const tx = db.transaction(COLLECTIONS);
-         const lists = await Promise.all(COLLECTIONS.map((name) => request(tx.objectStore(name).getAll())));
-         const data = { schemaVersion: SCHEMA_VERSION, exportedAt: new Date().toISOString() };
-         COLLECTIONS.forEach((name, i) => { data[name] = lists[i]; });
-         return data;
+         return (await request(db.transaction(META).objectStore(META).get(key)))?.value;
       },
+      setMeta: (key, value) => write(META, (tx) => tx.objectStore(META).put({ key, value })),
 
-      async importAll(json) {
-         const data = migrate(json);
-         const db = await open();
-         const tx = db.transaction([...COLLECTIONS, META], 'readwrite');
+      replaceAll: (data) => write(COLLECTIONS, (tx) => {
          for (const name of COLLECTIONS) {
             const store = tx.objectStore(name);
             store.clear();
             for (const record of data[name]) store.put(record);
          }
-         // インポート後に初期データを重ねて投入しないようにする
-         tx.objectStore(META).put({ key: 'seeded', value: true });
-         await completed(tx);
-      },
+      }),
    });
 }

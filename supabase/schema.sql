@@ -4,118 +4,34 @@
 -- ・1つの Supabase プロジェクトを1人で使う前提。ユーザーごとの行の区別はない。
 -- ・アプリは Project URL と公開キー(anon key)だけで接続する(擬似ログイン)。
 --   つまり、この2つを知っている人は全データを読み書きできる。公開キーは人に渡さず、リポジトリにも入れない。
--- ・列名は snake_case。アプリ側(camelCase)との対応は js/store/supabase.js で取る。
---   アプリの order は予約語を避けて sort_order にしている。
+-- ・レコード(プロジェクト、レーン、タスク、トラック、クリップ、マーカー)は、すべて records テーブルに入れる。
+--   項目は data 列(jsonb)にアプリの形のまま入っていて、列に出しているのはコレクション名・id・プロジェクトの id だけ。
+--   だから、アプリ側で項目を足したり変えたりしても、このファイルを実行し直す必要はない。
+--   データの形の変換は、アプリが起動時に行う(app_meta の schemaVersion を見る。変換前のデータは
+--   app_meta の 'backup:v{旧バージョン}:{日時}' に残す)。
+-- ・参照の整合(レーンを消したらタスクも消す、など)と値の検証は、アプリ側で行う。外部キーや制約は持たない。
 
 --
--- 【以前の定義で作ったテーブルがある場合】
--- テンプレートの持ち方を変えた(プロジェクトと同じテーブルに入れ、セクション種別と定番タスクをやめた)ので、
--- そのままでは動かない。データの変換は用意していない。
--- 次の文を先に実行して全テーブルを消してから、このファイルを実行する。
+-- 【以前の定義(項目ごとに列を持つテーブル)で作ってある場合】
+-- 次の文を先に実行して古いテーブルを消してから、このファイルを実行する(データは消える。
+-- 残したいデータは、先に古いアプリでエクスポートしておき、あとでインポートする)。
 --
 --    drop table if exists public.markers, public.clips, public.tracks,
 --       public.tasks, public.lanes, public.projects, public.template_tasks,
 --       public.section_kinds, public.structure_templates, public.templates, public.app_meta cascade;
 
--- ---- プロジェクトとテンプレート ----
--- テンプレートは「ステータスを使わないプロジェクト」。レーンとタスクの持ち方は同じなので、同じテーブルに入れる。
-
-create table if not exists public.projects (
-   id text primary key,
-   title text not null,
-   memo text not null default '',
-   due_date date,
-   is_template boolean not null default false,
-   created_at timestamptz not null default now(),
-   updated_at timestamptz not null default now()
+create table if not exists public.records (
+   collection text not null,
+   id text not null,
+   -- プロジェクト単位で読む・消すために出している。プロジェクト自身の行では、自身の id
+   project_id text not null,
+   data jsonb not null,
+   primary key (collection, id)
 );
 
-create table if not exists public.lanes (
-   id text primary key,
-   project_id text not null references public.projects (id) on delete cascade,
-   type text not null check (type in ('section', 'global')),
-   name text not null,
-   sort_order double precision not null,
-   collapsed boolean not null default false,
-   created_at timestamptz not null default now(),
-   updated_at timestamptz not null default now()
-);
+create index if not exists records_project_idx on public.records (collection, project_id);
 
-create index if not exists lanes_project_idx on public.lanes (project_id);
-
--- 「全体」レーンは、1つのプロジェクトに1本だけ
-create unique index if not exists lanes_one_global_per_project
-   on public.lanes (project_id) where type = 'global';
-
-create table if not exists public.tasks (
-   id text primary key,
-   project_id text not null references public.projects (id) on delete cascade,
-   lane_id text not null references public.lanes (id) on delete cascade,
-   title text not null,
-   memo text not null default '',
-   status text not null default 'todo' check (status in ('todo', 'doing', 'done')),
-   sort_order double precision not null,
-   done_at timestamptz,
-   start_date date,
-   end_date date,
-   created_at timestamptz not null default now(),
-   updated_at timestamptz not null default now()
-);
-
--- 開始日と終了日は後から足した。先に作ってあるテーブルにも列を足す
-alter table public.tasks add column if not exists start_date date;
-alter table public.tasks add column if not exists end_date date;
-
-create index if not exists tasks_project_idx on public.tasks (project_id);
-create index if not exists tasks_lane_idx on public.tasks (lane_id);
-
--- ---- アレンジ(トラック・クリップ・セクションマーカー) ----
--- プロジェクトだけが持つ。小節は1始まりの整数。
-
-create table if not exists public.tracks (
-   id text primary key,
-   project_id text not null references public.projects (id) on delete cascade,
-   name text not null,
-   sort_order double precision not null,
-   created_at timestamptz not null default now(),
-   updated_at timestamptz not null default now()
-);
-
-create index if not exists tracks_project_idx on public.tracks (project_id);
-
--- 同じトラックのクリップが重ならないことは、アプリ側で確かめている
-create table if not exists public.clips (
-   id text primary key,
-   project_id text not null references public.projects (id) on delete cascade,
-   track_id text not null references public.tracks (id) on delete cascade,
-   name text not null default '',
-   memo text not null default '',
-   start_bar integer not null check (start_bar >= 1),
-   bars integer not null check (bars >= 1),
-   created_at timestamptz not null default now(),
-   updated_at timestamptz not null default now()
-);
-
-create index if not exists clips_project_idx on public.clips (project_id);
-create index if not exists clips_track_idx on public.clips (track_id);
-
--- マーカーはボードのセクション(レーン)を指す。レーンを消すと、マーカーも消える
-create table if not exists public.markers (
-   id text primary key,
-   project_id text not null references public.projects (id) on delete cascade,
-   lane_id text not null references public.lanes (id) on delete cascade,
-   bar integer not null check (bar >= 1),
-   created_at timestamptz not null default now(),
-   updated_at timestamptz not null default now()
-);
-
-create index if not exists markers_project_idx on public.markers (project_id);
-create index if not exists markers_lane_idx on public.markers (lane_id);
-
--- 同じ小節には、マーカーは1つだけ
-create unique index if not exists markers_one_per_bar on public.markers (project_id, bar);
-
--- ---- アプリ内部の状態(初期データを投入済みか、など) ----
+-- ---- アプリ内部の状態(スキーマのバージョン、初期データを投入済みか、変換前のバックアップ) ----
 
 create table if not exists public.app_meta (
    key text primary key,
@@ -129,9 +45,7 @@ do $$
 declare
    t text;
 begin
-   foreach t in array array[
-      'projects', 'lanes', 'tasks', 'tracks', 'clips', 'markers', 'app_meta'
-   ]
+   foreach t in array array['records', 'app_meta']
    loop
       execute format('alter table public.%I enable row level security', t);
       execute format('drop policy if exists "own rows" on public.%I', t);

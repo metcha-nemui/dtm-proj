@@ -1,38 +1,35 @@
-// repository の Supabase 実装。Supabase の REST API(PostgREST)を fetch で直接呼ぶ。
+// 文書ストア(DocumentStore)の Supabase 実装。Supabase の REST API(PostgREST)を fetch で直接呼ぶ。
 // テーブル定義は supabase/schema.sql。接続には Project URL と公開キーだけを使う。
+//
+// レコードは項目の形を問わず、records テーブルの data 列(jsonb)にそのまま入れる。
+// 列に出すのは、コレクション名・id・projectId(プロジェクト単位で読む・消すため)だけ。
+// こうしておけば、アプリ側で項目を足したり変えたりしても、テーブルを作り直さなくてよい。
 
-import { COLLECTIONS, SCHEMA_VERSION, assertRepository, migrate } from './repository.js';
+import { COLLECTIONS, createRepository } from './repository.js';
 
-// アプリ側のコレクション名 → テーブル名
-const TABLES = {
-   projects: 'projects',
-   lanes: 'lanes',
-   tasks: 'tasks',
-   tracks: 'tracks',
-   clips: 'clips',
-   markers: 'markers',
-};
+const RECORDS = 'records';
 const META = 'app_meta';
+const PAGE_SIZE = 1000; // API が1回に返す行数の上限(Supabase の既定値)。書き込みもこの単位で分ける
+const IN_LIST_SIZE = 100; // id=in.(…) で並べる数。URL が長くなりすぎないように
 
-// 外部キーの向きに合わせた順番。入れるときは親から、消すときは子から。
-const INSERT_ORDER = ['projects', 'lanes', 'tasks', 'tracks', 'clips', 'markers'];
-const PAGE_SIZE = 1000; // API が1回に返す行数の上限(Supabase の既定値)
-const TIMESTAMPS = new Set(['createdAt', 'updatedAt', 'doneAt']);
-
-// 列名は snake_case。アプリの order だけは予約語を避けて sort_order にしてある。
-const toColumn = (field) => (field === 'order' ? 'sort_order' : field.replace(/[A-Z]/g, (c) => `_${c.toLowerCase()}`));
-const toField = (column) => (column === 'sort_order' ? 'order' : column.replace(/_([a-z])/g, (_, c) => c.toUpperCase()));
-
-/** アプリのレコード → テーブルの行 */
-export function toRow(record) {
-   return Object.fromEntries(Object.entries(record).map(([field, value]) => [toColumn(field), value]));
+/** アプリのレコード → テーブルの行。プロジェクトは自身の id を project_id に入れる */
+export function toRow(collection, record) {
+   return {
+      collection,
+      id: record.id,
+      project_id: collection === 'projects' ? record.id : record.projectId,
+      data: record,
+   };
 }
 
-/** テーブルの行 → アプリのレコード。日時は IndexedDB 実装と同じ形(…Z)に揃える。 */
-export function fromRow(row) {
-   return Object.fromEntries(Object.entries(row).map(([column, value]) => {
-      const field = toField(column);
-      return [field, value && TIMESTAMPS.has(field) ? new Date(value).toISOString() : value];
+/** テーブルの行 → アプリのレコード */
+export const fromRow = (row) => row.data;
+
+// filter(1項目の一致)→ 絞り込みの条件。projectId と id は列で、それ以外は data の中の項目で絞る
+function toCondition(filter = {}) {
+   return Object.fromEntries(Object.entries(filter).map(([field, value]) => {
+      const column = field === 'projectId' ? 'project_id' : field === 'id' ? 'id' : `data->>${field}`;
+      return [column, `eq.${value}`];
    }));
 }
 
@@ -72,98 +69,69 @@ export function createSupabaseRepository({ url, key }, fetchImpl = (...args) => 
    }
 
    // 条件に合う行をすべて読む。上限を超える分は、続きを取りに行く
-   async function select(name, filters = {}) {
+   async function select(query, columns = '*') {
       const rows = [];
       for (let offset = 0; ; offset += PAGE_SIZE) {
-         const page = await request('GET', TABLES[name], {
-            query: { select: '*', ...filters, order: 'id', limit: PAGE_SIZE, offset },
+         const page = await request('GET', RECORDS, {
+            query: { select: columns, ...query, order: 'collection,id', limit: PAGE_SIZE, offset },
          });
          rows.push(...page);
-         if (page.length < PAGE_SIZE) return rows.map(fromRow);
+         if (page.length < PAGE_SIZE) return rows;
       }
    }
 
-   // あれば更新、なければ追加
-   async function upsert(name, records) {
-      for (let i = 0; i < records.length; i += PAGE_SIZE) {
-         await request('POST', TABLES[name], {
-            body: records.slice(i, i + PAGE_SIZE).map(toRow),
+   // あれば更新、なければ追加。1回のリクエストは1つのトランザクションになる
+   async function upsert(rows) {
+      for (let i = 0; i < rows.length; i += PAGE_SIZE) {
+         await request('POST', RECORDS, {
+            body: rows.slice(i, i + PAGE_SIZE),
             prefer: 'resolution=merge-duplicates,return=minimal',
          });
       }
    }
 
-   const remove = (name, id) => request('DELETE', TABLES[name], { query: { id: `eq.${id}` } });
+   const find = async (collection, filter) => (await select({ collection: `eq.${collection}`, ...toCondition(filter) }))
+      .map(fromRow);
 
-   const setMeta = (metaKey, value) => request('POST', META, {
-      body: [{ key: metaKey, value }],
-      prefer: 'resolution=merge-duplicates,return=minimal',
-   });
-
-   return assertRepository({
-      // プロジェクトとテンプレートは同じテーブルに入っている
-      getProjects: () => select('projects', { is_template: 'eq.false' }),
-      getTemplates: () => select('projects', { is_template: 'eq.true' }),
-      getProject: async (id) => (await select('projects', { id: `eq.${id}` }))[0] ?? null,
-      saveProject: (p) => upsert('projects', [p]),
-      // レーン・タスク・アレンジは、外部キーの on delete cascade で一緒に消える
-      deleteProject: (id) => remove('projects', id),
-
-      getLanes: (projectId) => select('lanes', { project_id: `eq.${projectId}` }),
-      saveLane: (l) => upsert('lanes', [l]),
-      saveLanes: (ls) => upsert('lanes', ls),
-      // タスクと、レーンを指すマーカーは cascade で一緒に消える
-      deleteLane: (id) => remove('lanes', id),
-
-      getTasks: (projectId) => select('tasks', { project_id: `eq.${projectId}` }),
-      saveTask: (t) => upsert('tasks', [t]),
-      saveTasks: (ts) => upsert('tasks', ts),
-      deleteTask: (id) => remove('tasks', id),
-
-      getTracks: (projectId) => select('tracks', { project_id: `eq.${projectId}` }),
-      saveTrack: (t) => upsert('tracks', [t]),
-      saveTracks: (ts) => upsert('tracks', ts),
-      // クリップは cascade で一緒に消える
-      deleteTrack: (id) => remove('tracks', id),
-
-      getClips: (projectId) => select('clips', { project_id: `eq.${projectId}` }),
-      saveClip: (c) => upsert('clips', [c]),
-      saveClips: (cs) => upsert('clips', cs),
-      deleteClip: (id) => remove('clips', id),
-
-      getMarkers: (projectId) => select('markers', { project_id: `eq.${projectId}` }),
-      saveMarker: (m) => upsert('markers', [m]),
-      saveMarkers: (ms) => upsert('markers', ms),
-      deleteMarker: (id) => remove('markers', id),
+   return createRepository({
+      find,
+      get: async (collection, id) => (await find(collection, { id }))[0] ?? null,
+      put: (collection, records) => upsert(records.map((r) => toRow(collection, r))),
+      remove: (collection, filter) => request('DELETE', RECORDS, {
+         query: { collection: `eq.${collection}`, ...toCondition(filter) },
+      }),
 
       async getMeta(metaKey) {
          const rows = await request('GET', META, { query: { select: 'value', key: `eq.${metaKey}` } });
          return rows[0]?.value;
       },
-      setMeta,
+      setMeta: (metaKey, value) => request('POST', META, {
+         body: [{ key: metaKey, value }],
+         prefer: 'resolution=merge-duplicates,return=minimal',
+      }),
 
-      async exportAll() {
-         const lists = await Promise.all(COLLECTIONS.map((name) => select(name)));
-         const data = { schemaVersion: SCHEMA_VERSION, exportedAt: new Date().toISOString() };
-         COLLECTIONS.forEach((name, i) => { data[name] = lists[i]; });
-         return data;
-      },
-
-      // 全部消してから入れ直す。1つのトランザクションではないので、途中で失敗すると中途半端な状態が残る。
-      // その場合は、同じファイルをもう一度インポートすれば揃う。
-      async importAll(json) {
-         const data = migrate(json);
-         for (const name of [...INSERT_ORDER].reverse()) {
-            await request('DELETE', TABLES[name], { query: { id: 'not.is.null' } });
+      // 先に新しい中身を上書きで入れ、そのあとで新しい中身にない行を消す。
+      // 全体は1つのトランザクションではないが、途中で失敗しても行が消えすぎることはない(余分な行が残るだけ)。
+      // その場合は、同じ操作をもう一度行えば揃う。
+      async replaceAll(data) {
+         const before = await select({}, 'collection,id');
+         const rows = COLLECTIONS.flatMap((name) => data[name].map((r) => toRow(name, r)));
+         await upsert(rows);
+         const keep = new Set(rows.map((r) => `${r.collection}/${r.id}`));
+         const stale = Map.groupBy(before.filter((r) => !keep.has(`${r.collection}/${r.id}`)), (r) => r.collection);
+         for (const [collection, list] of stale) {
+            for (let i = 0; i < list.length; i += IN_LIST_SIZE) {
+               const ids = list.slice(i, i + IN_LIST_SIZE).map((r) => `"${r.id}"`).join(',');
+               await request('DELETE', RECORDS, { query: { collection: `eq.${collection}`, id: `in.(${ids})` } });
+            }
          }
-         for (const name of INSERT_ORDER) await upsert(name, data[name]);
-         // インポート後に初期データを重ねて投入しないようにする
-         await setMeta('seeded', true);
       },
    });
 }
 
 /** ログイン時の確認。接続先・公開キー・テーブルのどれかに問題があれば、理由つきで失敗する。 */
 export async function checkConnection(config, fetchImpl) {
-   await createSupabaseRepository(config, fetchImpl).getMeta('seeded');
+   const repository = createSupabaseRepository(config, fetchImpl);
+   // 2つのテーブルの両方に届くことを確かめる
+   await Promise.all([repository.getMeta('seeded'), repository.getTemplates()]);
 }
