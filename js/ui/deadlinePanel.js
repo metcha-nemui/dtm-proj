@@ -37,17 +37,18 @@ const projectHref = (project) => `#/p/${encodeURIComponent(project.id)}`;
 
 const WEEKDAYS = ['日', '月', '火', '水', '木', '金', '土'];
 
-// 'YYYY-MM-DD' を「M/D(曜)」にする。今年でなければ「YYYY/M/D(曜)」
-function formatDate(date, today) {
+// 'YYYY-MM-DD' を「M/D(曜)」にする。年は出さない(締切の近い順に並ぶので、12月のあとの1月は来年と分かる。
+// 今年と再来年が隣り合うことはまずない)。そのぶん日付の欄を狭くして、タイトルに幅を回す
+function formatDate(date) {
    const [year, month, day] = date.split('-').map(Number);
    const weekday = WEEKDAYS[new Date(year, month - 1, day).getDay()];
-   return date.slice(0, 4) === today.slice(0, 4) ? `${month}/${day}(${weekday})` : `${year}/${month}/${day}(${weekday})`;
+   return `${month}/${day}(${weekday})`;
 }
 
-function renderList(rows, today) {
+function renderList(rows) {
    return h('ol', { class: 'deadline-list' }, rows.map(({ project, days, weekendDays }) => h('li', null,
       h('a', { class: 'deadline-item', href: projectHref(project) },
-         h('span', { class: 'deadline-date' }, formatDate(project.dueDate, today)),
+         h('span', { class: 'deadline-date' }, formatDate(project.dueDate)),
          h('span', { class: 'deadline-title' }, project.title),
          h('span', { class: `due${dueState(days)}` },
             restLabel(days),
@@ -84,7 +85,7 @@ function renderTimeline(rows, today) {
          h('div', { class: 'deadline-tl-axis' }, ticks)),
       rows.map(({ project, days: rest }) => {
          const left = at(project.dueDate);
-         const label = `${project.title} ${formatDate(project.dueDate, today)}(${restLabel(rest)})`;
+         const label = `${project.title} ${formatDate(project.dueDate)}(${restLabel(rest)})`;
          return h('a', { class: 'deadline-tl-row', href: projectHref(project), title: label, 'aria-label': label },
             h('span', { class: 'deadline-title' }, project.title),
             h('span', { class: 'deadline-tl-track' },
@@ -92,7 +93,7 @@ function renderTimeline(rows, today) {
                   // 右端に近い点は、日付を点の左に出す(はみ出さないように)
                   class: `deadline-tl-point${dueState(rest)}${left > 75 ? ' is-flipped' : ''}`,
                   style: { left: `${left}%` },
-               }, formatDate(project.dueDate, today))));
+               }, formatDate(project.dueDate))));
       }));
 }
 
@@ -122,7 +123,7 @@ export function renderDeadlinePanel(items) {
          tabs[i].classList.toggle('is-active', v.key === view);
          tabs[i].setAttribute('aria-selected', String(v.key === view));
       });
-      body.replaceChildren(view === 'timeline' ? renderTimeline(rows, today) : renderList(rows, today));
+      body.replaceChildren(view === 'timeline' ? renderTimeline(rows, today) : renderList(rows));
    }
    render();
 
