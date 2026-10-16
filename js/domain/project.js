@@ -55,39 +55,20 @@ export const SECTION_COLORS = [
 ];
 
 /**
- * キーの並びに、パレットの色を先頭から順に割り振る。同じキーには同じ色。
+ * セクションの色を、並び順にパレットの先頭から1色ずつ割り振る。名前は見ない(「サビ」と「サビ2」も別の色)。
  * パレットを使い切ったら先頭に戻る。
- * @param {string[]} keys
- * @returns {string[]} keys と同じ並びの色
- */
-export function colorsInOrder(keys) {
-   const assigned = new Map();
-   return keys.map((key) => {
-      if (!assigned.has(key)) assigned.set(key, SECTION_COLORS[assigned.size % SECTION_COLORS.length]);
-      return assigned.get(key);
-   });
-}
-
-/**
- * セクションの色を、並び順に割り振る。同じ名前(末尾の番号を除く)のセクションは同じ色。
  * 色は保存せず、表示のたびに決める。だから並べ替えると、位置に合わせて色も入れ替わる。
  * @param {object[]} lanes プロジェクトの全レーン
  * @returns {Map<string, string>} レーンID → 色。「全体」レーンは含めない
  */
 export function sectionColors(lanes) {
    const sections = sortByOrder(lanes.filter((l) => l.type === 'section'));
-   const colors = colorsInOrder(sections.map(sectionKey));
-   return new Map(sections.map((l, i) => [l.id, colors[i]]));
+   return new Map(sections.map((l, i) => [l.id, SECTION_COLORS[i % SECTION_COLORS.length]]));
 }
 
 /** レーン名から、重複を避けるために付けた末尾の番号を除く(「サビ2」→「サビ」)。 */
 export function laneBaseName(name) {
    return name.replace(/\d+$/, '') || name;
-}
-
-/** 「同じ種類のセクション」を見分けるキー。名前から末尾の番号を除いたもの(「サビ」と「サビ2」は同じ)。 */
-export function sectionKey(lane) {
-   return laneBaseName(lane.name);
 }
 
 export const GLOBAL_LANE_NAME = '全体';

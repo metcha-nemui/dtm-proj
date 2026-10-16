@@ -10,7 +10,7 @@ import { deadlineRange, deadlineRows } from '../js/domain/deadline.js';
 import { ganttRange, ganttRows } from '../js/domain/gantt.js';
 import { orderAtEnd, orderBetween, placeAt, reorder, sortByOrder } from '../js/domain/order.js';
 import {
-   addSection, assertSection, colorsInOrder, createProject, createTemplate, daysUntilDue, duplicateLane, moveLane,
+   addSection, assertSection, createProject, createTemplate, daysUntilDue, duplicateLane, moveLane,
    normalizeDueDate, renameLane, SECTION_COLORS, sectionColors, uniqueLaneName, updateProject,
 } from '../js/domain/project.js';
 import {
@@ -303,29 +303,29 @@ test('moveLane: 同じ種類の中だけで並べ替える', () => {
    equal(moved.find((l) => l.type === 'global').order, lanes.find((l) => l.type === 'global').order);
 });
 
-test('sectionColors: 並び順にパレットの色を割り振る。名前(末尾の番号を除く)が同じなら同じ色', () => {
+test('sectionColors: 並び順にパレットの色を1色ずつ割り振る。名前が似ていても別の色', () => {
    const { lanes } = createProject({ title: 'x' }, template('vocal'));
    const colorOf = (all, name) => sectionColors(all).get(all.find((l) => l.name === name).id);
    const [c1, c2, c3, c4] = SECTION_COLORS;
    equal(['イントロ', 'Aメロ', 'Bメロ', 'サビ'].map((n) => colorOf(lanes, n)), [c1, c2, c3, c4]);
-   equal(['Aメロ2', 'サビ2', 'サビ3'].map((n) => colorOf(lanes, n)), [c2, c4, c4], '同じ名前は同じ色');
-   equal(colorOf(lanes, 'アウトロ'), SECTION_COLORS[6]);
+   equal(['Aメロ2', 'サビ2', 'サビ3'].map((n) => colorOf(lanes, n)), [SECTION_COLORS[5], SECTION_COLORS[7], SECTION_COLORS[9]],
+      '「サビ」と「サビ2」も別の色');
+   equal(colorOf(lanes, 'アウトロ'), SECTION_COLORS[10]);
    assert(!sectionColors(lanes).has(lanes.find((l) => l.type === 'global').id), '「全体」レーンには割り振らない');
 
    // 並べ替えると、位置に合わせて色が入れ替わる
    const sections = sortByOrder(lanes.filter((l) => l.type === 'section'));
    const moved = apply(lanes, moveLane(lanes, sections[2].id, 1));
    equal(['イントロ', 'Bメロ', 'Aメロ', 'サビ'].map((n) => colorOf(moved, n)), [c1, c2, c3, c4]);
-   equal(colorOf(moved, 'Aメロ2'), c3);
-   // 色は名前で決まるので、名前を変えると別の色になる
+   // 色は位置だけで決まるので、名前を変えても変わらない
    const renamed = apply(lanes, [renameLane(lanes.find((l) => l.name === 'サビ3'), '落ちサビ')]);
-   equal([colorOf(renamed, 'サビ2'), colorOf(renamed, '落ちサビ')], [c4, SECTION_COLORS[6]]);
-   equal(colorOf(renamed, 'アウトロ'), SECTION_COLORS[7], '後ろのセクションは1つずれる');
+   equal(colorOf(renamed, '落ちサビ'), SECTION_COLORS[9]);
 });
 
 test('sectionColors: 色を使い切ったら先頭に戻る', () => {
-   const many = colorsInOrder(Array.from({ length: SECTION_COLORS.length + 2 }, (_, i) => `k${i}`));
-   equal(many.slice(-2), SECTION_COLORS.slice(0, 2));
+   const lanes = Array.from({ length: SECTION_COLORS.length + 2 }, (_, i) => ({ id: `k${i}`, type: 'section', order: i }));
+   const colors = lanes.map((l) => sectionColors(lanes).get(l.id));
+   equal(colors.slice(-2), SECTION_COLORS.slice(0, 2));
    equal(new Set(SECTION_COLORS).size, 18, 'パレットは重複のない18色');
 });
 
