@@ -106,7 +106,7 @@
 
 .deadline-item {
    display: grid;
-   grid-template-columns: 6.5em minmax(0, 1fr) auto;
+   grid-template-columns: 8em minmax(0, 1fr) auto;
    align-items: center;
    gap: var(--space-3);
    padding: var(--space-2) var(--space-1);

@@ -35,10 +35,13 @@ function saveView() {
 
 const projectHref = (project) => `#/p/${encodeURIComponent(project.id)}`;
 
-// 'YYYY-MM-DD' を「M/D」にする。今年でなければ「YYYY/M/D」
+const WEEKDAYS = ['日', '月', '火', '水', '木', '金', '土'];
+
+// 'YYYY-MM-DD' を「M/D(曜)」にする。今年でなければ「YYYY/M/D(曜)」
 function formatDate(date, today) {
    const [year, month, day] = date.split('-').map(Number);
-   return date.slice(0, 4) === today.slice(0, 4) ? `${month}/${day}` : `${year}/${month}/${day}`;
+   const weekday = WEEKDAYS[new Date(year, month - 1, day).getDay()];
+   return date.slice(0, 4) === today.slice(0, 4) ? `${month}/${day}(${weekday})` : `${year}/${month}/${day}(${weekday})`;
 }
 
 function renderList(rows, today) {
