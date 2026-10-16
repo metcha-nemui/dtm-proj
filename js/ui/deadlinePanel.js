@@ -49,7 +49,7 @@ function renderList(rows, today) {
          h('span', { class: `due${dueState(days)}` },
             restLabel(days),
             // 土日に作業する場合の残り。「あと◯日」のときだけ併記する(今日・超過では意味がない)
-            days > 0 && h('span', { class: 'deadline-weekend' }, `(土日${weekendDays}日)`))))));
+            days > 0 && h('span', { class: 'deadline-weekend' }, `(${weekendDays}作業日)`))))));
 }
 
 function renderTimeline(rows, today) {
