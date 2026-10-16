@@ -27,6 +27,7 @@ export async function newProjectDialog(templateId) {
             value: templateId ?? '',
             options: [{ value: '', label: '(テンプレートなし)' }, ...templates.map((t) => ({ value: t.id, label: t.title }))],
          },
+         { name: 'memo', label: 'メモ(任意)', type: 'textarea' },
       ],
    });
    return values && actions.createProject(values);
