@@ -37,23 +37,33 @@ const projectHref = (project) => `#/p/${encodeURIComponent(project.id)}`;
 
 const WEEKDAYS = ['日', '月', '火', '水', '木', '金', '土'];
 
-// 'YYYY-MM-DD' を「M/D(曜)」にする。年は出さない(締切の近い順に並ぶので、12月のあとの1月は来年と分かる。
+// 'YYYY-MM-DD' を「M/D」と「(曜)」に分ける。年は出さない(締切の近い順に並ぶので、12月のあとの1月は来年と分かる。
 // 今年と再来年が隣り合うことはまずない)。そのぶん日付の欄を狭くして、タイトルに幅を回す
-function formatDate(date) {
+function dateParts(date) {
    const [year, month, day] = date.split('-').map(Number);
-   const weekday = WEEKDAYS[new Date(year, month - 1, day).getDay()];
-   return `${month}/${day}(${weekday})`;
+   return { monthDay: `${month}/${day}`, weekday: `(${WEEKDAYS[new Date(year, month - 1, day).getDay()]})` };
 }
 
+// 「M/D(曜)」
+function formatDate(date) {
+   const { monthDay, weekday } = dateParts(date);
+   return monthDay + weekday;
+}
+
+// 日付・曜日・タイトル・残り日数・作業日を別々のセルにする。列の幅は全行で揃える(CSS の subgrid)ので、
+// 桁数の違う行が並んでも縦の位置がずれない
 function renderList(rows) {
-   return h('ol', { class: 'deadline-list' }, rows.map(({ project, days, weekendDays }) => h('li', null,
-      h('a', { class: 'deadline-item', href: projectHref(project) },
-         h('span', { class: 'deadline-date' }, formatDate(project.dueDate)),
-         h('span', { class: 'deadline-title' }, project.title),
-         h('span', { class: `due${dueState(days)}` },
-            restLabel(days),
+   return h('ol', { class: 'deadline-list' }, rows.map(({ project, days, weekendDays }) => {
+      const { monthDay, weekday } = dateParts(project.dueDate);
+      return h('li', null,
+         h('a', { class: 'deadline-item', href: projectHref(project) },
+            h('span', { class: 'deadline-date' }, monthDay),
+            h('span', { class: 'deadline-weekday' }, weekday),
+            h('span', { class: 'deadline-title' }, project.title),
+            h('span', { class: `deadline-rest due${dueState(days)}` }, restLabel(days)),
             // 土日に作業する場合の残り。「あと◯日」のときだけ併記する(今日・超過では意味がない)
-            days > 0 && h('span', { class: 'deadline-weekend' }, `(${weekendDays}作業日)`))))));
+            h('span', { class: 'deadline-weekend' }, days > 0 ? `(${weekendDays}作業日)` : '')));
+   }));
 }
 
 function renderTimeline(rows, today) {
