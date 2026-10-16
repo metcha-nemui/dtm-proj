@@ -983,7 +983,7 @@ test('supabase: つながらない理由を伝える', async () => {
    await rejects(using({ failWith: { status: 401, body: { code: '42501', message: 'permission denied' } } }), '権限がありません');
    await rejects(using({ failWith: { status: 404, body: { code: 'PGRST205', message: 'not found' } } }), 'テーブルが見つかりません');
    await rejects(using({ failWith: { status: 500, body: { message: 'boom' } } }), 'boom');
-   await rejects(checkConnection(config, async () => { throw new TypeError('Failed to fetch'); }), '接続できません');
+   await rejects(checkConnection(config, async () => { throw new TypeError('Failed to fetch'); }), '接続できないため、読み込みも保存もできませんでした');
    await checkConnection(config, async () => ({ ok: true, status: 200, json: async () => [] }));
 });
 
