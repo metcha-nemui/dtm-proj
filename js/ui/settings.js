@@ -6,6 +6,7 @@ import { migrate } from '../store/repository.js';
 import { loadTheme, setTheme, THEMES } from '../theme.js';
 import { confirmDialog } from './components/dialog.js';
 import { h, icon } from './components/dom.js';
+import { watchSlow } from './components/slowNotice.js';
 import { reportError, showToast } from './components/toast.js';
 
 const dateFormat = new Intl.DateTimeFormat('ja-JP', { dateStyle: 'short', timeStyle: 'short' });
@@ -41,7 +42,8 @@ async function importData(file) {
       danger: true,
    });
    if (!ok) return;
-   await repo().importAll(data);
+   // インポートは actions.js を通らないので、ここで時間の掛かり具合を見張る
+   await watchSlow(repo().importAll(data));
    notify();
    showToast('インポートしました');
 }

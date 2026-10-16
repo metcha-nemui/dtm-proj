@@ -350,6 +350,10 @@ textarea {
    left: 50%;
    bottom: var(--space-5);
    z-index: 80;
+   display: flex;
+   flex-direction: column;
+   align-items: center;
+   gap: var(--space-2);
    transform: translateX(-50%);
    pointer-events: none;
 }
@@ -380,6 +384,27 @@ textarea {
 
 .toast:not(:has(.toast-action)) {
    padding-right: var(--space-4);
+}
+
+/* 通信に時間が掛かっている操作の「処理中」。トーストの上に重ねて出す */
+.toast-progress {
+   padding: var(--space-2) var(--space-4);
+}
+
+.toast-progress .icon {
+   animation: toast-spin 0.9s linear infinite;
+}
+
+@keyframes toast-spin {
+   to {
+      transform: rotate(360deg);
+   }
+}
+
+@media (prefers-reduced-motion: reduce) {
+   .toast-progress .icon {
+      animation: none;
+   }
 }
 
 /* ---- スマホ ---- */

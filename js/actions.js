@@ -6,15 +6,17 @@ import * as projectDomain from './domain/project.js';
 import * as taskDomain from './domain/task.js';
 import { touch } from './domain/record.js';
 import { notify, repo } from './state.js';
+import { watchSlow } from './ui/components/slowNotice.js';
 
 // 操作は「読む→計算→保存」なので、並行して走ると後から保存した方が先の変更を消してしまう。
 // 1つずつ順番に実行して、それを防ぐ。
+// 通信に時間が掛かったときは、処理中・完了を画面に知らせる(watchSlow)。
 let queue = Promise.resolve();
 function serial(operation) {
    return (...args) => {
       const result = queue.then(() => operation(...args));
       queue = result.catch(() => {});
-      return result;
+      return watchSlow(result);
    };
 }
 
