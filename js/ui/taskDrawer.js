@@ -64,8 +64,23 @@ export function createTaskDrawer(projectId, { onSelectionChange } = {}) {
          if (endDate !== period.endDate) patch.endDate = endDate;
       }
       if (!Object.keys(patch).length) return;
-      task = { ...task, ...patch }; // 同じ変更を二度保存しないように先に反映しておく
-      run(actions.updateTask(projectId, task.id, patch));
+      saveFields(patch);
+   }
+
+   // 同じ変更を二度保存しないように、手元の task に先に反映してから保存する。
+   // 保存に失敗したら、手元の task を保存前の値に戻す(入力欄は打った内容のまま残し、次に欄を離れたときや閉じるときに保存し直す)
+   function saveFields(patch) {
+      const before = task;
+      task = { ...task, ...patch };
+      run(actions.updateTask(projectId, task.id, patch).catch((error) => {
+         if (task?.id === before.id) {
+            // あとから別の値を保存しようとした項目は、そちらの結果に任せる
+            const failed = Object.keys(patch).filter((key) => task[key] === patch[key]);
+            task = { ...task, ...Object.fromEntries(failed.map((key) => [key, before[key]])) };
+            if ('references' in patch && el) renderReferences();
+         }
+         throw error;
+      }));
    }
 
    // ---- リファレンス ----
@@ -73,9 +88,8 @@ export function createTaskDrawer(projectId, { onSelectionChange } = {}) {
    const references = () => task?.references ?? []; // リファレンスを持つ前に作ったタスクには項目がない
 
    function saveReferences(next) {
-      task = { ...task, references: next }; // 同じ変更を二度保存しないように先に反映しておく
+      saveFields({ references: next });
       renderReferences();
-      run(actions.updateTask(projectId, task.id, { references: next }));
    }
 
    // 表記の違いだけなら既存の曲名に揃えてから足す。そのタスクに付いていれば何もしない

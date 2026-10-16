@@ -30,6 +30,12 @@ export function mount(container, { id: projectId }) {
    let sortables = [];
    let revealLaneId = null; // 追加・複製した直後に、画面内へスクロールして見せるレーン
    const run = (promise) => promise.catch(reportError);
+   // ドラッグ&ドロップは、SortableJS が先に要素を動かしてから保存する。
+   // 失敗したまま放っておくと保存されていない並びが見えたままになるので、保存済みの状態で描き直す
+   const runPlaced = (promise) => promise.catch((error) => {
+      reportError(error);
+      render();
+   });
 
    function markSelected(taskId) {
       for (const el of root.querySelectorAll('.task.is-selected')) el.classList.remove('is-selected');
@@ -179,7 +185,7 @@ export function mount(container, { id: projectId }) {
             onEnd: ({ item, from, to, oldIndex, newIndex }) => {
                if (from === to && oldIndex === newIndex) return;
                // 「未完了のみ」で隠れているタスクも含めたDOM上の位置を使う
-               run(actions.moveTask(projectId, item.dataset.taskId, to.dataset.laneId, domIndex(item, '.task')));
+               runPlaced(actions.moveTask(projectId, item.dataset.taskId, to.dataset.laneId, domIndex(item, '.task')));
             },
          }));
       }
@@ -193,7 +199,7 @@ export function mount(container, { id: projectId }) {
             preventOnFilter: false,
             onEnd: ({ item, oldIndex, newIndex }) => {
                if (oldIndex === newIndex) return;
-               run(actions.moveLane(projectId, item.dataset.laneId, domIndex(item, '.lane')));
+               runPlaced(actions.moveLane(projectId, item.dataset.laneId, domIndex(item, '.lane')));
             },
          }));
       }

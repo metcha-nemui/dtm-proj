@@ -56,6 +56,23 @@ textarea {
    border-bottom: 1px solid var(--border);
 }
 
+/* Supabase に保存しているときの、オフラインのお知らせ(js/ui/connectionBanner.js) */
+.offline-banner {
+   flex: none;
+   display: flex;
+   align-items: center;
+   gap: var(--space-2);
+   padding: var(--space-2) var(--space-4);
+   background: var(--doing-soft);
+   color: var(--text);
+   border-bottom: 1px solid var(--doing);
+}
+
+.offline-banner .icon {
+   flex: none;
+   color: var(--doing);
+}
+
 .app-brand {
    font-weight: 700;
    color: var(--text);

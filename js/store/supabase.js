@@ -62,7 +62,7 @@ export function createSupabaseRepository({ url, key }, fetchImpl = (...args) => 
             body: body && JSON.stringify(body),
          });
       } catch {
-         throw new Error('Supabase に接続できません。Project URL とネットワークを確認してください');
+         throw new Error('Supabase に接続できないため、読み込みも保存もできませんでした。Project URL とネットワークを確認してください');
       }
       if (!response.ok) throw await toError(response);
       return method === 'GET' ? response.json() : null;

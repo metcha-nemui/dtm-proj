@@ -10,6 +10,7 @@ import { createSupabaseRepository } from './store/supabase.js';
 import { repo, setRepository } from './state.js';
 import * as arrangement from './ui/arrangement.js';
 import * as board from './ui/board.js';
+import { watchConnection } from './ui/connectionBanner.js';
 import { h } from './ui/components/dom.js';
 import * as login from './ui/login.js';
 import * as projectList from './ui/projectList.js';
@@ -79,6 +80,7 @@ async function start(session) {
    await upgradeStorage(repository);
    await ensureSeeded(repository);
    setRepository(repository);
+   if (session.mode === 'supabase') watchConnection();
    document.body.classList.remove('is-logged-out');
    started = true;
    render();
