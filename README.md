@@ -23,6 +23,15 @@ python -m http.server 8765      # または npx serve .
 
 テストは `http://localhost:8765/test.html` を開くか、Node で実行する。
 
+### インストール(PWA)
+
+PWA に対応している。Chrome / Edge ならアドレスバーのインストールボタン、スマホならメニューの「ホーム画面に追加」で、アプリとして独立したウィンドウで開ける。
+
+- 一度開くと、画面のファイル(HTML・CSS・JS と CDN のライブラリ)が Service Worker(`sw.js`)にキャッシュされ、オフラインでも起動できる。
+- オフラインで使えるのは、ログインせずに(IndexedDB で)使っているときだけ。Supabase に保存しているときは、起動はできても読み書きできない。
+- 自前のファイルはネットワーク優先で読む。つながっていれば常に最新が使われるので、ファイルを変えたときにキャッシュの名前を変える必要はない。
+- Service Worker は `localhost` か HTTPS でしか動かない(GitHub Pages は HTTPS なので動く)。
+
 ```
 node -e "import('./test/domain.test.js').then(m => m.report()).then(ok => process.exit(ok ? 0 : 1))"
 ```
@@ -36,7 +45,7 @@ node -e "import('./test/domain.test.js').then(m => m.report()).then(ok => proces
 - **ログインせずに使う**こともできる。その場合の保存先はそのブラウザの IndexedDB。Supabase 側とは別のデータで、自動では移らない(移すには、エクスポートしてからログイン後にインポートする)。
 - **使い分け**:実際の作業の記録は Supabase に置く。Supabase の実データに触らずに試したいとき(画面の動作確認など)は、ログインせずに(IndexedDB で)使う。IndexedDB のデータは「そのブラウザの、そのURL(ポート番号を含む)」にしかない。
 - **ログアウト**は設定画面から。localStorage の接続情報を消すだけで、Supabase 上のデータは残る。
-- Supabase に保存しているときは、操作のたびに通信する(読む→保存→読み直す)。オフラインでは使えない。
+- Supabase に保存しているときは、操作のたびに通信する(読む→保存→読み直す)。オフラインでは使えない(IndexedDB ならオフラインでも使える。「インストール(PWA)」を参照)。
 
 ## 仕様
 
@@ -125,6 +134,7 @@ node -e "import('./test/domain.test.js').then(m => m.report()).then(ok => proces
 - 保存先ごとの実装は「文書ストア」(`DocumentStore`:レコードを JSON のまま、コレクション単位で読む・書く・1項目の一致で絞って消す)だけを持つ。repository の各メソッド、削除の連鎖、エクスポート/インポート、スキーマの変換は、その上に `js/store/repository.js` の `createRepository` で1回だけ組み立てる。
 - Supabase では、全レコードを1つのテーブル(`records`)に入れ、項目は `data` 列(jsonb)にそのまま持つ。列に出すのはコレクション名・id・プロジェクトの id だけ。レーンやトラックでの絞り込みは `data->>laneId` のように jsonb の項目で行う。
 - ルーティングはハッシュ方式。
+- PWA:`manifest.webmanifest` と `sw.js`(登録は `js/pwa.js`)。Service Worker は、同じオリジンのファイルをネットワーク優先、CDN のファイル(URL にバージョンが入っている)をキャッシュ優先で返し、Supabase への通信には関わらない。最初に開いたときの読み込みは Service Worker を通らないので、登録後に画面が読み込み済みのファイルの URL を渡してキャッシュさせる(初回からオフラインで開けるように)。パスはすべて相対にしてあるので、GitHub Pages のサブパスでも動く。
 - IDは `crypto.randomUUID()`(初期データだけは固定ID)。
 - 並び順は小数の `order`(fractional indexing)。間に入れるときは前後の中間値を使い、他の行を書き換えない。精度が尽きたときだけ全体を振り直す。
 - 全レコードに `createdAt` と `updatedAt`。エクスポートデータには `schemaVersion`(現在 6)。`migrate` は 4 より前のデータを読み込まない(変換を用意していない)。4 のデータは、タスクの開始日・終了日を「なし」で補って読み込む。4・5 のデータは、アレンジ(トラック・クリップ・マーカー)なしとして読み込む。
@@ -138,6 +148,10 @@ node -e "import('./test/domain.test.js').then(m => m.report()).then(ok => proces
 
 ```
 index.html
+manifest.webmanifest      PWA のマニフェスト(名前、アイコン、表示モード)
+sw.js                     Service Worker(オフラインでの起動のためのキャッシュ)
+icons/                    アプリのアイコン。icon.svg(角丸。ファビコンにも使う)と icon-maskable.svg(全面塗り。OS が切り抜く)が元で、
+                          PNG(192・512・maskable 512・apple-touch-icon 180)はヘッドレス Chrome で SVG を表示してスクリーンショットで書き出した
 test.html                 ドメインロジックのテストをブラウザで実行
 test/domain.test.js       テスト本体(Nodeでも動く)。Supabase 実装は、APIのふりをする fetch で確かめている
 supabase/schema.sql       Supabase のテーブル定義(SQL Editor に貼り付けて実行する)
@@ -150,6 +164,7 @@ css/
   settings.css            設定
 js/
   main.js                 起動(ログイン状態を見て保存先を決める)、ルーター
+  pwa.js                  Service Worker の登録
   session.js              擬似ログインの状態(localStorage)
   state.js                repository の参照と、変更通知(subscribe / notify)
   actions.js              画面から呼ぶ操作。読む→domainで計算→保存→notify
@@ -232,4 +247,5 @@ Marker   { id, projectId, laneId, bar }              // セクションマーカ
 
 - タッチ操作の実機確認(長押しでのドラッグ、ボトムシート、アレンジのクリップとマーカーのドラッグ)
 - Chrome 以外のブラウザ
+- スマホ(Android / iOS)の実機でのインストールと、ホーム画面のアイコンの見た目
 - ダークモードの見た目

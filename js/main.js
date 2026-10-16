@@ -1,6 +1,7 @@
 // 起動とルーター。ルーティングはハッシュ方式(#/、#/p/:id、#/p/:id/arrange、#/templates、#/t/:id、#/settings)。
 // 未ログインならログイン画面を出し、ログイン後に保存先(repository)を決めてアプリを始める。
 
+import { registerServiceWorker } from './pwa.js';
 import { clearSession, loadSession, saveSession } from './session.js';
 import { createIndexedDbRepository } from './store/indexeddb.js';
 import { checkSchema, NewerSchemaError, upgradeStorage } from './store/repository.js';
@@ -151,4 +152,5 @@ document.addEventListener('visibilitychange', () => {
 window.addEventListener('hashchange', () => {
    if (started) render();
 });
+registerServiceWorker();
 boot();
