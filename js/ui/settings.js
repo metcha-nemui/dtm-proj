@@ -1,8 +1,9 @@
-// 設定 #/settings — 保存先(ログイン状態)と、JSONのエクスポート/インポート。
+// 設定 #/settings — UIテーマ、保存先(ログイン状態)と、JSONのエクスポート/インポート。
 
 import { clearSession, loadSession } from '../session.js';
 import { notify, repo } from '../state.js';
 import { migrate } from '../store/repository.js';
+import { loadTheme, setTheme, THEMES } from '../theme.js';
 import { confirmDialog } from './components/dialog.js';
 import { h, icon } from './components/dom.js';
 import { reportError, showToast } from './components/toast.js';
@@ -72,8 +73,31 @@ export function mount(container) {
       h('p', { class: 'muted settings-description' }, description),
       h('div', { class: 'settings-actions' }, controls));
 
+   // UIテーマはデータではなく、このブラウザの設定。押したらすぐに当てる
+   const themeButtons = THEMES.map((t) => h('button', {
+      type: 'button',
+      class: 'project-tab',
+      role: 'radio',
+      onclick: () => {
+         setTheme(t.key);
+         renderTheme();
+      },
+   }, icon(t.icon), t.label));
+   function renderTheme() {
+      const current = loadTheme();
+      THEMES.forEach((t, i) => {
+         const checked = t.key === current;
+         themeButtons[i].classList.toggle('is-active', checked);
+         themeButtons[i].setAttribute('aria-checked', String(checked));
+      });
+   }
+   renderTheme();
+
    container.append(h('div', { class: 'page settings-page' },
       h('div', { class: 'page-head' }, h('h1', { class: 'page-title' }, '設定')),
+      section('UIテーマ',
+         '画面の明るさを選びます。「システム」では端末の設定(ライト / ダーク)に合わせます。このブラウザにだけ保存されます。',
+         h('div', { class: 'project-tabs', role: 'radiogroup', 'aria-label': 'UIテーマ' }, themeButtons)),
       remote
          ? section('保存先: Supabase',
             `${session.url} に保存しています。ログアウトすると、このブラウザから Project URL と公開キーを消します。Supabase 上のデータは残ります。`,

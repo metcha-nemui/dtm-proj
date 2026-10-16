@@ -1,4 +1,6 @@
-/* 色・余白などのCSS変数。ダークモードは prefers-color-scheme で切り替える。 */
+/* 色・余白などのCSS変数。
+   ダークモードは、設定のUIテーマ(<html data-theme>。js/theme.js)で決め、
+   「システム」(属性なし)のときは prefers-color-scheme に合わせる。 */
 :root {
    color-scheme: light dark;
 
@@ -37,8 +39,9 @@
    --drawer-width: 380px;
 }
 
+/* ダークの値は2か所に同じものを書く(media の中と外で同じセレクタにまとめられないため)。変えるときは両方直す */
 @media (prefers-color-scheme: dark) {
-   :root {
+   :root:not([data-theme="light"]) {
       --bg: #14161b;
       --surface: #1e2129;
       --surface-2: #2a2e39;
@@ -57,4 +60,30 @@
       --shadow-1: 0 1px 2px rgb(0 0 0 / 0.4);
       --shadow-2: 0 8px 28px rgb(0 0 0 / 0.55);
    }
+}
+
+:root[data-theme="dark"] {
+   color-scheme: dark;
+
+   --bg: #14161b;
+   --surface: #1e2129;
+   --surface-2: #2a2e39;
+   --border: #363b48;
+   --text: #e7e9ee;
+   --text-muted: #9aa2b3;
+
+   --accent: #8498ff;
+   --accent-contrast: #10131c;
+   --accent-soft: #2a3157;
+   --danger: #ff7087;
+   --done: #4cc38c;
+   --doing: #ffb340;
+   --doing-soft: #3b2f17;
+
+   --shadow-1: 0 1px 2px rgb(0 0 0 / 0.4);
+   --shadow-2: 0 8px 28px rgb(0 0 0 / 0.55);
+}
+
+:root[data-theme="light"] {
+   color-scheme: light;
 }

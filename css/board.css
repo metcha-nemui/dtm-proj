@@ -85,18 +85,6 @@
    font-size: 15px;
 }
 
-.deadline-panel .project-tab {
-   border: 0;
-   background: none;
-   font: inherit;
-   font-size: 13px;
-   cursor: pointer;
-}
-
-.deadline-panel .project-tab.is-active {
-   background: var(--surface);
-}
-
 .deadline-title {
    min-width: 0;
    overflow: hidden;

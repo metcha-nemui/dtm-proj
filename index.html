@@ -10,8 +10,18 @@
    <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
    <link rel="manifest" href="manifest.webmanifest">
    <!-- ヘッダーの背景(--surface)と揃える -->
-   <meta name="theme-color" content="#ffffff" media="(prefers-color-scheme: light)">
-   <meta name="theme-color" content="#1e2129" media="(prefers-color-scheme: dark)">
+   <meta name="theme-color" content="#ffffff" media="(prefers-color-scheme: light)" data-scheme="light">
+   <meta name="theme-color" content="#1e2129" media="(prefers-color-scheme: dark)" data-scheme="dark">
+   <!-- 設定で選んだUIテーマを、描画の前に当てる(モジュールを待つと、一瞬システムの色で表示されるため)。
+      キーは js/theme.js と同じ -->
+   <script>
+      try {
+         const theme = localStorage.getItem('dtm-proj:theme');
+         if (theme === 'light' || theme === 'dark') document.documentElement.dataset.theme = theme;
+      } catch {
+         // localStorage を使えない環境では、システムに合わせる
+      }
+   </script>
    <link rel="stylesheet" href="css/tokens.css">
    <link rel="stylesheet" href="css/base.css">
    <link rel="stylesheet" href="css/board.css">

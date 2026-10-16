@@ -25,6 +25,15 @@
    color: var(--text);
 }
 
+/* リンクではなくボタンで作るタブ(締切パネルの表示、設定のUIテーマ) */
+button.project-tab {
+   border: 0;
+   background: none;
+   font: inherit;
+   font-size: 13px;
+   cursor: pointer;
+}
+
 .project-tab.is-active {
    background: var(--surface);
    box-shadow: var(--shadow-1);

@@ -8,6 +8,7 @@ import { checkSchema, NewerSchemaError, upgradeStorage } from './store/repositor
 import { ensureSeeded } from './store/seed.js';
 import { createSupabaseRepository } from './store/supabase.js';
 import { repo, setRepository } from './state.js';
+import { applyTheme, loadTheme } from './theme.js';
 import * as arrangement from './ui/arrangement.js';
 import * as board from './ui/board.js';
 import { watchConnection } from './ui/connectionBanner.js';
@@ -50,6 +51,9 @@ export function matchRoute(hash) {
    }
    return { route: notFound, params: {} };
 }
+
+// data-theme は index.html で付け済み。ここではアドレスバーの色(theme-color)を合わせる
+applyTheme(loadTheme());
 
 const app = document.getElementById('app');
 const projectsLink = document.querySelector('[data-nav="projects"]');

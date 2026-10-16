@@ -83,7 +83,7 @@ node -e "import('./test/domain.test.js').then(m => m.report()).then(ok => proces
 | `#/p/:id/arrange` | アレンジ | 上端に小節番号のルーラーとセクションマーカーの段、その下にトラックを縦に並べる。縦横にスクロールし、トラック名の列は左に、ルーラーとマーカーは上に残る |
 | `#/templates` | テンプレート一覧 | カード(名前、メモ、セクションとタスクの数)。新規作成、名前とメモの編集、複製、削除 |
 | `#/t/:id` | テンプレートの編集 | プロジェクトと同じボード。ステータスまわりだけ出さない |
-| `#/settings` | 設定 | 保存先の表示とログアウト、JSONのエクスポート/インポート |
+| `#/settings` | 設定 | UIテーマ(システム / ライト / ダーク)、保存先の表示とログアウト、JSONのエクスポート/インポート |
 
 ボードでできること(★はプロジェクトだけ。ほかはテンプレートの編集でも同じ):
 
@@ -163,7 +163,7 @@ test/domain.test.js       テスト本体(Nodeでも動く)。Supabase 実装は
 supabase/schema.sql       Supabase のテーブル定義(SQL Editor に貼り付けて実行する)
 supabase/drop.sql         Supabase のテーブルをすべて消す(作り直す前に実行する。データも消える)
 css/
-  tokens.css              色・余白などのCSS変数(ダークモード対応)
+  tokens.css              色・余白などのCSS変数(ダークモード対応。<html data-theme> がなければ prefers-color-scheme に合わせる)
   base.css                共通部品(ボタン、入力、ダイアログ、メニュー、トースト)
   board.css               プロジェクト一覧・テンプレート一覧、ボード、タスク詳細、ガントチャート、スマホレイアウト
   arrangement.css         アレンジ画面、ボード/アレンジの切り替えタブ
@@ -172,6 +172,8 @@ js/
   main.js                 起動(ログイン状態を見て保存先を決める)、ルーター
   pwa.js                  Service Worker の登録
   session.js              擬似ログインの状態(localStorage)
+  theme.js                UIテーマ(システム / ライト / ダーク)の読み書きと適用(localStorage)。
+                          ちらつかないように、index.html の先頭の script でも data-theme を付けている
   state.js                repository の参照と、変更通知(subscribe / notify)
   actions.js              画面から呼ぶ操作。読む→domainで計算→保存→notify
   domain/                 DOMにもrepositoryにも依存しない純粋なロジック
