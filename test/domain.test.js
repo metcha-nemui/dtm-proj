@@ -5,7 +5,7 @@ import {
    addClip, addMarker, addTrack, arrangementBars, canPlace, clipEnd, markerSpans, moveTrack, placeClip, renameTrack,
    updateClip, updateMarker,
 } from '../js/domain/arrangement.js';
-import { addDays, daysBetween, toDateString } from '../js/domain/date.js';
+import { addDays, daysBetween, toDateString, weekendDaysBetween } from '../js/domain/date.js';
 import { deadlineRange, deadlineRows } from '../js/domain/deadline.js';
 import { ganttRange, ganttRows } from '../js/domain/gantt.js';
 import { orderAtEnd, orderBetween, placeAt, reorder, sortByOrder } from '../js/domain/order.js';
@@ -536,9 +536,29 @@ test('deadlineRows: 締切のある未完了のプロジェクトを、締切の
       item('空のプロジェクト', '2026-11-01', { total: 0, done: 0 }),
    ];
    const rows = deadlineRows(items, '2026-10-15');
-   equal(rows.map((r) => [r.project.title, r.days]),
-      [['過ぎた', -5], ['あおぞら', 5], ['さくら', 5], ['空のプロジェクト', 17]]);
+   equal(rows.map((r) => [r.project.title, r.days, r.weekendDays]),
+      [['過ぎた', -5, 0], ['あおぞら', 5, 2], ['さくら', 5, 2], ['空のプロジェクト', 17, 6]]);
    equal(deadlineRows([item('完了済み', '2026-10-14', { total: 1, done: 1 })], '2026-10-15'), [], '出すものがなければ空');
+});
+
+test('weekendDaysBetween: 翌日から締切日までの土日を数える', () => {
+   // 2026-10-15 は木曜、10-17 が土曜、10-18 が日曜
+   equal([
+      weekendDaysBetween('2026-10-15', '2026-10-16'), // 金
+      weekendDaysBetween('2026-10-15', '2026-10-17'), // 土まで
+      weekendDaysBetween('2026-10-15', '2026-10-18'), // 日まで
+      weekendDaysBetween('2026-10-15', '2026-10-22'), // ちょうど1週
+      weekendDaysBetween('2026-10-15', '2026-11-01'), // 2週と3日(日曜まで)
+   ], [0, 1, 2, 2, 6]);
+   equal([
+      weekendDaysBetween('2026-10-17', '2026-10-18'), // 今日(土)は数えない
+      weekendDaysBetween('2026-10-18', '2026-10-24'), // 日曜から次の土曜まで
+   ], [1, 1]);
+   equal([
+      weekendDaysBetween('2026-10-15', '2026-10-15'),
+      weekendDaysBetween('2026-10-20', '2026-10-15'),
+   ], [0, 0], '今日と過ぎた日は 0');
+   equal(weekendDaysBetween('2026-01-01', '2027-01-01'), 104, '1年(2027-01-01 は金曜)');
 });
 
 test('deadlineRange: 今日と全締切のうち、いちばん早い日からいちばん遅い日まで(前後に余白)', () => {

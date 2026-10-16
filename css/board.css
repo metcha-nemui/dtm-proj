@@ -122,6 +122,13 @@
    font-variant-numeric: tabular-nums;
 }
 
+/* 「あと◯日」に併記する土日の日数。主役は残り日数なので控えめにする */
+.deadline-weekend {
+   margin-left: 0.25em;
+   color: var(--text-muted);
+   font-weight: 400;
+}
+
 /* タイムライン。左がプロジェクト名、右が日付の帯。点の位置と今日の線はパーセントで置く */
 
 .deadline-tl {

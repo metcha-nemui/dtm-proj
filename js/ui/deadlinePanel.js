@@ -42,11 +42,14 @@ function formatDate(date, today) {
 }
 
 function renderList(rows, today) {
-   return h('ol', { class: 'deadline-list' }, rows.map(({ project, days }) => h('li', null,
+   return h('ol', { class: 'deadline-list' }, rows.map(({ project, days, weekendDays }) => h('li', null,
       h('a', { class: 'deadline-item', href: projectHref(project) },
          h('span', { class: 'deadline-date' }, formatDate(project.dueDate, today)),
          h('span', { class: 'deadline-title' }, project.title),
-         h('span', { class: `due${dueState(days)}` }, restLabel(days))))));
+         h('span', { class: `due${dueState(days)}` },
+            restLabel(days),
+            // 土日に作業する場合の残り。「あと◯日」のときだけ併記する(今日・超過では意味がない)
+            days > 0 && h('span', { class: 'deadline-weekend' }, `(土日${weekendDays}日)`))))));
 }
 
 function renderTimeline(rows, today) {

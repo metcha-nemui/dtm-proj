@@ -33,3 +33,20 @@ export function daysBetween(from, to) {
    // 夏時間のある地域では1日が24時間ちょうどにならないので、丸める
    return Math.round((toLocalDate(to) - toLocalDate(from)) / 86400000);
 }
+
+/**
+ * from の翌日から to までに含まれる土日の日数。to が from 以前なら 0。
+ * 数える範囲は daysBetween と同じ(「あと◯日」のうち、土日が何日あるか)。
+ */
+export function weekendDaysBetween(from, to) {
+   const days = daysBetween(from, to);
+   if (days <= 0) return 0;
+   // 丸ごとの週には土日が2日ずつあるので、端数の日だけ曜日を見る
+   let count = Math.floor(days / 7) * 2;
+   const start = toLocalDate(from).getDay();
+   for (let i = 1; i <= days % 7; i++) {
+      const weekday = (start + i) % 7;
+      if (weekday === 0 || weekday === 6) count++;
+   }
+   return count;
+}

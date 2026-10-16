@@ -1,6 +1,6 @@
 // プロジェクト一覧の締切パネルに出す内容の計算。DOMにもrepositoryにも依存しない。
 
-import { addDays, daysBetween } from './date.js';
+import { addDays, daysBetween, weekendDaysBetween } from './date.js';
 import { isFinished } from './stats.js';
 
 const RANGE_MARGIN = 3; // タイムラインの前後に足す日数
@@ -10,7 +10,9 @@ const RANGE_MARGIN = 3; // タイムラインの前後に足す日数
  * 全タスクが完了したプロジェクトは、締切を気にする必要がないので出さない。
  * @param {{ project: object, stats: { total: number, done: number } }[]} items
  * @param {string} today 今日(YYYY-MM-DD)
- * @returns {{ project: object, days: number }[]} days は締切までの日数(今日が締切なら 0、過ぎていれば負の数)
+ * @returns {{ project: object, days: number, weekendDays: number }[]}
+ *    days は締切までの日数(今日が締切なら 0、過ぎていれば負の数)。
+ *    weekendDays は、そのうちの土日の日数(土日に作業する人の目安。今日と過ぎた締切は 0)
  */
 export function deadlineRows(items, today) {
    return items
@@ -18,7 +20,11 @@ export function deadlineRows(items, today) {
       .sort((a, b) => (a.project.dueDate === b.project.dueDate
          ? a.project.title.localeCompare(b.project.title, 'ja')
          : a.project.dueDate < b.project.dueDate ? -1 : 1))
-      .map(({ project }) => ({ project, days: daysBetween(today, project.dueDate) }));
+      .map(({ project }) => ({
+         project,
+         days: daysBetween(today, project.dueDate),
+         weekendDays: weekendDaysBetween(today, project.dueDate),
+      }));
 }
 
 /**
