@@ -50,36 +50,16 @@ async function changed(projectId) {
    notify({ projectId });
 }
 
-// ---- プロジェクトとテンプレート ----
-// テンプレートは「ステータスを使わないプロジェクト」。編集と削除は、プロジェクトと同じ操作を使う。
+// ---- プロジェクト ----
 
-async function saveBoard({ project, lanes, tasks }) {
+/** 新しいプロジェクトを作る。レーンは空の「全体」レーンだけ。 */
+export const createProject = serial(async ({ title, memo, dueDate }) => {
+   const { project, lanes } = projectDomain.createProject({ title, memo, dueDate });
    await repo().saveProject(project);
    await repo().saveLanes(lanes);
-   await repo().saveTasks(tasks);
    notify({ projectId: project.id });
    return project;
-}
-
-/** templateId のテンプレートを丸ごとコピーして作る。なければ空の「全体」レーンだけ。 */
-export const createProject = serial(async ({ title, memo, dueDate, templateId }) => {
-   const source = templateId ? await load(templateId) : null;
-   return saveBoard(projectDomain.createProject({ title, memo, dueDate }, source));
 });
-
-/** 空のテンプレートを作る。 */
-export const createTemplate = serial(async ({ name }) => saveBoard(projectDomain.createTemplate({ name })));
-
-/** テンプレートを丸ごと複製する。 */
-export const duplicateTemplate = serial(async (templateId) => {
-   const [template, source] = await Promise.all([repo().getProject(templateId), load(templateId)]);
-   if (!template) throw new Error('テンプレートが見つかりません');
-   return saveBoard(projectDomain.createTemplate({ name: `${template.title}のコピー`, memo: template.memo }, source));
-});
-
-/** プロジェクトのいまの構成(レーンとタスク)を丸ごとコピーして、新しいテンプレートを作る。 */
-export const saveProjectAsTemplate = serial(async (projectId, name) => (
-   saveBoard(projectDomain.createTemplate({ name }, await load(projectId)))));
 
 export const updateProject = serial(async (projectId, patch) => {
    const project = await repo().getProject(projectId);
@@ -122,23 +102,14 @@ export const deleteProject = serial(async (projectId) => {
 // ---- レーン ----
 
 /**
- * セクションを追加する。from を渡すと、そのセクション(テンプレートのもの)をタスクごと取り込む。
+ * 空のセクションを追加する。
  * @param {string} projectId
- * @param {{ index?: number, name?: string, from?: { projectId: string, laneId: string }|null }} options
+ * @param {{ index?: number, name?: string }} options
  */
-export const addSection = serial(async (projectId, { index, name, from = null }) => {
+export const addSection = serial(async (projectId, { index, name }) => {
    const { lanes } = await load(projectId);
-   let source = null;
-   if (from) {
-      const origin = await load(from.projectId);
-      source = {
-         lane: find(origin.lanes, from.laneId, '取り込み元のセクション'),
-         tasks: origin.tasks.filter((t) => t.laneId === from.laneId),
-      };
-   }
-   const result = projectDomain.addSection({ projectId, lanes, index, name, source });
+   const result = projectDomain.addSection({ projectId, lanes, index, name });
    await repo().saveLanes(result.lanes);
-   await repo().saveTasks(result.tasks);
    await changed(projectId);
    return result.lane;
 });

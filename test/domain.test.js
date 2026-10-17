@@ -15,7 +15,7 @@ import { deadlineRange, deadlineRows } from '../js/domain/deadline.js';
 import { ganttRange, ganttRows } from '../js/domain/gantt.js';
 import { orderAtEnd, orderBetween, placeAt, reorder, sortByOrder } from '../js/domain/order.js';
 import {
-   addSection, assertSection, createProject, createTemplate, daysUntilDue, duplicateLane, moveLane,
+   addSection, assertSection, createProject, daysUntilDue, duplicateLane, moveLane,
    normalizeDueDate, renameLane, SECTION_COLORS, sectionColors, uniqueLaneName, updateProject,
 } from '../js/domain/project.js';
 import {
@@ -26,7 +26,6 @@ import {
    addTask, cycleStatus, isValidPeriod, moveTask, setStatus, updateTask,
 } from '../js/domain/task.js';
 import { normalizeProjectUrl } from '../js/session.js';
-import { buildSeed, ensureSeeded } from '../js/store/seed.js';
 import { checkConnection, createSupabaseRepository, fromRow, toRow } from '../js/store/supabase.js';
 import { checkSchema, migrate, NewerSchemaError, SCHEMA_VERSION, upgradeStorage } from '../js/store/repository.js';
 
@@ -63,12 +62,38 @@ async function rejects(promise, part) {
    throw new Error(`should reject: ${part}`);
 }
 
-// 初期データのテンプレート(レーンとタスク)。createProject などの元として使う
-const seed = buildSeed();
-const template = (key) => ({
-   lanes: seed.lanes.filter((l) => l.projectId === `seed-template-${key}`),
-   tasks: seed.tasks.filter((t) => t.projectId === `seed-template-${key}`),
-});
+// テストに使う構成(以前の初期データのテンプレートと同じ)。sections は [名前, タスク] を並び順どおりに
+const VERSE = ['コード確定', 'メロ確定', 'ドラム', 'ベース'];
+const CHORUS = [...VERSE, '上モノ', 'コーラス'];
+const SAMPLES = {
+   vocal: {
+      global: ['テンポ・キー決定', '仮タイトル', '歌詞', 'ミックス', 'マスタリング', '書き出し'],
+      sections: [
+         ['イントロ', []], ['Aメロ', VERSE], ['Bメロ', []], ['サビ', CHORUS], ['間奏', []], ['Aメロ2', VERSE],
+         ['Bメロ2', []], ['サビ2', CHORUS], ['Cメロ', []], ['サビ3', CHORUS], ['アウトロ', []],
+      ],
+   },
+   inst: {
+      global: ['テンポ・キー決定', '仮タイトル', 'ミックス', 'マスタリング', '書き出し'],
+      sections: [['セクション', []], ['セクション2', []], ['セクション3', []], ['セクション4', []]],
+   },
+};
+// サンプルの構成で、セクションとタスクの入ったプロジェクトを作る(vocal はレーン12本・タスク32件、inst は5本・5件)
+function sampleProject(key, input = { title: 'x' }) {
+   const sample = SAMPLES[key];
+   const { project, lanes } = createProject(input);
+   const tasks = [];
+   const addAll = (lane, list) => {
+      for (const title of list) tasks.push(addTask(lane, tasks.filter((t) => t.laneId === lane.id), title));
+   };
+   addAll(lanes[0], sample.global);
+   for (const [name, list] of sample.sections) {
+      const { lane } = addSection({ projectId: project.id, lanes, name });
+      lanes.push(lane);
+      addAll(lane, list);
+   }
+   return { project, lanes, tasks };
+}
 const sectionNames = (lanes) => titles(lanes.filter((l) => l.type === 'section'));
 const titles = (items) => sortByOrder(items).map((i) => i.title ?? i.name);
 const ids = (items) => sortByOrder(items).map((i) => i.id);
@@ -128,94 +153,16 @@ test('uniqueLaneName: 重複したら番号を振る', () => {
    equal(uniqueLaneName('Aメロ', ['Aメロ', 'Aメロ2']), 'Aメロ3');
 });
 
-test('createProject: テンプレートのレーンとタスクを丸ごとコピーする', () => {
-   const source = template('vocal');
-   const before = JSON.stringify(source);
-   const { project, lanes, tasks } = createProject({ title: ' 新曲 ' }, source);
-   equal(JSON.stringify(source), before, 'テンプレートは変更しない');
-   equal([project.title, project.isTemplate], ['新曲', false]);
-   assert(!('templateId' in project), '作成元は覚えない');
-   equal(sectionNames(lanes),
-      ['イントロ', 'Aメロ', 'Bメロ', 'サビ', '間奏', 'Aメロ2', 'Bメロ2', 'サビ2', 'Cメロ', 'サビ3', 'アウトロ']);
-   equal(titles(lanes.filter((l) => l.type === 'global')), ['全体']);
-   assert(lanes.every((l) => l.projectId === project.id && l.collapsed === false && !('kindId' in l)));
-
-   const chorus = lanes.find((l) => l.name === 'サビ2');
-   equal(titles(tasks.filter((t) => t.laneId === chorus.id)),
-      ['コード確定', 'メロ確定', 'ドラム', 'ベース', '上モノ', 'コーラス']);
-   const global = lanes.find((l) => l.type === 'global');
-   equal(titles(tasks.filter((t) => t.laneId === global.id)),
-      ['テンポ・キー決定', '仮タイトル', '歌詞', 'ミックス', 'マスタリング', '書き出し']);
-   assert(tasks.every((t) => t.status === 'todo' && t.doneAt === null && t.projectId === project.id));
-   equal(tasks.length, 6 * 3 + 4 * 2 + 6);
-
-   // コピーは別のIDを持ち、テンプレートのレコードを指さない
-   const sourceIds = new Set([...source.lanes, ...source.tasks].map((r) => r.id));
-   assert([...lanes, ...tasks].every((r) => !sourceIds.has(r.id)), 'IDは新しい');
-   assert(tasks.every((t) => lanes.some((l) => l.id === t.laneId)), 'タスクはコピーしたレーンに入る');
-});
-
-test('createProject: 「全体」レーンは必ず1本。テンプレートごとに中身が違う', () => {
-   for (const [source, count] of [[template('vocal'), 6], [template('inst'), 5], [null, 0]]) {
-      const { lanes, tasks } = createProject({ title: 'x' }, source);
-      const globals = lanes.filter((l) => l.type === 'global');
-      equal(globals.map((l) => l.name), ['全体']);
-      equal(tasks.filter((t) => t.laneId === globals[0].id).length, count);
-   }
-   const inst = createProject({ title: 'x' }, template('inst'));
-   assert(!titles(inst.tasks).includes('歌詞'), 'インストの「全体」に歌詞はない');
-   equal(sectionNames(inst.lanes), ['セクション', 'セクション2', 'セクション3', 'セクション4']);
-   const none = createProject({ title: '' });
-   equal([none.project.title, none.project.isTemplate], ['無題のプロジェクト', false]);
-   equal([none.lanes.length, none.tasks.length], [1, 0]);
-});
-
-test('createProject: 作業中のステータスやメモ、折りたたみを持つ元からでも、未着手で作る', () => {
-   const source = template('vocal');
-   const worked = {
-      lanes: source.lanes.map((l) => ({ ...l, collapsed: true })),
-      tasks: source.tasks.map((t, i) => ({ ...setStatus(t, i % 2 ? 'done' : 'doing'), memo: 'メモ' })),
-   };
-   const { lanes, tasks } = createProject({ title: 'x' }, worked);
-   assert(lanes.every((l) => l.collapsed === false));
-   assert(tasks.every((t) => t.status === 'todo' && t.doneAt === null && t.memo === 'メモ'));
-});
-
-test('createTemplate: 新規・複製・プロジェクトからの保存', () => {
-   const empty = createTemplate({ name: ' クラブ ' });
-   equal([empty.project.title, empty.project.isTemplate, empty.project.dueDate], ['クラブ', true, null]);
-   equal([empty.lanes.map((l) => l.type), empty.tasks.length], [['global'], 0]);
-   throws(() => createTemplate({ name: '  ' }));
-
-   // 複製: 中身が同じで、IDは別
-   const copy = createTemplate({ name: '歌モノのコピー', memo: 'm' }, template('vocal'));
-   equal([copy.project.memo, copy.lanes.length, copy.tasks.length], ['m', 12, 32]);
-   equal(sectionNames(copy.lanes), sectionNames(template('vocal').lanes));
-   assert(copy.lanes.every((l) => l.projectId === copy.project.id && !template('vocal').lanes.some((s) => s.id === l.id)));
-
-   // プロジェクトからの保存: セクションごとの違いも、足したセクションも落ちない
-   const { project, lanes, tasks } = createProject({ title: '曲', dueDate: '2026-10-31' }, template('vocal'));
-   const lane = (name) => lanes.find((l) => l.name === name);
-   const extra = setStatus(addTask(lane('サビ3'), tasks.filter((t) => t.laneId === lane('サビ3').id), '落ちサビ用の抜き'), 'done');
-   const added = addSection({ projectId: project.id, lanes, name: 'ドロップ', index: 1 });
-   const drop = addTask(added.lane, [], 'ベースを抜く');
-   const saved = createTemplate({ name: '曲の型' }, { lanes: [...lanes, added.lane], tasks: [...tasks, extra, drop] });
-   equal(saved.project.isTemplate, true);
-   equal(sectionNames(saved.lanes).slice(0, 3), ['イントロ', 'ドロップ', 'Aメロ']);
-   const tasksOf = (name) => titles(saved.tasks.filter((t) => t.laneId === saved.lanes.find((l) => l.name === name).id));
-   equal(tasksOf('サビ').length, 6);
-   equal(tasksOf('サビ3').at(-1), '落ちサビ用の抜き', 'サビ3だけの違いも残る');
-   equal(tasksOf('ドロップ'), ['ベースを抜く']);
-   assert(saved.tasks.every((t) => t.status === 'todo'), 'ステータスは引き継がない');
-
-   // 保存したテンプレートから作ると、同じ構成になる
-   const next = createProject({ title: '次の曲' }, saved);
-   equal(sectionNames(next.lanes), sectionNames(saved.lanes));
-   equal(next.tasks.length, saved.tasks.length);
+test('createProject: 「全体」レーンだけで作る', () => {
+   const { project, lanes, tasks } = createProject({ title: ' 新曲 ', dueDate: '2026-10-31' });
+   equal([project.title, project.dueDate, 'isTemplate' in project], ['新曲', '2026-10-31', false]);
+   equal(lanes.map((l) => [l.type, l.name, l.projectId]), [['global', '全体', project.id]]);
+   equal(tasks, []);
+   equal(createProject({ title: '' }).project.title, '無題のプロジェクト');
 });
 
 test('「全体」レーンは名前変更・複製・削除できない', () => {
-   const { lanes, tasks } = createProject({ title: 'x' }, template('inst'));
+   const { lanes, tasks } = sampleProject('inst');
    const global = lanes.find((l) => l.type === 'global');
    throws(() => renameLane(global, 'ミックス'), '名前変更');
    throws(() => duplicateLane(global.id, lanes, tasks), '複製');
@@ -227,9 +174,6 @@ test('updateProject: 空タイトルは拒否', () => {
    const { project } = createProject({ title: 'x' });
    equal(updateProject(project, { title: ' y ', memo: 'm' }).title, 'y');
    throws(() => updateProject(project, { title: '  ' }));
-   // テンプレートの名前とメモも同じ操作で編集する
-   const edited = updateProject(createTemplate({ name: 't' }).project, { title: 'EDM', memo: 'm' });
-   equal([edited.title, edited.memo, edited.isTemplate], ['EDM', 'm', true]);
 });
 
 test('締切: 作成・編集で持てる。空や不正な日付は締切なし', () => {
@@ -250,10 +194,10 @@ test('daysUntilDue: 端末の日付で数える', () => {
 });
 
 test('addSection: 空のセクションを、指定位置か末尾に足す', () => {
-   const { project, lanes } = createProject({ title: 'x' }, template('vocal'));
+   const { project, lanes } = sampleProject('vocal');
    const base = { projectId: project.id, lanes };
    const added = addSection({ ...base, name: ' ブレイク ', index: 1 });
-   equal([added.lane.name, added.lane.type, added.tasks.length], ['ブレイク', 'section', 0]);
+   equal([added.lane.name, added.lane.type], ['ブレイク', 'section']);
    equal(added.lanes.length, 1, '他のレーンは書き換えない');
    equal(sectionNames([...lanes, added.lane]).slice(0, 3), ['イントロ', 'ブレイク', 'Aメロ']);
 
@@ -263,30 +207,8 @@ test('addSection: 空のセクションを、指定位置か末尾に足す', ()
    equal(addSection({ ...base, name: 'サビ' }).lane.name, 'サビ4', '名前が重なったら番号を振る');
 });
 
-test('addSection: テンプレートのセクションをタスクごと取り込む', () => {
-   const { project, lanes } = createProject({ title: 'x' }, template('inst'));
-   const from = template('vocal');
-   const chorus = from.lanes.find((l) => l.name === 'サビ2');
-   const source = { lane: chorus, tasks: from.tasks.filter((t) => t.laneId === chorus.id).map((t) => ({ ...t, memo: 'm' })) };
-
-   const added = addSection({ projectId: project.id, lanes, index: 1, source });
-   equal(added.lane.name, 'サビ', '取り込み元の名前から番号を除いて付ける');
-   equal([added.lane.projectId, added.lane.collapsed], [project.id, false]);
-   equal(titles(added.tasks), ['コード確定', 'メロ確定', 'ドラム', 'ベース', '上モノ', 'コーラス']);
-   assert(added.tasks.every((t) => t.laneId === added.lane.id && t.projectId === project.id && t.memo === 'm' && t.status === 'todo'));
-   assert(added.tasks.every((t) => !from.tasks.some((s) => s.id === t.id)), 'タスクのIDは新しい');
-   assert(!('sourceLaneId' in added.lane) && !('kindId' in added.lane), '取り込み元とのつながりは残さない');
-   equal(sectionNames([...lanes, added.lane]), ['セクション', 'サビ', 'セクション2', 'セクション3', 'セクション4']);
-
-   // もう1本取り込むと番号が付く。名前を指定すれば、その名前になる
-   const all = [...lanes, added.lane];
-   equal(addSection({ projectId: project.id, lanes: all, source }).lane.name, 'サビ2');
-   const named = addSection({ projectId: project.id, lanes: all, source, name: '落ちサビ' });
-   equal([named.lane.name, named.tasks.length], ['落ちサビ', 6]);
-});
-
 test('duplicateLane: タスクごと複製し、ステータスは未着手に戻す', () => {
-   const { lanes, tasks } = createProject({ title: 'x' }, template('vocal'));
+   const { lanes, tasks } = sampleProject('vocal');
    const source = lanes.find((l) => l.name === 'サビ');
    const worked = tasks.map((t, i) => (t.laneId === source.id
       ? { ...setStatus(t, i % 2 ? 'done' : 'doing'), memo: 'メモ' }
@@ -301,7 +223,7 @@ test('duplicateLane: タスクごと複製し、ステータスは未着手に�
 });
 
 test('moveLane: 同じ種類の中だけで並べ替える', () => {
-   const { lanes } = createProject({ title: 'x' }, template('inst'));
+   const { lanes } = sampleProject('inst');
    const sections = sortByOrder(lanes.filter((l) => l.type === 'section'));
    const moved = apply(lanes, moveLane(lanes, sections[0].id, 3));
    equal(sectionNames(moved), ['セクション2', 'セクション3', 'セクション4', 'セクション']);
@@ -309,7 +231,7 @@ test('moveLane: 同じ種類の中だけで並べ替える', () => {
 });
 
 test('sectionColors: 並び順にパレットの色を1色ずつ割り振る。名前が似ていても別の色', () => {
-   const { lanes } = createProject({ title: 'x' }, template('vocal'));
+   const { lanes } = sampleProject('vocal');
    const colorOf = (all, name) => sectionColors(all).get(all.find((l) => l.name === name).id);
    const [c1, c2, c3, c4] = SECTION_COLORS;
    equal(['イントロ', 'Aメロ', 'Bメロ', 'サビ'].map((n) => colorOf(lanes, n)), [c1, c2, c3, c4]);
@@ -335,7 +257,7 @@ test('sectionColors: 色を使い切ったら先頭に戻る', () => {
 });
 
 test('renameLane: 空の名前は拒否', () => {
-   const { lanes } = createProject({ title: 'x' }, template('inst'));
+   const { lanes } = sampleProject('inst');
    const section = lanes.find((l) => l.type === 'section');
    equal(renameLane(section, ' ドロップ ').name, 'ドロップ');
    throws(() => renameLane(section, ''));
@@ -344,7 +266,7 @@ test('renameLane: 空の名前は拒否', () => {
 // ---- task ----
 
 function fixture() {
-   const { project, lanes, tasks } = createProject({ title: 'x' }, template('vocal'));
+   const { project, lanes, tasks } = sampleProject('vocal');
    const lane = (name) => lanes.find((l) => l.name === name);
    const inLane = (all, name) => sortByOrder(all.filter((t) => t.laneId === lane(name).id));
    return { project, lanes, tasks, lane, inLane };
@@ -431,18 +353,13 @@ test('開始日と終了日(実績): 手で直せるのは、着手後の開始�
    assert(isValidPeriod(null, '2026-10-01') && isValidPeriod('2026-10-01', null) && !isValidPeriod('2026-10-02', '2026-10-01'));
 });
 
-test('開始日と終了日: コピーには引き継がない(テンプレートに入らない)', () => {
-   const { project, lanes, tasks } = fixture();
+test('開始日と終了日: セクションの複製には引き継がない', () => {
+   const { lanes, tasks } = fixture();
    const dated = tasks.map((t) => setStatus(t, 'done'));
    assert(dated.every((t) => t.startDate && t.endDate));
    const noDates = (list) => list.length > 0 && list.every((t) => t.startDate === null && t.endDate === null);
-   assert(noDates(createTemplate({ name: '型' }, { lanes, tasks: dated }).tasks), 'テンプレートとして保存');
-   assert(noDates(createProject({ title: 'x' }, { lanes, tasks: dated }).tasks), 'テンプレートから作成');
    const chorus = lanes.find((l) => l.name === 'サビ');
    assert(noDates(duplicateLane(chorus.id, lanes, dated).tasks), 'セクションの複製');
-   const source = { lane: chorus, tasks: dated.filter((t) => t.laneId === chorus.id) };
-   assert(noDates(addSection({ projectId: project.id, lanes, source }).tasks), 'セクションの取り込み');
-   assert(noDates(buildSeed().tasks), '初期データ');
 });
 
 // ---- reference ----
@@ -502,15 +419,11 @@ test('updateTask: リファレンスを整えて保存する', () => {
    equal(updateTask(tasks[0], { title: 'y' }).references, [], '他の項目だけ編集しても変わらない');
 });
 
-test('リファレンス: セクションの複製では引き継ぎ、テンプレートとのやり取りでは引き継がない', () => {
-   const { project, lanes, tasks } = fixture();
+test('リファレンス: セクションの複製では引き継ぐ', () => {
+   const { lanes, tasks } = fixture();
    const withRefs = tasks.map((t) => updateTask(t, { references: ['Lemon'] }));
-   const none = (list) => list.length > 0 && list.every((t) => t.references.length === 0);
-   assert(none(createTemplate({ name: '型' }, { lanes, tasks: withRefs }).tasks), 'テンプレートとして保存');
-   assert(none(createProject({ title: 'x' }, { lanes, tasks: withRefs }).tasks), 'テンプレートから作成');
    const chorus = lanes.find((l) => l.name === 'サビ');
    const source = { lane: chorus, tasks: withRefs.filter((t) => t.laneId === chorus.id) };
-   assert(none(addSection({ projectId: project.id, lanes, source }).tasks), 'セクションの取り込み');
    const dup = duplicateLane(chorus.id, lanes, withRefs).tasks;
    assert(dup.length > 0 && dup.every((t) => t.references[0] === 'Lemon'), 'セクションの複製');
    assert(dup[0].references !== source.tasks[0].references, '配列は共有しない');
@@ -648,7 +561,7 @@ test('moveTask: レーン間の移動', () => {
 // ---- arrangement ----
 
 function arrangementFixture() {
-   const { project, lanes } = createProject({ title: 'x' }, template('vocal'));
+   const { project, lanes } = sampleProject('vocal');
    const lane = (name) => lanes.find((l) => l.name === name);
    const synth = addTrack(project.id, [], 'シンセ');
    const drums = addTrack(project.id, [synth], 'ドラム');
@@ -756,7 +669,7 @@ test('canPlace / addClip / placeClip: マーカーを渡すと、セクション
 });
 
 function linkedFixture() {
-   const { project, lanes, tasks } = createProject({ title: 'x' }, template('vocal'));
+   const { project, lanes, tasks } = sampleProject('vocal');
    const lane = (name) => lanes.find((l) => l.name === name);
    const synth = addTrack(project.id, [], 'シンセ');
    const drums = addTrack(project.id, [synth], 'ドラム');
@@ -822,7 +735,7 @@ test('syncClipTasks: クリップがなくなれば消す。同じクリップ�
    equal(syncClipTasks({ ...s, tasks: [...s.tasks, twin] }).remove, ['twin']);
 });
 
-test('連動タスク: 別のレーンへは動かせず、名前はクリップで変える。テンプレートと複製にはコピーしない', () => {
+test('連動タスク: 別のレーンへは動かせず、名前はクリップで変える。複製にはコピーしない', () => {
    const { lane, a, state, sync, linkedTo } = linkedFixture();
    const s = sync(state);
    const task = linkedTo(s, a);
@@ -830,8 +743,6 @@ test('連動タスク: 別のレーンへは動かせず、名前はクリップ
    equal(moveTask(s.tasks, task.id, task.laneId, 0)[0].laneId, task.laneId, 'レーンの中では並べ替えられる');
    throws(() => updateTask(task, { title: 'x' }), 'タイトルは変えられない');
    equal(updateTask(task, { references: ['Lemon'] }).references, ['Lemon']);
-   const copied = createTemplate({ name: '型' }, { lanes: s.lanes, tasks: s.tasks }).tasks;
-   equal([copied.length, copied.some((t) => t.clipId)], [s.tasks.filter((t) => !t.clipId).length, false], 'テンプレートとして保存');
    equal(duplicateLane(lane('イントロ').id, s.lanes, s.tasks).tasks.some((t) => t.title.startsWith('シンセ')), false, 'セクションの複製');
 });
 
@@ -865,7 +776,6 @@ test('normalizeBpm / projectBpm: 範囲に収め、項目がなければ 120', (
    const { project } = createProject({ title: 'x' });
    equal(project.bpm, 120, '新しいプロジェクトは 120');
    equal(updateProject(project, { bpm: '90' }).bpm, 90);
-   equal(createTemplate({ name: 't' }).project.bpm, undefined, 'テンプレートは持たない');
 });
 
 test('トラックの音: 既定はピアノ・音量100・パン中央。範囲の外は端に寄せる', () => {
@@ -1046,11 +956,11 @@ test('midiFileName: 使えない文字とコロンを除く', () => {
 test('migrate: v7 のデータは、BPM 120・ピアノ・ノートなしとして読み込む', () => {
    const data = migrate({
       schemaVersion: 7,
-      projects: [{ id: 'p', isTemplate: false }, { id: 't', isTemplate: true }],
+      projects: [{ id: 'p', isTemplate: false }],
       tracks: [{ id: 'tr', projectId: 'p' }],
       clips: [{ id: 'c', projectId: 'p', trackId: 'tr', startBar: 1, bars: 1 }],
    });
-   equal(data.projects, [{ id: 'p', isTemplate: false, bpm: 120, scales: [{ bar: 1, root: 0, mode: 'major' }] }, { id: 't', isTemplate: true }]);
+   equal(data.projects, [{ id: 'p', bpm: 120, scales: [{ bar: 1, root: 0, mode: 'major' }] }]);
    equal(data.tracks, [{ id: 'tr', projectId: 'p', program: 0, volume: 100, pan: 64, drum: false }]);
    equal(data.clips[0].notes, []);
 });
@@ -1059,13 +969,24 @@ test('migrate: v8 のデータは1小節目から C メジャー、v9 の scale 
    const data = migrate({
       schemaVersion: 9,
       projects: [
-         { id: 'p', isTemplate: false, bpm: 90 },
-         { id: 'q', isTemplate: false, bpm: 90, scale: { root: 21, mode: 'minor' } },
-         { id: 't', isTemplate: true },
+         { id: 'p', bpm: 90 },
+         { id: 'q', bpm: 90, scale: { root: 21, mode: 'minor' } },
       ],
    });
-   equal(data.projects.map((p) => p.scales), [[{ bar: 1, root: 0, mode: 'major' }], [{ bar: 1, root: 9, mode: 'minor' }], undefined]);
+   equal(data.projects.map((p) => p.scales), [[{ bar: 1, root: 0, mode: 'major' }], [{ bar: 1, root: 9, mode: 'minor' }]]);
    assert(!('scale' in data.projects[1]), 'scale は残さない');
+});
+
+test('migrate: v10 のテンプレートは、レーンとタスクごと捨てる', () => {
+   const vocal = sampleProject('vocal');
+   const data = migrate({
+      schemaVersion: 10,
+      projects: [{ ...vocal.project, isTemplate: false }, { id: 't', title: '歌モノ', isTemplate: true }],
+      lanes: [...vocal.lanes, { id: 'tl', projectId: 't', type: 'global' }],
+      tasks: [...vocal.tasks, { id: 'tt', projectId: 't', laneId: 'tl' }],
+   });
+   equal(data.projects.map((p) => [p.id, 'isTemplate' in p]), [[vocal.project.id, false]], 'isTemplate の項目も消す');
+   equal([data.lanes.length, data.tasks.length], [vocal.lanes.length, vocal.tasks.length]);
 });
 
 test('normalizeScale / normalizeScales: 主音は 0〜11、mode は major か minor。1小節目は必ずある', () => {
@@ -1076,7 +997,6 @@ test('normalizeScale / normalizeScales: 主音は 0〜11、mode は major か mi
    const { project } = createProject({ title: 'p' });
    equal(project.scales, [{ bar: 1, root: 0, mode: 'major' }], '新しいプロジェクトは C メジャー');
    equal(updateProject(project, { scales: [{ bar: 1, root: '2', mode: 'minor' }] }).scales, [{ bar: 1, root: 2, mode: 'minor' }]);
-   equal(createTemplate({ name: 't' }).project.scales, undefined, 'テンプレートは持たない');
 });
 
 test('scaleAt / scaleSpans: 転調ごとの区間', () => {
@@ -1224,25 +1144,17 @@ function fakeSupabase({ key = 'KEY', failWith = null } = {}) {
 const stored = (tables, collection) => tables.records.filter((r) => r.collection === collection).map((r) => r.data);
 
 test('supabase: レコードは形を問わず data(jsonb)に入れる。列に出すのはコレクション名・id・プロジェクトの id だけ', () => {
-   const { project, tasks } = createProject({ title: 'x', dueDate: '2026-10-31' }, template('vocal'));
+   const { project, tasks } = sampleProject('vocal', { title: 'x', dueDate: '2026-10-31' });
    equal(toRow('tasks', tasks[0]), { collection: 'tasks', id: tasks[0].id, project_id: project.id, data: tasks[0] });
    equal(toRow('projects', project).project_id, project.id, 'プロジェクトは自身の id');
    const extra = { ...setStatus(tasks[0], 'done'), removedLater: 1 };
    equal(fromRow(toRow('tasks', extra)), extra, '知らない項目もそのまま往復する');
 });
 
-test('supabase: 保存して読み戻せる。初期データの投入は1回だけ', async () => {
+test('supabase: 保存して読み戻せる', async () => {
    const { tables, repository } = fakeSupabase();
-   equal(await ensureSeeded(repository), true);
-   equal(await ensureSeeded(repository), false, '2回目は入れない');
-   // 初期データはテンプレート2つ。プロジェクトと同じコレクションに入る
-   equal(Object.keys(tables).sort(), ['app_meta', 'records']);
-   equal(['projects', 'lanes', 'tasks'].map((name) => stored(tables, name).length), [2, 17, 37]);
-   equal((await repository.getTemplates()).map((t) => t.title).sort(), ['インスト', '歌モノ']);
-   equal(await repository.getProjects(), [], 'テンプレートはプロジェクト一覧に混ざらない');
-
-   const source = { lanes: await repository.getLanes('seed-template-vocal'), tasks: await repository.getTasks('seed-template-vocal') };
-   const { project, lanes, tasks } = createProject({ title: '曲A', dueDate: '2026-10-31' }, source);
+   equal(await repository.getProjects(), []);
+   const { project, lanes, tasks } = sampleProject('vocal', { title: '曲A', dueDate: '2026-10-31' });
    const other = createProject({ title: '曲B' });
    for (const p of [{ project, lanes, tasks }, other]) {
       await repository.saveProject(p.project);
@@ -1250,10 +1162,8 @@ test('supabase: 保存して読み戻せる。初期データの投入は1回だ
       await repository.saveTasks(p.tasks);
    }
    equal(await repository.getProject(project.id), project);
-   equal((await repository.getProject('seed-template-vocal')).isTemplate, true, 'getProject はテンプレートも返す');
    equal(await repository.getProject('missing'), null);
    equal((await repository.getProjects()).map((p) => p.title).sort(), ['曲A', '曲B']);
-   equal((await repository.getTemplates()).length, 2);
    equal(ids(await repository.getLanes(project.id)), ids(lanes), 'プロジェクトで絞る');
    equal((await repository.getTasks(project.id)).length, 32);
    equal((await repository.getTasks(other.project.id)).length, 0);
@@ -1286,8 +1196,8 @@ test('supabase: 削除すると、つながっているレコードも消える'
       await repository.saveLanes(lanes);
       await repository.saveTasks(tasks);
    };
-   const a = createProject({ title: 'A' }, template('vocal'));
-   const b = createProject({ title: 'B' }, template('inst'));
+   const a = sampleProject('vocal', { title: 'A' });
+   const b = sampleProject('inst', { title: 'B' });
    await save(a);
    await save(b);
    const section = a.lanes.find((l) => l.type === 'section' && a.tasks.some((t) => t.laneId === l.id));
@@ -1327,8 +1237,11 @@ test('supabase: 1回の上限(1000行)を超えても全部読める', async () 
 
 test('supabase: エクスポートとインポート(全部置き換える)', async () => {
    const a = fakeSupabase().repository;
-   await ensureSeeded(a);
-   const { project, lanes, tasks } = createProject({ title: '曲A' }, template('inst'));
+   const vocal = sampleProject('vocal', { title: '曲B' });
+   await a.saveProject(vocal.project);
+   await a.saveLanes(vocal.lanes);
+   await a.saveTasks(vocal.tasks);
+   const { project, lanes, tasks } = sampleProject('inst', { title: '曲A' });
    await a.saveProject(project);
    await a.saveLanes(lanes);
    await a.saveTasks(tasks);
@@ -1340,7 +1253,7 @@ test('supabase: エクスポートとインポート(全部置き換える)', as
    await a.saveMarkers([marker]);
    const exported = await a.exportAll();
    equal([exported.schemaVersion, exported.projects.length, exported.lanes.length, exported.tasks.length],
-      [SCHEMA_VERSION, 3, 17 + 5, 37 + 5], 'テンプレートも含む');
+      [SCHEMA_VERSION, 2, 12 + 5, 32 + 5]);
    equal([exported.tracks, exported.clips, exported.markers], [[track], [clip], [marker]], 'アレンジも含む');
 
    const { tables, repository: b } = fakeSupabase();
@@ -1348,15 +1261,13 @@ test('supabase: エクスポートとインポート(全部置き換える)', as
    await b.saveProject(old.project);
    await b.saveLanes(old.lanes);
    await b.importAll(JSON.stringify(exported));
-   equal((await b.getProjects()).map((p) => p.title), ['曲A']);
-   equal((await b.getTemplates()).length, 2);
+   equal((await b.getProjects()).map((p) => p.title).sort(), ['曲A', '曲B']);
    equal((await b.getLanes(old.project.id)).length, 0, '元からあったレコードは消える');
-   equal(tables.records.length, 3 + 22 + 42 + 3, '余分な行が残らない');
+   equal(tables.records.length, 2 + 17 + 37 + 3, '余分な行が残らない');
    equal((await b.getTasks(project.id)).length, tasks.length);
-   equal((await b.getTasks('seed-template-vocal')).length, 32);
+   equal((await b.getTasks(vocal.project.id)).length, 32);
    equal([await b.getTracks(project.id), await b.getClips(project.id), await b.getMarkers(project.id)],
       [[track], [clip], [marker]], 'アレンジも戻る');
-   equal(await ensureSeeded(b), false, 'インポート後に初期データを重ねない');
    await rejects(b.importAll('{"x":1}'), 'エクスポートデータではありません');
 });
 
@@ -1366,15 +1277,18 @@ test('upgradeStorage: 初めて使う保存先は、変換せずに現在のバ�
    equal(await repository.getMeta('schemaVersion'), SCHEMA_VERSION);
    equal(await upgradeStorage(repository), false);
    equal(await checkSchema(repository), SCHEMA_VERSION);
-   equal(await ensureSeeded(repository), true, '初期データはこのあと入る');
 });
 
-test('upgradeStorage: 記録がなく、初期データの入っている保存先は v6 とみなして変換する', async () => {
+test('upgradeStorage: 記録がなく、以前の初期データを入れた印のある保存先は v6 とみなして変換する', async () => {
    const { repository } = fakeSupabase();
-   await ensureSeeded(repository);
+   const { project, lanes } = createProject({ title: '曲A' });
+   await repository.saveProject({ ...project, isTemplate: false });
+   await repository.saveLanes(lanes);
+   await repository.saveProject({ id: 'seed-template-vocal', title: '歌モノ', isTemplate: true });
+   await repository.setMeta('seeded', true);
    equal(await upgradeStorage(repository), true);
    equal(await repository.getMeta('schemaVersion'), SCHEMA_VERSION);
-   equal((await repository.getTemplates()).length, 2, '初期データは残る');
+   equal((await repository.getProjects()).map((p) => p.title), ['曲A'], 'テンプレートは消える');
 });
 
 test('upgradeStorage: 古ければ、変換前のデータを残してから変換して保存し直す', async () => {
@@ -1397,11 +1311,11 @@ test('upgradeStorage: 古ければ、変換前のデータを残してから変�
    equal(await upgradeStorage(repository), false, '2回目は何もしない');
 });
 
-test('upgradeStorage: v8 の保存先は、v9 を飛ばして v10 に変換する(スケールは1小節目から C メジャー)', async () => {
+test('upgradeStorage: v8 の保存先は、まとめて今の形に変換する(スケールは1小節目から C メジャー。テンプレートは消える)', async () => {
    const { tables, repository } = fakeSupabase();
    const { project, lanes } = createProject({ title: '曲A' });
    const { scales, ...v8project } = { ...project, bpm: 140 };
-   const { project: template } = createTemplate({ name: 'テンプレート' });
+   const template = { id: 't', title: 'テンプレート', isTemplate: true };
    await repository.saveProject(v8project);
    await repository.saveProject(template);
    await repository.saveLanes(lanes);
@@ -1411,7 +1325,7 @@ test('upgradeStorage: v8 の保存先は、v9 を飛ばして v10 に変換す�
    equal(await repository.getMeta('schemaVersion'), SCHEMA_VERSION);
    const saved = await repository.getProject(project.id);
    equal([saved.bpm, saved.scales, 'scale' in saved], [140, [{ bar: 1, root: 0, mode: 'major' }], false]);
-   equal((await repository.getProject(template.id)).scales, undefined, 'テンプレートには足さない');
+   equal(await repository.getProject(template.id), null, 'テンプレートは消える');
    equal((await repository.getLanes(project.id)).length, lanes.length, 'ほかのデータはそのまま');
    const backups = tables.app_meta.filter((m) => m.key.startsWith('backup:v8:'));
    equal([backups.length, backups[0].value.projects.find((p) => p.id === project.id).scales], [1, undefined], '変換前のまま残る');

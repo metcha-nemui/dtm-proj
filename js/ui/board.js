@@ -1,4 +1,4 @@
-// ボード。プロジェクト(#/p/:id)と、テンプレートの編集(#/t/:id)の両方に使う。
+// ボード(#/p/:id)。
 
 import * as actions from '../actions.js';
 import { sortByOrder } from '../domain/order.js';
@@ -14,7 +14,7 @@ import { reportError, showToast } from './components/toast.js';
 import { dueBadge } from './dueBadge.js';
 import { renderGantt } from './gantt.js';
 import { renderLane } from './lane.js';
-import { deleteProjectDialog, editProjectDialog, newProjectDialog } from './projectDialogs.js';
+import { deleteProjectDialog, editProjectDialog } from './projectDialogs.js';
 import { projectTabs } from './projectTabs.js';
 import { createTaskDrawer } from './taskDrawer.js';
 
@@ -88,62 +88,14 @@ export function mount(container, { id: projectId }) {
       el.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'center' });
    }
 
-   // 取り込み元の候補。すべてのテンプレートのセクション(編集中のテンプレート自身は除く。複製で足せるため)
-   async function importCandidates() {
-      const templates = (await repo().getTemplates())
-         .filter((t) => t.id !== projectId)
-         .sort((a, b) => a.title.localeCompare(b.title, 'ja'));
-      const lanes = await Promise.all(templates.map((t) => repo().getLanes(t.id)));
-      return templates.flatMap((template, i) => sortByOrder(lanes[i].filter((l) => l.type === 'section'))
-         .map((lane) => ({ label: `${template.title} / ${lane.name}`, from: { projectId: template.id, laneId: lane.id } })));
-   }
-
    async function addSectionDialog(index) {
-      const candidates = await importCandidates();
       const values = await formDialog({
          title: 'セクションを追加',
          submitLabel: '追加',
-         fields: [
-            {
-               name: 'source',
-               label: '取り込み元',
-               type: 'select',
-               value: '',
-               options: [
-                  { value: '', label: '(空のセクション)' },
-                  ...candidates.map((c, i) => ({ value: String(i), label: c.label })),
-               ],
-            },
-            { name: 'name', label: '名前(空欄なら、取り込み元の名前か「セクション」)', placeholder: '例: 落ちサビ' },
-         ],
+         fields: [{ name: 'name', label: '名前(空欄なら「セクション」)', placeholder: '例: 落ちサビ' }],
       });
       if (!values) return;
-      const from = values.source === '' ? null : candidates[Number(values.source)].from;
-      reveal(await actions.addSection(projectId, { name: values.name, index, from }));
-   }
-
-   async function saveAsTemplateDialog() {
-      const values = await formDialog({
-         title: 'テンプレートとして保存',
-         message: 'いまのセクションとタスクを丸ごとコピーして、新しいテンプレートを作ります。ステータスは引き継ぎません。',
-         fields: [{ name: 'name', label: 'テンプレートの名前', value: data.project.title, required: true }],
-      });
-      if (!values) return;
-      const template = await actions.saveProjectAsTemplate(projectId, values.name);
-      showToast(`テンプレート「${template.title}」を作りました`, {
-         actionLabel: '開く',
-         onAction: () => { location.hash = `#/t/${template.id}`; },
-      });
-   }
-
-   async function createFromTemplate() {
-      const project = await newProjectDialog(projectId);
-      if (project) location.hash = `#/p/${project.id}`;
-   }
-
-   async function duplicateTemplate() {
-      const copy = await actions.duplicateTemplate(projectId);
-      location.hash = `#/t/${copy.id}`;
+      reveal(await actions.addSection(projectId, { name: values.name, index }));
    }
 
    async function renameLaneDialog(lane) {
@@ -268,33 +220,22 @@ export function mount(container, { id: projectId }) {
    function toolbar() {
       const { project, tasks } = data;
       const stats = summarize(tasks);
-      // テンプレートはステータスを使わないので、進捗・締切・「未完了のみ」は出さない
-      const isTemplate = Boolean(project.isTemplate);
-      const listHref = isTemplate ? '#/templates' : '#/';
-      const listLabel = isTemplate ? 'テンプレート一覧へ' : 'プロジェクト一覧へ';
-      const remove = () => run(deleteProjectDialog(project).then((deleted) => { if (deleted) location.hash = listHref; }));
+      const remove = () => run(deleteProjectDialog(project).then((deleted) => { if (deleted) location.hash = '#/'; }));
       const menuButton = h('button', {
          type: 'button',
          class: 'btn btn-icon',
-         'aria-label': isTemplate ? 'テンプレートのメニュー' : 'プロジェクトのメニュー',
+         'aria-label': 'プロジェクトのメニュー',
          dataset: { focusKey: 'project-menu' },
-         onclick: () => openMenu(menuButton, isTemplate ? [
-            { label: '名前・メモを編集', onSelect: () => run(editProjectDialog(project)) },
-            { label: '複製', onSelect: () => run(duplicateTemplate()) },
-            { label: 'このテンプレートでプロジェクトを作成', onSelect: () => run(createFromTemplate()) },
-            { label: 'テンプレートを削除', danger: true, onSelect: remove },
-         ] : [
+         onclick: () => openMenu(menuButton, [
             { label: '名前・締切・メモを編集', onSelect: () => run(editProjectDialog(project)) },
-            { label: 'テンプレートとして保存', onSelect: () => run(saveAsTemplateDialog()) },
             { label: 'プロジェクトを削除', danger: true, onSelect: remove },
          ]),
       }, icon('ellipsis-vertical'));
 
       const head = [
-         h('a', { class: 'btn btn-icon', href: listHref, 'aria-label': listLabel, title: listLabel }, icon('arrow-left')),
+         h('a', { class: 'btn btn-icon', href: '#/', 'aria-label': 'プロジェクト一覧へ', title: 'プロジェクト一覧へ' }, icon('arrow-left')),
          h('h1', { class: 'board-title', title: project.memo || null }, project.title),
-         // テンプレートはリファレンスを持たない
-         !isTemplate && h('button', {
+         h('button', {
             type: 'button',
             class: 'btn btn-icon',
             'aria-label': 'リファレンスの一覧',
@@ -304,13 +245,6 @@ export function mount(container, { id: projectId }) {
          }, icon('music')),
          menuButton,
       ];
-      if (isTemplate) {
-         return h('div', { class: 'board-toolbar' },
-            head,
-            h('span', { class: 'board-kind' }, icon('layout-template', 14), 'テンプレート'),
-            h('span', { class: 'muted board-summary' }, `セクション${sections().length}・タスク${tasks.length}`));
-      }
-
       return h('div', { class: 'board-toolbar' },
          head,
          projectTabs(projectId, 'board'),
@@ -358,13 +292,13 @@ export function mount(container, { id: projectId }) {
          const stats = summarize(data.tasks.filter((t) => t.laneId === lane.id));
          return h('button', {
             type: 'button',
-            class: `lane-chip lane-chip-${lane.type}${!data.project.isTemplate && stats.total > 0 && stats.done === stats.total ? ' is-finished' : ''}`,
+            class: `lane-chip lane-chip-${lane.type}${stats.total > 0 && stats.done === stats.total ? ' is-finished' : ''}`,
             style: colors.has(lane.id) ? { '--lane-color': colors.get(lane.id) } : null,
             dataset: { focusKey: `chip:${lane.id}` },
             onclick: () => jumpToLane(lane),
          },
          h('span', null, lane.name),
-         h('span', { class: 'lane-chip-count' }, data.project.isTemplate ? String(stats.total) : `${stats.done}/${stats.total}`));
+         h('span', { class: 'lane-chip-count' }, `${stats.done}/${stats.total}`));
       }));
    }
 
@@ -380,7 +314,6 @@ export function mount(container, { id: projectId }) {
                tasks: laneTasks,
                color: colors.get(lane.id) ?? null,
                stats: summarize(laneTasks),
-               isTemplate: Boolean(data.project.isTemplate),
                pendingStatus,
                clips: data.clips,
                handlers,
@@ -391,23 +324,21 @@ export function mount(container, { id: projectId }) {
    function render() {
       if (!data.project) {
          root.replaceChildren(h('div', { class: 'empty' },
-            h('p', null, 'プロジェクト(またはテンプレート)が見つかりません。'),
-            h('p', null, h('a', { href: '#/' }, 'プロジェクト一覧へ'), ' / ', h('a', { href: '#/templates' }, 'テンプレート一覧へ'))));
+            h('p', null, 'プロジェクトが見つかりません。'),
+            h('p', null, h('a', { href: '#/' }, 'プロジェクト一覧へ'))));
          return;
       }
-      const isTemplate = Boolean(data.project.isTemplate);
       // ステータスが変わった(またはタスクが消えた)ものは、待ち表示を終える
       for (const [taskId, statusWhenClicked] of pendingStatus) {
          if (data.tasks.find((t) => t.id === taskId)?.status === statusWhenClicked) continue;
          pendingStatus.delete(taskId);
       }
       const scroll = captureScroll();
-      // テンプレートは日付を使わないので、ガントチャートは出さない
-      const gantt = isTemplate ? null : renderGantt(data);
+      const gantt = renderGantt(data);
       keepFocus(root, () => root.replaceChildren(...[
          toolbar(),
          laneChips(),
-         h('div', { class: `board${hideDone && !isTemplate ? ' hide-done' : ''}` },
+         h('div', { class: `board${hideDone ? ' hide-done' : ''}` },
             laneGroup('global'),
             laneGroup('section'),
             h('button', {

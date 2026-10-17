@@ -2,7 +2,6 @@
 // 上端のルーラーの下にセクションマーカーの段と、スケール(転調)の段がある。マーカーはボードのセクションを指し、名前と色はそちらに従う。
 // クリップは、属するセクションのレーンにタスク(連動タスク)として出る。だから、セクションマーカーの範囲の外には
 // 新しく置けない(作る・動かす・伸ばす)。マーカーを動かしたり消したりして範囲の外になったクリップは、そのまま残す。
-// プロジェクトだけの画面で、テンプレートにはない。
 //
 // 位置と幅は CSS 変数(--start は1始まりの小節、--len は小節数、--bar は1小節の幅)で決め、計算は CSS に任せる。
 //
@@ -258,7 +257,7 @@ export function mount(container, { id: projectId }) {
       if (e.code !== 'Space' || e.repeat || e.defaultPrevented) return;
       if (!e.target.closest?.('.arr-mix-toggle')
          && e.target.closest?.('input, textarea, select, button, [contenteditable], .clip')) return;
-      if (document.querySelector('dialog[open]') || !data?.project || data.project.isTemplate) return;
+      if (document.querySelector('dialog[open]') || !data?.project) return;
       e.preventDefault();
       togglePlayback();
    };
@@ -267,7 +266,7 @@ export function mount(container, { id: projectId }) {
    // 複数選択のキー操作。Ctrl+A で全部を選び、←→ で選んだものを1小節ずつ動かし、Esc で選択を外す。
    // 入力欄やピアノロール・クリップ詳細の中、ダイアログ・メニューを開いている間は、そちらの操作を優先する
    function onPickKeydown(e) {
-      if (e.defaultPrevented || !data?.project || data.project.isTemplate) return false;
+      if (e.defaultPrevented || !data?.project) return false;
       if (e.target.closest?.('input, textarea, select, [contenteditable], .pr, .drawer, .knob')) return false;
       if (document.querySelector('dialog[open], .menu')) return false;
       if (e.key.toLowerCase() === 'a' && (e.ctrlKey || e.metaKey) && !e.shiftKey && !e.altKey) {
@@ -1135,9 +1134,9 @@ export function mount(container, { id: projectId }) {
    }
 
    function render() {
-      if (!data.project || data.project.isTemplate) {
+      if (!data.project) {
          view.replaceChildren(h('div', { class: 'empty' },
-            h('p', null, data.project ? 'テンプレートにはアレンジはありません。' : 'プロジェクトが見つかりません。'),
+            h('p', null, 'プロジェクトが見つかりません。'),
             h('p', null, h('a', { href: '#/' }, 'プロジェクト一覧へ'))));
          return;
       }
@@ -1198,7 +1197,7 @@ export function mount(container, { id: projectId }) {
       // 消えたクリップは選択から外す
       picked = new Set(clips.filter((c) => picked.has(c.id)).map((c) => c.id));
       render();
-      if (!project || project.isTemplate) return;
+      if (!project) return;
       pianoRoll.update(data);
       await syncPlayback();
    }

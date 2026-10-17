@@ -84,53 +84,20 @@ export function assertSection(lane, action) {
    if (lane.type !== 'section') throw new Error(`「${lane.name}」レーンは${action}できません`);
 }
 
-// レーンとタスクを、新しいIDで別のプロジェクトへコピーする。
-// ステータスは未着手に戻し、メモは引き継ぐ。開始日・終了日は引き継がない。折りたたみは解除する。
-// アレンジのクリップから来た連動タスクはコピーしない(アレンジはコピーしないので、元になるクリップがない)。
-// source がなければ、空の「全体」レーンだけを作る(「全体」レーンは必ず1本)。
-function copyBoard(projectId, source) {
-   const lanes = [];
-   const tasks = [];
-   for (const lane of sortByOrder(source?.lanes ?? [])) {
-      const copied = newLane(projectId, { type: lane.type, name: lane.name, order: lane.order });
-      lanes.push(copied);
-      tasks.push(...source.tasks.filter((t) => t.laneId === lane.id && !t.clipId).map((t) => copyTask(t, copied)));
-   }
-   if (!lanes.some((l) => l.type === 'global')) lanes.unshift(newGlobalLane(projectId));
-   return { lanes, tasks };
-}
-
 /**
- * プロジェクトを作る。テンプレートのレーンとタスクは丸ごとコピーし、作成元は覚えない。
- * だから、後からテンプレートを編集・削除しても、作成済みのプロジェクトには影響しない。
+ * プロジェクトを作る。レーンは「全体」レーンだけ(「全体」レーンは必ず1本)。
  * @param {{ title: string, memo?: string, dueDate?: string|null }} input
- * @param {{ lanes: object[], tasks: object[] }|null} [source] テンプレートの中身。なければ空の「全体」レーンだけ
  * @returns {{ project: object, lanes: object[], tasks: object[] }}
  */
-export function createProject({ title, memo = '', dueDate = null }, source = null) {
+export function createProject({ title, memo = '', dueDate = null }) {
    const project = newRecord({
       title: title.trim() || '無題のプロジェクト',
       memo,
       dueDate: normalizeDueDate(dueDate),
-      isTemplate: false,
       bpm: DEFAULT_BPM,
       scales: normalizeScales([]),
    });
-   return { project, ...copyBoard(project.id, source) };
-}
-
-/**
- * テンプレートを作る。テンプレートは「ステータスを使わないプロジェクト」で、レーンとタスクの持ち方は同じ。
- * 新規作成(source なし)、複製、プロジェクトからの保存(どちらも source に元の中身を渡す)で共用する。
- * @param {{ name: string, memo?: string }} input
- * @param {{ lanes: object[], tasks: object[] }|null} [source]
- * @returns {{ project: object, lanes: object[], tasks: object[] }}
- */
-export function createTemplate({ name, memo = '' }, source = null) {
-   const title = String(name ?? '').trim();
-   if (!title) throw new Error('テンプレートの名前を入力してください');
-   const project = newRecord({ title, memo, dueDate: null, isTemplate: true });
-   return { project, ...copyBoard(project.id, source) };
+   return { project, lanes: [newGlobalLane(project.id)], tasks: [] };
 }
 
 /** タイトル・メモ・締切・BPM(アレンジの再生と書き出しに使う)・スケールの並び(ピアノロールの塗り分けに使う)を編集する。 */
@@ -149,24 +116,20 @@ export function updateProject(project, patch) {
 }
 
 /**
- * セクションを追加する。source を渡すと、そのセクション(テンプレートのものなど)をタスクごと取り込む。
- * 取り込みはコピーで、取り込み元とのつながりは残さない。
+ * 空のセクションを追加する。
  * @param {object} input
  * @param {string} input.projectId
  * @param {object[]} input.lanes プロジェクトの全レーン
  * @param {number} [input.index] セクションの並びでの挿入位置。省略すると末尾
- * @param {string} [input.name] 省略すると、取り込み元の名前(なければ「セクション」)から付ける
- * @param {{ lane: object, tasks: object[] }|null} [input.source] 取り込み元。tasks はそのレーンのタスク
- * @returns {{ lane: object, lanes: object[], tasks: object[] }} lanes は保存が必要なレーン(新レーンを含む)
+ * @param {string} [input.name] 省略すると「セクション」
+ * @returns {{ lane: object, lanes: object[] }} lanes は保存が必要なレーン(新レーンを含む)
  */
-export function addSection({ projectId, lanes, index, name, source = null }) {
+export function addSection({ projectId, lanes, index, name }) {
    const sections = lanes.filter((l) => l.type === 'section');
-   const base = name?.trim() || (source ? laneBaseName(source.lane.name) : 'セクション');
-   const draft = newLane(projectId, { name: uniqueLaneName(base, lanes.map((l) => l.name)) });
+   const draft = newLane(projectId, { name: uniqueLaneName(name?.trim() || 'セクション', lanes.map((l) => l.name)) });
    const changed = placeAt(sections, draft, index);
    const lane = changed.find((l) => l.id === draft.id);
-   const tasks = (source?.tasks ?? []).map((t) => copyTask(t, lane));
-   return { lane, lanes: changed.map((l) => (l.id === lane.id ? l : touch(l))), tasks };
+   return { lane, lanes: changed.map((l) => (l.id === lane.id ? l : touch(l))) };
 }
 
 /**

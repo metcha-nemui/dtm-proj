@@ -133,5 +133,5 @@ export function createSupabaseRepository({ url, key }, fetchImpl = (...args) => 
 export async function checkConnection(config, fetchImpl) {
    const repository = createSupabaseRepository(config, fetchImpl);
    // 2つのテーブルの両方に届くことを確かめる
-   await Promise.all([repository.getMeta('seeded'), repository.getTemplates()]);
+   await Promise.all([repository.getMeta('seeded'), repository.getProjects()]);
 }

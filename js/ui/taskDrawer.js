@@ -29,10 +29,9 @@ export function createTaskDrawer(projectId, { onSelectionChange } = {}) {
    const run = (promise) => promise.catch(reportError);
 
    async function loadContext(taskId) {
-      const [tasks, lanes, project, clips, tracks] = await Promise.all([
+      const [tasks, lanes, clips, tracks] = await Promise.all([
          repo().getTasks(projectId),
          repo().getLanes(projectId),
-         repo().getProject(projectId),
          repo().getClips(projectId),
          repo().getTracks(projectId),
       ]);
@@ -44,7 +43,6 @@ export function createTaskDrawer(projectId, { onSelectionChange } = {}) {
          clip: linkedClip,
          track: linkedClip ? tracks.find((t) => t.id === linkedClip.trackId) ?? null : null,
          lane: lanes.find((l) => l.id === found.laneId) ?? null,
-         isTemplate: Boolean(project?.isTemplate),
          knownReferences: collectReferences(tasks),
       };
    }
@@ -304,15 +302,11 @@ export function createTaskDrawer(projectId, { onSelectionChange } = {}) {
       for (const button of el.statusButtons) {
          button.setAttribute('aria-pressed', String(button.dataset.status === task.status));
       }
-      // テンプレートはステータスも、開始日・終了日も使わない
-      el.statusField.hidden = context.isTemplate;
       // 日付は実績で、ステータスを変えたときに自動で入る。ここに出すのは、その修正のための欄。
       // 着手していれば開始日を、完了していれば終了日も直せる
-      el.startField.hidden = context.isTemplate || task.status === 'todo';
-      el.endField.hidden = context.isTemplate || task.status !== 'done';
+      el.startField.hidden = task.status === 'todo';
+      el.endField.hidden = task.status !== 'done';
       el.laneName.textContent = [context.lane?.name, clip && barRange(clip)].filter(Boolean).join('・');
-      // リファレンスは曲ごとのもので、テンプレートには持たせない
-      el.referenceField.hidden = context.isTemplate;
       knownReferences = context.knownReferences;
       renderReferences();
    }

@@ -18,23 +18,21 @@ import { normalizeNotes, normalizeScales, projectBpm, trackSound } from '../doma
 // v9: プロジェクトにスケール(scale。キーとメジャー / マイナー。ピアノロールの塗り分け)を足した。
 // v10: 途中の転調のため、スケールを小節ごとの並び(scales)にした。v9 の scale は1小節目のスケールにし、
 // v8 以前のデータは1小節目から C メジャーとして読み込む。
-export const SCHEMA_VERSION = 10;
+// v11: テンプレート機能をやめた。v10 以前のデータのテンプレート(isTemplate の付いたプロジェクト)は、レーン・タスクごと捨てる。
+export const SCHEMA_VERSION = 11;
 const OLDEST_READABLE_VERSION = 4;
 // 保存先に schemaVersion を記録し始めたときのバージョン。記録がない保存先は、このバージョンのデータとみなす
 const UNTRACKED_VERSION = 6;
 
 /**
- * プロジェクトも、テンプレートも Project として扱う。テンプレートは「ステータスを使わないプロジェクト」で、
- * レーンとタスクの持ち方は同じ。プロジェクトは、どのテンプレートから作ったかを覚えない。
  * @typedef {Object} Project
  * @property {string} id
- * @property {string} title テンプレートでは、テンプレートの名前
+ * @property {string} title
  * @property {string} memo
- * @property {string|null} dueDate 締切(YYYY-MM-DD)。なければ null。テンプレートでは使わない
- * @property {boolean} isTemplate
- * @property {number} [bpm] アレンジの再生と書き出しのテンポ(拍子は 4/4 固定)。プロジェクトだけが持つ
- * @property {Array<{ bar: number, root: number, mode: 'major'|'minor' }>} [scales] ピアノロールの行の塗り分けに使うキー(root は 0 = C)。
- *    小節の順に並び、1小節目のものが必ずある。次の転調まで続く。プロジェクトだけが持つ
+ * @property {string|null} dueDate 締切(YYYY-MM-DD)。なければ null
+ * @property {number} bpm アレンジの再生と書き出しのテンポ(拍子は 4/4 固定)
+ * @property {Array<{ bar: number, root: number, mode: 'major'|'minor' }>} scales ピアノロールの行の塗り分けに使うキー(root は 0 = C)。
+ *    小節の順に並び、1小節目のものが必ずある。次の転調まで続く
  * @property {string} createdAt
  * @property {string} updatedAt
  */
@@ -60,18 +58,18 @@ const UNTRACKED_VERSION = 6;
  * @property {string} title 連動タスクでは「トラック名: クリップ名」(クリップから写す)
  * @property {string} memo 連動タスクでは、クリップの詳細を写したもの
  * @property {string|null} clipId アレンジのクリップから作った連動タスクなら、そのクリップのID。ふつうのタスクは null
- * @property {'todo'|'doing'|'done'} status テンプレートでは使わない(常に 'todo')
+ * @property {'todo'|'doing'|'done'} status
  * @property {number} order
  * @property {string|null} doneAt
- * @property {string|null} startDate 開始日(YYYY-MM-DD)。なければ null。テンプレートでは使わない(常に null)
- * @property {string|null} endDate 終了日(YYYY-MM-DD)。なければ null。テンプレートでは使わない(常に null)
- * @property {string[]} [references] リファレンス(参考にする楽曲の曲名)。項目がなければなし。テンプレートでは使わない(常に空)
+ * @property {string|null} startDate 開始日(YYYY-MM-DD)。なければ null
+ * @property {string|null} endDate 終了日(YYYY-MM-DD)。なければ null
+ * @property {string[]} [references] リファレンス(参考にする楽曲の曲名)。項目がなければなし
  * @property {string} createdAt
  * @property {string} updatedAt
  */
 
 /**
- * アレンジ画面のトラック。プロジェクトだけが持つ(テンプレートは持たず、コピーもしない)。
+ * アレンジ画面のトラック。
  * @typedef {Object} Track
  * @property {string} id
  * @property {string} projectId
@@ -129,7 +127,7 @@ const UNTRACKED_VERSION = 6;
  * @typedef {Object} ExportData
  * @property {number} schemaVersion
  * @property {string} exportedAt
- * @property {Project[]} projects テンプレートも含む
+ * @property {Project[]} projects
  * @property {Lane[]} lanes
  * @property {Task[]} tasks
  * @property {Track[]} tracks
@@ -139,9 +137,8 @@ const UNTRACKED_VERSION = 6;
 
 /**
  * @typedef {Object} Repository
- * @property {() => Promise<Project[]>} getProjects テンプレートは含めない
- * @property {() => Promise<Project[]>} getTemplates テンプレートだけ
- * @property {(id: string) => Promise<Project|null>} getProject プロジェクトでもテンプレートでも
+ * @property {() => Promise<Project[]>} getProjects
+ * @property {(id: string) => Promise<Project|null>} getProject
  * @property {(p: Project) => Promise<void>} saveProject
  * @property {(id: string) => Promise<void>} deleteProject レーンとタスク、アレンジも一緒に消す
  *
@@ -194,7 +191,7 @@ const UNTRACKED_VERSION = 6;
 export const COLLECTIONS = ['projects', 'lanes', 'tasks', 'tracks', 'clips', 'markers'];
 
 const METHODS = [
-   'getProjects', 'getTemplates', 'getProject', 'saveProject', 'deleteProject',
+   'getProjects', 'getProject', 'saveProject', 'deleteProject',
    'getLanes', 'saveLane', 'saveLanes', 'deleteLane',
    'getTasks', 'saveTask', 'saveTasks', 'deleteTask',
    'getTracks', 'saveTrack', 'saveTracks', 'deleteTrack',
@@ -229,9 +226,7 @@ export function createRepository(store) {
    };
 
    return assertRepository({
-      // プロジェクトとテンプレートは同じコレクションに入っている(件数が少ないので、読んでから振り分ける)
-      getProjects: async () => (await store.find('projects')).filter((p) => !p.isTemplate),
-      getTemplates: async () => (await store.find('projects')).filter((p) => p.isTemplate),
+      getProjects: () => store.find('projects'),
       getProject: (id) => store.get('projects', id),
       saveProject: saveOne('projects'),
       deleteProject: (id) => removeWithChildren('projects', id,
@@ -274,7 +269,7 @@ export function createRepository(store) {
 
       async importAll(json) {
          await store.replaceAll(migrate(json));
-         // インポート後に初期データを重ねて投入しないようにする
+         // 以前は初期データ(テンプレート)を入れた印だった。いまは、データのある保存先の印として upgradeStorage が見る
          await store.setMeta('seeded', true);
       },
    });
@@ -314,8 +309,8 @@ function notNewer(version) {
  */
 export async function upgradeStorage(repository) {
    const recorded = await repository.getMeta('schemaVersion');
-   // 初期データも入っていない保存先(初めて使う)は空なので、変換せずに現在のバージョンを記録するだけにする。
-   // 変換(importAll)を通すと「初期データ投入済み」の印が付き、初期データが入らなくなるため
+   // schemaVersion の記録も、以前の初期データ投入の印(seeded)もない保存先は、初めて使う空の保存先なので、
+   // 変換せずに現在のバージョンを記録するだけにする
    const fresh = recorded == null && !(await repository.getMeta('seeded'));
    const version = fresh ? SCHEMA_VERSION : notNewer(recorded ?? UNTRACKED_VERSION);
    if (version < SCHEMA_VERSION) {
@@ -376,9 +371,13 @@ export function migrate(json) {
    }
    // v7 → v8: MIDI の項目を足した。Supabase の一括保存のため、項目の有無が混ざらないように揃える
    // v8 → v9 → v10: スケールの並びを足した。v9 の scale は1小節目のスケールにする
+   // v10 → v11: テンプレートをやめた。テンプレートとそのレーン・タスクは捨てる(アレンジは、もともと持たない)
+   const templateIds = new Set(result.projects.filter((p) => p.isTemplate).map((p) => p.id));
+   for (const name of COLLECTIONS) {
+      result[name] = result[name].filter((r) => !templateIds.has(name === 'projects' ? r.id : r.projectId));
+   }
    result.projects = result.projects.map((p) => {
-      if (p.isTemplate) return p;
-      const { scale, ...rest } = p;
+      const { scale, isTemplate, ...rest } = p;
       return { ...rest, bpm: projectBpm(p), scales: normalizeScales(p.scales ?? (scale ? [{ ...scale, bar: 1 }] : [])) };
    });
    result.tracks = result.tracks.map((t) => ({ ...t, ...trackSound(t) }));

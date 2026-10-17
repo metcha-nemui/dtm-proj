@@ -15,9 +15,7 @@ import {
 const dateFormat = new Intl.DateTimeFormat('ja-JP', { dateStyle: 'short', timeStyle: 'short' });
 
 function describe(data) {
-   // テンプレートも projects に入っている
-   const templates = data.projects.filter((p) => p.isTemplate).length;
-   return `プロジェクト${data.projects.length - templates}件、テンプレート${templates}件、タスク${data.tasks.length}件`;
+   return `プロジェクト${data.projects.length}件、タスク${data.tasks.length}件`;
 }
 
 function download(filename, text) {
@@ -173,7 +171,7 @@ export function mount(container) {
             + 'Supabase にログインすると保存先が切り替わります。このブラウザのデータは残りますが、自動では移りません(移すには、エクスポートしてからログイン後にインポートします)。',
             h('button', { type: 'button', class: 'btn', onclick: logout }, icon('log-in'), 'Supabase にログイン')),
       section('エクスポート',
-         'すべてのプロジェクトとテンプレートを、1つのJSONファイルに書き出します。バックアップや、別のブラウザ・端末への移行に使います。',
+         'すべてのプロジェクトを、1つのJSONファイルに書き出します。バックアップや、別のブラウザ・端末への移行に使います。',
          h('button', { type: 'button', class: 'btn btn-primary', onclick: () => run(exportData()) }, icon('download'), 'JSONをエクスポート'),
          summary),
       section('インポート',
