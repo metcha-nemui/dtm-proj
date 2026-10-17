@@ -795,9 +795,11 @@ export function mount(container, { id: projectId }) {
    function clipElement(clip) {
       // マーカーを動かしたり消したりして、どのセクションにも入らなくなったクリップ。ボードには出ていない
       const outside = clipSection(clip, data.markers) === null;
+      // 色は連動タスクのステータスに合わせる(ボードのタスクと同じ配色)。無所属の間は点線のまま
+      const status = outside ? null : data.tasks.find((t) => t.clipId === clip.id)?.status;
       const preview = notePreview(clip);
       return h('div', {
-         class: `clip${clip.name ? '' : ' is-untitled'}${outside ? ' is-outside' : ''}`,
+         class: `clip${clip.name ? '' : ' is-untitled'}${outside ? ' is-outside' : ''}${status === 'doing' || status === 'done' ? ` is-${status}` : ''}`,
          style: { '--start': String(clip.startBar), '--len': String(clip.bars) },
          dataset: { clipId: clip.id, focusKey: `clip:${clip.id}` },
          tabIndex: 0,
@@ -949,7 +951,7 @@ export function mount(container, { id: projectId }) {
       root.classList.toggle('is-placing', Boolean(placing));
       keepFocus(view, () => view.replaceChildren(
          toolbar(),
-         placing && placingBar(),
+         ...(placing ? [placingBar()] : []),
          h('div', { class: 'arr' },
             h('div', { class: 'arr-inner', style: { '--bars': String(data.bars) } },
                // 再生位置の線。トラック名の列より下に重ねるため、先に置く(follow で動かす)
@@ -984,7 +986,7 @@ export function mount(container, { id: projectId }) {
          repo().getTasks(projectId),
       ]);
       if (!alive) return;
-      // tasks はトラックの削除の確認に、連動タスクの数を出すためだけに使う
+      // tasks は、トラックの削除の確認に出す連動タスクの数と、クリップの色(連動タスクのステータス)に使う
       data = { project, lanes: sortByOrder(lanes), tracks: withLocal(sortByOrder(tracks)), clips, markers, tasks };
       render();
       if (!project || project.isTemplate) return;
