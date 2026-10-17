@@ -45,7 +45,7 @@ button.project-tab {
 
 .arr-page {
    --bar: 28px; /* 1小節の幅 */
-   --arr-head: 192px; /* 左のトラック名の列の幅(名前の横にミュート・ソロ・メニューのボタンが入る) */
+   --arr-head: 192px; /* 左のトラック名の列の幅(名前の横にミュート・ソロ・メニューのボタンが入る)。PC では長い名前に合わせて JS が広げる */
    --arr-ruler-h: 22px;
    --arr-marker-h: 28px;
    --arr-scale-h: 24px;

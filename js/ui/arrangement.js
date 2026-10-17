@@ -35,6 +35,8 @@ import { programPicker } from './programPicker.js';
 import { projectTabs } from './projectTabs.js';
 
 const DRAG_THRESHOLD = 4; // これより動かなければクリック(詳細を開く・メニューを出す)として扱う(px)
+const HEAD_MIN = 192; // トラック名の列の幅(px)。名前が短ければこの幅
+const HEAD_NAME_CHARS = 10; // 名前が長ければ、全角でこの文字数が入るところまで列を広げる
 const SVG_NS = 'http://www.w3.org/2000/svg';
 
 const clamp = (n, min, max) => Math.max(min, Math.min(n, max));
@@ -1099,6 +1101,27 @@ export function mount(container, { id: projectId }) {
       });
    }
 
+   // トラック名の列の幅を、いちばん長い名前に合わせる。短ければ HEAD_MIN のまま、長くても全角 HEAD_NAME_CHARS 文字ぶんまで
+   // (それより長い名前は … で切る)。スマホ幅では CSS の幅のまま(画面が狭いので広げない)
+   const measure = document.createElement('canvas').getContext('2d');
+   const wide = matchMedia('(min-width: 721px)');
+   const onWideChange = () => fitHeadWidth();
+   wide.addEventListener('change', onWideChange);
+   function fitHeadWidth() {
+      const names = [...root.querySelectorAll('.arr-head-name')];
+      if (!names.length || !wide.matches) {
+         root.style.removeProperty('--arr-head');
+         return;
+      }
+      const style = getComputedStyle(names[0]);
+      measure.font = style.font;
+      const head = names[0].closest('.arr-head');
+      const others = head.offsetWidth - names[0].clientWidth; // 名前の欄より外(つまみ・ボタン・余白)
+      const longest = Math.max(...names.map((el) => measure.measureText(el.textContent).width));
+      const limit = HEAD_NAME_CHARS * parseFloat(style.fontSize);
+      root.style.setProperty('--arr-head', `${Math.max(HEAD_MIN, Math.ceil(others + Math.min(longest, limit) + 1))}px`);
+   }
+
    // 再描画でスクロール位置が飛ばないように、前後で保存・復元する
    function captureScroll() {
       const scroller = root.querySelector('.arr');
@@ -1153,6 +1176,7 @@ export function mount(container, { id: projectId }) {
                   (!data.tracks.length || !data.markers.length) && h('p', { class: 'arr-hint muted' },
                      !data.markers.length && 'クリップは、セクションマーカーの範囲に置きます。先に上の「セクション」の段を押して、マーカーを置いてください。',
                      !data.tracks.length && 'トラックを足したら、空いているところをドラッグ(またはダブルクリック)してクリップを作ります。'))))));
+      fitHeadWidth();
       restoreScroll(scroll);
       markSelected();
       setupSortable();
@@ -1188,6 +1212,7 @@ export function mount(container, { id: projectId }) {
       sound.stop();
       cancelAnimationFrame(frame);
       document.removeEventListener('keydown', onKeydown);
+      wide.removeEventListener('change', onWideChange);
       drawer.destroy();
       pianoRoll.close();
       sortable?.destroy();
