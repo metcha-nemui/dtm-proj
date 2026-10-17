@@ -133,7 +133,7 @@ export function mount(container, { id: projectId }) {
       played = input;
    }
 
-   // 保存を待たずに、手元のトラックを変えておく(スライダーやミュートを、すぐ音に効かせる)。
+   // 保存を待たずに、手元のトラックを変えておく(ミュート・ソロを、すぐ音に効かせる)。
    // 保存が続けて走ると、先の保存のあとの読み直しには後の変更がまだ入っていない。古い値に一瞬戻って音が揺れないよう、
    // 保存がすべて終わるまでは、読み直したトラックに手元の変更を重ねる
    const localTracks = new Map(); // トラックの id → まだ保存し終えていない変更
@@ -433,8 +433,14 @@ export function mount(container, { id: projectId }) {
                options: GM_PROGRAMS.map((name, i) => ({ value: String(i), label: `${i + 1}. ${name}` })),
             },
             { name: 'drum', label: 'ドラム(10ch で鳴らす。音色は使わない)', type: 'checkbox', value: sound.drum },
-            { name: 'volume', label: '音量(0〜127)', type: 'number', value: String(sound.volume) },
-            { name: 'pan', label: 'パン(0 = 左、64 = 中央、127 = 右)', type: 'number', value: String(sound.pan) },
+            {
+               name: 'volume', label: '音量(0〜127)', type: 'range', value: String(sound.volume),
+               min: 0, max: 127, reset: DEFAULT_VOLUME,
+            },
+            {
+               name: 'pan', label: 'パン(0 = 左、64 = 中央、127 = 右)', type: 'range', value: String(sound.pan),
+               min: 0, max: 127, reset: CENTER_PAN,
+            },
          ],
       });
       if (!values) return;
@@ -773,8 +779,7 @@ export function mount(container, { id: projectId }) {
                   title: `${soundLabel(track)}(押すと音色・音量・パンを変える)`,
                   dataset: { focusKey: `track-sound:${track.id}` },
                   onclick: () => run(trackSoundDialog(track)),
-               }, soundLabel(track)),
-               h('span', { class: 'arr-mix' }, mixSlider(track, 'volume'), mixSlider(track, 'pan')))),
+               }, soundLabel(track)))),
          lane);
    }
 
@@ -797,69 +802,12 @@ export function mount(container, { id: projectId }) {
       }, icon(key === 'mute' ? 'volume-x' : 'headphones', 14));
    }
 
-   // 音量・パンの横スライダーと、値の入力欄。どちらで変えても、もう一方に映す。
-   // 動かしている間は手元の値と音だけを変え、離したとき(入力欄は確定したとき)に保存する。ダブルクリックで既定値に戻す
-   function mixSlider(track, kind) {
-      const isVolume = kind === 'volume';
-      const label = isVolume ? '音量' : 'パン';
-      const fallback = isVolume ? DEFAULT_VOLUME : CENTER_PAN;
-      const value = trackSound(track)[kind];
-      const hint = isVolume ? '音量(0〜127)' : 'パン(0 = 左、64 = 中央、127 = 右)';
-      const save = (v) => saveLocal(actions.updateTrackSound(projectId, track.id, { [kind]: v }));
-      const setValue = (v) => {
-         slider.value = String(v);
-         number.value = String(v);
-         setLocalTrack(track.id, { [kind]: v });
-      };
-      const slider = h('input', {
-         type: 'range',
-         class: 'arr-slider',
-         min: '0',
-         max: '127',
-         step: '1',
-         value: String(value),
-         title: `${hint}。ダブルクリックで ${fallback} に戻す`,
-         'aria-label': `${track.name}の${label}`,
-         dataset: { focusKey: `${kind}:${track.id}` },
-         oninput: () => setValue(Number(slider.value)),
-         onchange: () => save(Number(slider.value)),
-         ondblclick: () => {
-            setValue(fallback);
-            save(fallback);
-         },
-      });
-      const number = h('input', {
-         type: 'number',
-         class: 'arr-mix-number',
-         min: '0',
-         max: '127',
-         step: '1',
-         value: String(value),
-         title: hint,
-         'aria-label': `${track.name}の${label}(数値)`,
-         dataset: { focusKey: `${kind}-number:${track.id}` },
-         onchange: () => {
-            // 空欄は元のまま。範囲の外は端に寄せてから保存する
-            const v = number.value.trim() === '' ? Number(slider.value) : trackSound({ [kind]: number.value })[kind];
-            setValue(v);
-            save(v);
-         },
-         onkeydown: (e) => {
-            if (e.key === 'Enter') number.blur();
-         },
-      });
-      return h('span', { class: `arr-mix-item is-${kind}` },
-         h('span', { class: 'arr-mix-icon', title: label }, icon(isVolume ? 'volume-2' : 'arrow-left-right', 12)),
-         slider,
-         number);
-   }
-
    function setupSortable() {
       sortable?.destroy();
       sortable = createSortable(root.querySelector('.arr-tracks'), {
          draggable: '.arr-track',
          handle: '.arr-head',
-         filter: 'button, input',
+         filter: 'button',
          preventOnFilter: false,
          onEnd: ({ item, oldIndex, newIndex }) => {
             if (oldIndex === newIndex) return;

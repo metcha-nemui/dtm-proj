@@ -64,7 +64,32 @@ export function viewDialog({ title, body }) {
 
 function readValue(field, el) {
    if (field.type === 'checkbox') return el.checked;
+   if (field.type === 'range') return el.querySelector('input[type=number]').value;
    return el.value;
+}
+
+// 横スライダーと数値の欄。どちらで変えても、もう一方に映す。値は数値の欄から読む(空欄も返せるように)。
+// スライダーのダブルクリックで field.reset の値に戻す
+function rangeControl(field) {
+   const bounds = { min: String(field.min ?? 0), max: String(field.max ?? 100), step: String(field.step ?? 1) };
+   const slider = h('input', {
+      id: `field-${field.name}`, class: 'field-range-slider', type: 'range', ...bounds, value: field.value ?? '',
+      title: field.reset == null ? null : `ダブルクリックで ${field.reset} に戻す`,
+      oninput: () => { number.value = slider.value; },
+      ondblclick: () => {
+         if (field.reset == null) return;
+         slider.value = String(field.reset);
+         number.value = String(field.reset);
+      },
+   });
+   const number = h('input', {
+      name: field.name, class: 'input field-range-number', type: 'number', ...bounds, value: field.value ?? '',
+      'aria-label': `${field.label}(数値)`, autocomplete: 'off',
+      oninput: () => {
+         if (number.value.trim() !== '') slider.value = number.value;
+      },
+   });
+   return h('div', { class: 'field-range' }, slider, number);
 }
 
 function control(field) {
@@ -77,6 +102,8 @@ function control(field) {
             field.options.map((o) => h('option', { value: o.value, selected: o.value === field.value }, o.label)));
       case 'checkbox':
          return h('input', { ...common, type: 'checkbox', checked: Boolean(field.value) });
+      case 'range':
+         return rangeControl(field);
       default:
          return h('input', {
             ...common, class: 'input', type: field.type ?? 'text', value: field.value ?? '',
@@ -91,9 +118,11 @@ function control(field) {
  * @param {string} options.title
  * @param {string} [options.message]
  * @param {string} [options.submitLabel]
- * @param {Array<{ name: string, label: string, type?: 'text'|'number'|'textarea'|'select'|'checkbox',
+ * @param {Array<{ name: string, label: string, type?: 'text'|'number'|'textarea'|'select'|'checkbox'|'range',
  *   value?: any, placeholder?: string, required?: boolean,
- *   options?: Array<{ value: string, label: string }> }>} options.fields
+ *   options?: Array<{ value: string, label: string }>,
+ *   min?: number, max?: number, step?: number, reset?: number }>} options.fields
+ *   range は横スライダーと数値の欄。min / max / step はその範囲、reset はスライダーのダブルクリックで戻す値
  * @returns {Promise<Object|null>} name をキーにした入力値。キャンセルなら null
  */
 export function formDialog({ title, message, fields, submitLabel = '保存' }) {
