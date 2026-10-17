@@ -111,7 +111,7 @@ export function mount(container, { id: projectId }) {
 
    // ---- 再生 ----
    // 再生を始める位置は、ルーラーを押して決める。止めても動かない。
-   // アレンジのルーラーは小節単位、ピアノロールのルーラーは拍単位で決めるので、曲の頭からの tick で持つ
+   // アレンジのルーラーは小節単位、ピアノロールのルーラーはグリッドの単位で決めるので、曲の頭からの tick で持つ
 
    let startTick = 0;
    let played = null; // 再生中の中身(playbackInput)。変わったら syncPlayback で差し替える
@@ -199,10 +199,10 @@ export function mount(container, { id: projectId }) {
       render();
    }
 
-   // 「3小節目」「3小節目の2拍目」
+   // 「3小節目」「3小節目の2拍目」。拍の途中なら「3小節目の2.5拍目」のように小数で(3連は 2.33 のように丸める)
    function startLabel() {
       const bar = Math.floor(startTick / TICKS_PER_BAR) + 1;
-      const beat = Math.floor((startTick % TICKS_PER_BAR) / PPQ) + 1;
+      const beat = Number(((startTick % TICKS_PER_BAR) / PPQ + 1).toFixed(2));
       return beat === 1 ? `${bar}小節目` : `${bar}小節目の${beat}拍目`;
    }
 

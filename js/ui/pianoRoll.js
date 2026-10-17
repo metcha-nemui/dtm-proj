@@ -98,18 +98,20 @@ export function createPianoRoll({ projectId, onSelectionChange, onPlayClip, onOp
       },
    }, SNAPS.map((s) => h('option', { value: s.value, selected: Number(s.value) === snap }, s.label)));
    const keys = h('div', { class: 'pr-keys' });
-   // ルーラーを押すと、押した拍が再生を始める位置になる(アレンジ画面のルーラーの赤い印と同じもの)
+   // ルーラーを押すと、押した位置(いまのグリッドの単位に切り捨て)が再生を始める位置になる
+   // (アレンジ画面のルーラーの赤い印と同じもの)。グリッドが「なし」なら 1/16 単位
    let startTick = 0; // 曲の頭からの tick
    const cursor = h('span', { class: 'pr-cursor', hidden: true, 'aria-hidden': 'true' });
    const ruler = h('div', {
       class: 'pr-ruler',
-      title: '押した拍から再生します',
+      title: '押した位置(グリッドの単位)から再生します',
       onclick: (e) => {
          const c = clip();
          if (!c) return;
-         const beats = c.bars * BEATS_PER_BAR;
-         const beat = Math.max(0, Math.min(beats - 1, Math.floor((e.clientX - ruler.getBoundingClientRect().left) / BEAT)));
-         onSeek?.((c.startBar - 1) * TICKS_PER_BAR + beat * PPQ);
+         const unit = snap > 1 ? snap : PPQ / 4;
+         const last = Math.floor((clipTicks(c) - 1) / unit) * unit;
+         const at = Math.floor((e.clientX - ruler.getBoundingClientRect().left) / PX / unit) * unit;
+         onSeek?.((c.startBar - 1) * TICKS_PER_BAR + Math.max(0, Math.min(last, at)));
       },
    });
    const rows = h('div', { class: 'pr-rows', 'aria-hidden': 'true' });
