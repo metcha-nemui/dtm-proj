@@ -436,13 +436,10 @@ button.project-tab {
 }
 
 @media (min-width: 721px) {
-   /* ドロワーの下に隠れる小節にもスクロールで届くようにする */
-   .drawer-open .arr-inner {
-      padding-right: var(--drawer-width);
-   }
-
+   /* クリップ詳細は最前面に重ねるだけにして、下の画面は詰めない(ボードの .drawer-open .board-toolbar を打ち消す)。
+      詰めると再生ボタンや BPM が折り返して段組みが崩れ、スクロールバーが出るため。隠れた小節は、閉じれば見える */
    .drawer-open .arr-page .board-toolbar {
-      padding-right: calc(var(--drawer-width) + var(--space-4));
+      padding-right: var(--space-4);
    }
 }
 
