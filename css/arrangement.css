@@ -928,6 +928,15 @@ button.project-tab {
    pointer-events: none;
 }
 
+/* 右クリックのメニューを出す位置の目印(見えない) */
+.pr-menu-anchor {
+   position: absolute;
+   width: 0;
+   height: 0;
+   outline: none;
+   pointer-events: none;
+}
+
 .pr-playhead {
    position: absolute;
    top: 0;

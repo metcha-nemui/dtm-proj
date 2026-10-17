@@ -369,6 +369,12 @@ textarea {
    color: var(--danger);
 }
 
+.menu-item:disabled {
+   color: var(--text-muted);
+   background: transparent;
+   cursor: default;
+}
+
 /* ---- トースト ---- */
 
 #toast-root {

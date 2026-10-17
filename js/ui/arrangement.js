@@ -72,6 +72,7 @@ export function mount(container, { id: projectId }) {
       onPlayClip: (clip) => startPlayback((clip.startBar - 1) * TICKS_PER_BAR, clip.trackId).catch(reportPlayError),
       onSeek: (tick) => seek(tick, alwaysTrackId),
       onOpenDetail: (clipId) => drawer.open(clipId),
+      isPlaying: () => sound.isPlaying(),
    });
    root.append(view, pianoRoll.el);
 

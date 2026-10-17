@@ -2,6 +2,7 @@
 // 操作は FL Studio に寄せている:空いているところを押すとノートを置き(そのままドラッグで動かせる)、
 // ノートを掴むと移動、右端を掴むと長さを変える。右クリックで消す(押したままなぞると続けて消す)。
 // ノートを置く長さは、最後に触ったノートの長さ。Ctrl+ドラッグで囲んだノートを選ぶ(Shift も押すと選択に足す)。
+// 選んだノートは Ctrl+C か右クリックのメニューでコピーし、再生を始める位置(クリップの外ならクリップの頭)に貼り付ける。
 // 行の塗り分けは鍵盤の白黒ではなく、プロジェクトのスケール(キーとメジャー / マイナー)に合わせる。
 // スケールはアレンジ画面の「スケール」の段で決め、クリップの途中で転調していれば、転調の位置から塗り分けを変える。
 // ノートはクリップの範囲(左端〜右端)からはみ出すようには動かせない。
@@ -19,7 +20,8 @@ import { sortByOrder } from '../domain/order.js';
 import { UNTITLED_CLIP } from '../domain/arrangement.js';
 import { barRange } from './clipDrawer.js';
 import { h, icon } from './components/dom.js';
-import { reportError } from './components/toast.js';
+import { openMenu } from './components/menu.js';
+import { reportError, showToast } from './components/toast.js';
 import { clipMidi, downloadMidi } from './midiExport.js';
 import { previewNote } from './synth.js';
 
@@ -57,6 +59,9 @@ const noteKey = (n) => `${n.pitch}:${n.start}:${n.length}`;
 const onsetKey = (n) => `${n.pitch}:${n.start}`;
 const sameNotes = (a, b) => JSON.stringify(normalizeNotes(a)) === JSON.stringify(normalizeNotes(b));
 
+// コピーしたノート(いちばん早いノートの頭からの相対)。クリップを切り替えても残し、別のクリップにも貼り付けられるようにする
+let clipboard = [];
+
 /**
  * @param {object} options
  * @param {string} options.projectId
@@ -64,8 +69,9 @@ const sameNotes = (a, b) => JSON.stringify(normalizeNotes(a)) === JSON.stringify
  * @param {(clip: object) => void} [options.onPlayClip] 「このクリップから再生」
  * @param {(clipId: string) => void} [options.onOpenDetail] クリップ詳細を開く
  * @param {(tick: number) => void} [options.onSeek] ルーラーを押して、再生を始める位置(曲の頭からの tick)を変えたとき
+ * @param {() => boolean} [options.isPlaying] 再生中か(再生中は貼り付けさせない)
  */
-export function createPianoRoll({ projectId, onSelectionChange, onPlayClip, onOpenDetail, onSeek }) {
+export function createPianoRoll({ projectId, onSelectionChange, onPlayClip, onOpenDetail, onSeek, isPlaying = () => false }) {
    let data = null; // アレンジ画面が読み込んだもの(project / tracks / clips)
    let clipId = null;
    let notes = []; // 編集中のノート(クリップの先頭からの相対)
@@ -110,11 +116,13 @@ export function createPianoRoll({ projectId, onSelectionChange, onPlayClip, onOp
    const rows = h('div', { class: 'pr-rows', 'aria-hidden': 'true' });
    const layer = h('div', { class: 'pr-notes' });
    const playhead = h('div', { class: 'pr-playhead', hidden: true });
+   // 右クリックのメニューを、押した位置に出すための目印
+   const menuAnchor = h('span', { class: 'pr-menu-anchor', tabIndex: -1, 'aria-hidden': 'true' });
    const grid = h('div', {
       class: 'pr-grid',
       onpointerdown: (e) => onGridDown(e),
       oncontextmenu: (e) => e.preventDefault(),
-   }, rows, layer, playhead);
+   }, rows, layer, playhead, menuAnchor);
    const inner = h('div', { class: 'pr-inner' }, h('div', { class: 'pr-corner' }), ruler, keys, grid);
    const scroller = h('div', { class: 'pr-scroll', tabIndex: -1, onkeydown: (e) => onKeydown(e) }, inner);
 
@@ -379,11 +387,14 @@ export function createPianoRoll({ projectId, onSelectionChange, onPlayClip, onOp
       grid.addEventListener('pointercancel', end);
    }
 
-   // 右クリックで消す。押したままなぞると、触れたノートを続けて消す
+   // 右クリックで消す。押したままなぞると、触れたノートを続けて消す。
+   // 選んでいるノートの上や、何も消さずに離したときは、消さずにメニュー(コピー・貼り付け)を出す
    function erase(down) {
       down.preventDefault();
+      const onSelected = selected.has(noteAtTarget(down.target));
       let changed = false;
       const hit = (target) => {
+         if (onSelected) return;
          const n = noteAtTarget(target);
          if (!n) return;
          notes = notes.filter((x) => x !== n);
@@ -395,16 +406,74 @@ export function createPianoRoll({ projectId, onSelectionChange, onPlayClip, onOp
       dragging = true;
       grid.setPointerCapture(down.pointerId);
       const move = (e) => hit(document.elementFromPoint(e.clientX, e.clientY));
-      const end = () => {
+      const end = (e) => {
          grid.removeEventListener('pointermove', move);
          grid.removeEventListener('pointerup', end);
          grid.removeEventListener('pointercancel', end);
          dragging = false;
          if (changed) commit();
+         else if (e.type === 'pointerup') openContextMenu(pointAt(down));
       };
       grid.addEventListener('pointermove', move);
       grid.addEventListener('pointerup', end);
       grid.addEventListener('pointercancel', end);
+   }
+
+   function openContextMenu(at) {
+      Object.assign(menuAnchor.style, { left: `${at.x}px`, top: `${at.y}px` });
+      // 選んだあとはピアノロールにフォーカスを戻す(続けて Ctrl+V や矢印キーを使えるように)
+      const then = (run) => () => {
+         scroller.focus({ preventScroll: true });
+         run();
+      };
+      openMenu(menuAnchor, [
+         { label: 'コピー(Ctrl+C)', disabled: !selected.size, onSelect: then(copy) },
+         {
+            label: isPlaying() ? '貼り付け(再生中はできません)' : '貼り付け(Ctrl+V)',
+            disabled: !clipboard.length || isPlaying(),
+            onSelect: then(paste),
+         },
+         { label: '削除(Delete)', danger: true, disabled: !selected.size, onSelect: then(deleteSelected) },
+      ]);
+   }
+
+   // ---- コピー・貼り付け ----
+
+   function copy() {
+      const list = [...selected];
+      if (!list.length) return;
+      const from = Math.min(...list.map((n) => n.start));
+      clipboard = normalizeNotes(list).map((n) => ({ ...n, start: n.start - from }));
+   }
+
+   // 再生を始める位置(赤い印)に貼り付ける。印がクリップの外なら、クリップの頭に貼り付ける。
+   // 置くノートと同じく、クリップの右端からははみ出させない(右端より後ろで始まるものは貼らず、またぐものは右端で切る)。
+   // 再生中は、鳴らし直しと編集が絡んで分かりにくいので貼り付けさせない
+   function paste() {
+      const c = clip();
+      if (!c || !clipboard.length) return;
+      if (isPlaying()) {
+         showToast('再生中は貼り付けできません。止めてから貼り付けてください');
+         return;
+      }
+      const end = clipTicks(c);
+      const rel = startTick - (c.startBar - 1) * TICKS_PER_BAR;
+      const origin = rel >= 0 && rel < end ? rel : 0;
+      const pasted = clipboard
+         .map((n) => ({ ...n, start: origin + n.start }))
+         .filter((n) => n.start < end)
+         .map((n) => ({ ...n, length: Math.min(n.length, end - n.start) }));
+      notes.push(...pasted);
+      selected = new Set(pasted);
+      commit();
+      const dropped = clipboard.length - pasted.length;
+      if (dropped) showToast(`クリップの右端より後ろになる${dropped}個のノートは貼り付けませんでした`);
+   }
+
+   function deleteSelected() {
+      notes = notes.filter((n) => !selected.has(n));
+      selected = new Set();
+      commit();
    }
 
    // Ctrl+ドラッグで、囲んだ範囲に掛かるノートを選ぶ。Shift も押していれば、いまの選択に足す。
@@ -470,9 +539,13 @@ export function createPianoRoll({ projectId, onSelectionChange, onPlayClip, onOp
       const list = [...selected];
       if ((e.key === 'Delete' || e.key === 'Backspace') && list.length) {
          e.preventDefault();
-         notes = notes.filter((n) => !selected.has(n));
-         selected = new Set();
-         commit();
+         deleteSelected();
+      } else if (e.key.toLowerCase() === 'c' && (e.ctrlKey || e.metaKey) && list.length) {
+         e.preventDefault();
+         copy();
+      } else if (e.key.toLowerCase() === 'v' && (e.ctrlKey || e.metaKey) && clipboard.length) {
+         e.preventDefault();
+         paste();
       } else if (e.key === 'a' && (e.ctrlKey || e.metaKey)) {
          e.preventDefault();
          selected = new Set(notes);
