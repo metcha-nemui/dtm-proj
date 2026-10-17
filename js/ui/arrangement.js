@@ -24,7 +24,7 @@ import { openMenu } from './components/menu.js';
 import { createSortable, domIndex } from './components/sortable.js';
 import { reportError, showToast } from './components/toast.js';
 import { barRange, createClipDrawer } from './clipDrawer.js';
-import { arrangementMidi, clipMidi, downloadMidi, setMidiDrag } from './midiExport.js';
+import { arrangementMidi, downloadMidi } from './midiExport.js';
 import * as sound from './synth.js';
 import { createPianoRoll } from './pianoRoll.js';
 import { projectTabs } from './projectTabs.js';
@@ -543,7 +543,7 @@ export function mount(container, { id: projectId }) {
          h('div', { class: 'arr-markers' }, slots, bands, flags));
    }
 
-   function clipElement(clip, track) {
+   function clipElement(clip) {
       // マーカーを動かしたり消したりして、どのセクションにも入らなくなったクリップ。ボードには出ていない
       const outside = clipSection(clip, data.markers) === null;
       const preview = notePreview(clip);
@@ -565,13 +565,6 @@ export function mount(container, { id: projectId }) {
       h('span', { class: 'clip-edge is-start', dataset: { edge: 'start' }, title: 'ドラッグで長さを変える' }),
       h('span', { class: 'clip-name' }, clip.name || UNTITLED_CLIP),
       clip.memo && icon('notebook-text', 12),
-      // ノートがあれば、ここを掴んで FL Studio などへ .mid として渡せる(クリップの移動とは別の、ブラウザのドラッグ)
-      preview && h('span', {
-         class: 'clip-midi',
-         draggable: 'true',
-         title: 'ドラッグして FL Studio などへ落とすと、.mid として渡せます',
-         ondragstart: (e) => setMidiDrag(e.dataTransfer, clipMidi(data.project, track, clip)),
-      }, icon('file-music', 12)),
       h('span', { class: 'clip-edge is-end', dataset: { edge: 'end' }, title: 'ドラッグで長さを変える' }));
    }
 
@@ -593,8 +586,6 @@ export function mount(container, { id: projectId }) {
          class: 'arr-lane',
          dataset: { trackId: track.id },
          onpointerdown: (e) => {
-            // .mid のドラッグはブラウザに任せる(ポインタを捕まえると始まらない)
-            if (e.target.closest('.clip-midi')) return;
             const clipEl = e.target.closest('.clip');
             if (!clipEl) {
                dragCreate(e, track);
@@ -609,7 +600,7 @@ export function mount(container, { id: projectId }) {
             const under = document.elementFromPoint(e.clientX, e.clientY);
             const clipEl = under?.closest('.clip');
             if (clipEl) {
-               if (!under.closest('.clip-edge, .clip-midi')) openPianoRoll(clipEl.dataset.clipId);
+               if (!under.closest('.clip-edge')) openPianoRoll(clipEl.dataset.clipId);
                return;
             }
             if (needMarker()) return;
@@ -619,7 +610,7 @@ export function mount(container, { id: projectId }) {
       },
       // セクションの境目の線(押せない)
       boundaries.map((bar) => h('div', { class: 'arr-boundary', style: { '--start': String(bar) } })),
-      clips.map((clip) => clipElement(clip, track)));
+      clips.map(clipElement));
 
       return h('div', { class: 'arr-row arr-track', dataset: { trackId: track.id } },
          h('div', { class: 'arr-head', title: 'ドラッグで並べ替え' },

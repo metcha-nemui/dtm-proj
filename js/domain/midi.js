@@ -205,7 +205,7 @@ export function buildMidiFile({ title = '', bpm, tracks, clips, offsetBar = 1 })
    return new Uint8Array([...header, ...trackChunk(conductor), ...chunks.flat()]);
 }
 
-/** 書き出すファイルの名前。Windows で使えない文字と、ドラッグの指定(DownloadURL)を壊すコロンを除く。 */
+/** 書き出すファイルの名前。Windows で使えない文字を除く。 */
 export function midiFileName(...parts) {
    const name = parts.filter(Boolean).join(' - ').replace(/[\\/:*?"<>|\u0000-\u001f]/g, '_').trim();
    return `${name || 'clip'}.mid`;

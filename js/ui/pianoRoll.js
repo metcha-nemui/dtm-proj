@@ -15,7 +15,7 @@ import { UNTITLED_CLIP } from '../domain/arrangement.js';
 import { barRange } from './clipDrawer.js';
 import { h, icon } from './components/dom.js';
 import { reportError } from './components/toast.js';
-import { clipMidi, downloadMidi, setMidiDrag } from './midiExport.js';
+import { clipMidi, downloadMidi } from './midiExport.js';
 import { previewNote } from './synth.js';
 
 const ROW = 12; // 1音の高さ(px)
@@ -78,12 +78,6 @@ export function createPianoRoll({ projectId, onSelectionChange, onPlayClip, onOp
          }
       },
    }, SNAPS.map((s) => h('option', { value: s.value, selected: Number(s.value) === snap }, s.label)));
-   const dragHandle = h('div', {
-      class: 'pr-drag',
-      draggable: 'true',
-      title: 'ドラッグして FL Studio などへ落とすと、.mid として渡せます',
-      ondragstart: (e) => setMidiDrag(e.dataTransfer, currentMidi()),
-   }, icon('file-music', 14), 'ドラッグで .mid');
    const keys = h('div', { class: 'pr-keys' });
    const ruler = h('div', { class: 'pr-ruler' });
    const rows = h('div', { class: 'pr-rows', 'aria-hidden': 'true' });
@@ -108,7 +102,6 @@ export function createPianoRoll({ projectId, onSelectionChange, onPlayClip, onOp
             type: 'button', class: 'btn btn-icon', title: 'このクリップの頭から再生', 'aria-label': 'このクリップの頭から再生',
             onclick: () => { const c = clip(); if (c) onPlayClip?.(c); },
          }, icon('play')),
-         dragHandle,
          h('button', {
             type: 'button', class: 'btn btn-icon', title: '.mid を書き出す', 'aria-label': '.mid を書き出す',
             onclick: () => downloadMidi(currentMidi()),

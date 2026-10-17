@@ -7,7 +7,7 @@ import { audibleNotes } from '../domain/midi.js';
 import { repo, subscribe } from '../state.js';
 import { h, icon } from './components/dom.js';
 import { reportError, showToast } from './components/toast.js';
-import { clipMidi, downloadMidi, setMidiDrag } from './midiExport.js';
+import { clipMidi, downloadMidi } from './midiExport.js';
 
 /** 「3〜6小節」のような範囲の表示。1小節なら「3小節目」。 */
 export function barRange(clip) {
@@ -83,12 +83,6 @@ export function createClipDrawer(projectId, { onSelectionChange, onOpenPianoRoll
                if (id) onOpenPianoRoll?.(id);
             },
          }, icon('piano', 14), 'ピアノロールで編集'),
-         h('div', {
-            class: 'pr-drag',
-            draggable: 'true',
-            title: 'ドラッグして FL Studio などへ落とすと、.mid として渡せます',
-            ondragstart: (e) => setMidiDrag(e.dataTransfer, midi()),
-         }, icon('file-music', 14), 'ドラッグで .mid'),
          h('button', {
             type: 'button', class: 'btn btn-icon', title: '.mid を書き出す', 'aria-label': '.mid を書き出す',
             onclick: () => downloadMidi(midi()),

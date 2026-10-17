@@ -597,38 +597,6 @@ button.project-tab {
    position: relative;
 }
 
-/* 掴んで DAW へ .mid として渡す */
-.clip-midi {
-   position: relative;
-   display: inline-flex;
-   flex: none;
-   align-items: center;
-   justify-content: center;
-   width: 16px;
-   height: 16px;
-   border-radius: 3px;
-   background: var(--surface);
-   cursor: copy;
-}
-
-.clip .clip-midi .icon {
-   color: var(--accent);
-}
-
-.pr-drag {
-   display: inline-flex;
-   align-items: center;
-   gap: var(--space-1);
-   padding: 3px var(--space-2);
-   border: 1px dashed var(--accent);
-   border-radius: var(--radius-sm);
-   color: var(--accent);
-   font-size: 12px;
-   white-space: nowrap;
-   cursor: copy;
-   user-select: none;
-}
-
 .drawer-midi {
    display: flex;
    flex-wrap: wrap;
