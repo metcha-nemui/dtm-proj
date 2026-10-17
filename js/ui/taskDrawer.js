@@ -1,18 +1,17 @@
 // タスク詳細。PCでは右ドロワー、スマホではボトムシートとして出す(見た目の切り替えはCSS)。
 // 入力は欄を離れたとき(change)と閉じるときに保存する。
-// リファレンス(曲名)は、Enter か候補の選択で1件ずつ足す。候補は同じプロジェクトのタスクに付いている曲名から出す。
+// リファレンス(曲名)の欄は referenceField.js。
 // アレンジのクリップから来たタスク(連動タスク)では、名前と詳細はクリップのものを直す(タイトルの「トラック名:」は直せない)。
 
 import * as actions from '../actions.js';
 import { UNTITLED_CLIP } from '../domain/arrangement.js';
-import { canonicalizeReference, collectReferences, suggestReferences } from '../domain/reference.js';
+import { collectReferences } from '../domain/reference.js';
 import { STATUSES, STATUS_LABELS, isValidPeriod } from '../domain/task.js';
 import { repo, subscribe } from '../state.js';
 import { h, icon } from './components/dom.js';
 import { reportError, showToast } from './components/toast.js';
 import { barRange } from './clipDrawer.js';
-
-const SUGGESTION_LIMIT = 8; // リファレンスの候補を一度に出す数
+import { createReferenceField } from './referenceField.js';
 
 /**
  * @param {string} projectId
@@ -21,9 +20,6 @@ const SUGGESTION_LIMIT = 8; // リファレンスの候補を一度に出す数
 export function createTaskDrawer(projectId, { onSelectionChange } = {}) {
    let task = null; // 表示中のタスク(最後に読み込んだ、または保存した状態)
    let clip = null; // 連動タスクなら、元のクリップ(最後に読み込んだ、または保存した状態)
-   let knownReferences = []; // プロジェクトのタスクに付いている曲名(候補の元)
-   let suggestions = []; // 表示中の候補
-   let activeSuggestion = -1; // キーボードで選んでいる候補。-1 なら選んでいない
    let el = null; // ドロワーのDOM。閉じている間は null
    let requested = null; // open() の競合を避けるための、最後に要求されたタスクID
    const run = (promise) => promise.catch(reportError);
@@ -51,7 +47,7 @@ export function createTaskDrawer(projectId, { onSelectionChange } = {}) {
    function commit() {
       if (!task || !el) return;
       // 曲名を打ったまま閉じたり欄を離れたりしても、消さずに足す
-      if (el.referenceInput.value.trim()) addReference(el.referenceInput.value);
+      el.references.commitPending();
       const patch = {};
       const title = el.title.value.trim();
       if (clip) {
@@ -92,7 +88,7 @@ export function createTaskDrawer(projectId, { onSelectionChange } = {}) {
             // あとから別の値を保存しようとした項目は、そちらの結果に任せる
             const failed = Object.keys(patch).filter((key) => task[key] === patch[key]);
             task = { ...task, ...Object.fromEntries(failed.map((key) => [key, before[key]])) };
-            if ('references' in patch && el) renderReferences();
+            if ('references' in patch && el) el.references.render();
          }
          throw error;
       }));
@@ -104,99 +100,7 @@ export function createTaskDrawer(projectId, { onSelectionChange } = {}) {
       run(actions.updateClip(projectId, clip.id, patch));
    }
 
-   // ---- リファレンス ----
-
-   const references = () => task?.references ?? []; // リファレンスを持つ前に作ったタスクには項目がない
-
-   function saveReferences(next) {
-      saveFields({ references: next });
-      renderReferences();
-   }
-
-   // 表記の違いだけなら既存の曲名に揃えてから足す。そのタスクに付いていれば何もしない
-   function addReference(name) {
-      el.referenceInput.value = '';
-      closeSuggestions();
-      const canonical = canonicalizeReference(name, [...references(), ...knownReferences]);
-      if (!canonical || references().includes(canonical)) return;
-      saveReferences([...references(), canonical]);
-   }
-
-   function removeReference(name) {
-      saveReferences(references().filter((r) => r !== name));
-      el.referenceInput.focus();
-   }
-
-   function renderReferences() {
-      el.referenceList.replaceChildren(...references().map((name) => h('li', { class: 'ref-chip' },
-         h('span', { class: 'ref-chip-name' }, name),
-         h('button', {
-            type: 'button',
-            class: 'ref-chip-remove',
-            'aria-label': `「${name}」を外す`,
-            onclick: () => removeReference(name),
-         }, icon('x', 14)))));
-      el.referenceList.hidden = !references().length;
-   }
-
-   // 入力に合う候補を出す。force なら入力が空でも(↓キーで)出す
-   function updateSuggestions({ force = false } = {}) {
-      const input = el.referenceInput.value;
-      suggestions = input.trim() || force
-         ? suggestReferences(input, knownReferences, references()).slice(0, SUGGESTION_LIMIT)
-         : [];
-      activeSuggestion = -1;
-      renderSuggestions();
-   }
-
-   function closeSuggestions() {
-      suggestions = [];
-      activeSuggestion = -1;
-      renderSuggestions();
-   }
-
-   function renderSuggestions() {
-      const list = el.suggestionList;
-      list.replaceChildren(...suggestions.map((name, i) => h('li', {
-         id: `ref-suggestion-${i}`,
-         class: 'ref-suggestion',
-         role: 'option',
-         'aria-selected': String(i === activeSuggestion),
-         // 押した時点で入力欄のフォーカスが外れると、打ちかけの文字が先に足されてしまう
-         onmousedown: (e) => e.preventDefault(),
-         onclick: () => addReference(name),
-      }, name)));
-      list.hidden = !suggestions.length;
-      el.referenceInput.setAttribute('aria-expanded', String(!list.hidden));
-      if (activeSuggestion >= 0) {
-         el.referenceInput.setAttribute('aria-activedescendant', `ref-suggestion-${activeSuggestion}`);
-         list.children[activeSuggestion].scrollIntoView({ block: 'nearest' });
-      } else {
-         el.referenceInput.removeAttribute('aria-activedescendant');
-      }
-   }
-
-   function onReferenceKeydown(e) {
-      // 日本語入力の変換を確定する Enter は、曲名の決定に使わない
-      if (e.isComposing || e.keyCode === 229) return;
-      if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
-         e.preventDefault();
-         if (!suggestions.length) updateSuggestions({ force: true });
-         if (!suggestions.length) return;
-         // 選択なし(-1)も含めて循環させる
-         const step = e.key === 'ArrowDown' ? 1 : -1;
-         activeSuggestion = ((activeSuggestion + 1 + step + suggestions.length + 1) % (suggestions.length + 1)) - 1;
-         renderSuggestions();
-      } else if (e.key === 'Enter') {
-         e.preventDefault();
-         const name = activeSuggestion >= 0 ? suggestions[activeSuggestion] : el.referenceInput.value;
-         if (name.trim()) addReference(name);
-      } else if (e.key === 'Escape' && suggestions.length) {
-         // 候補だけを閉じ、ドロワーは閉じない
-         e.preventDefault();
-         closeSuggestions();
-      }
-   }
+   const taskReferences = () => task?.references ?? []; // リファレンスを持つ前に作ったタスクには項目がない
 
    function remove() {
       const { id, title } = task;
@@ -236,27 +140,12 @@ export function createTaskDrawer(projectId, { onSelectionChange } = {}) {
       const endDate = h('input', { class: 'input', type: 'date', 'aria-label': '終了日', onchange: commit });
       const startField = field('開始日', startDate);
       const endField = field('終了日', endDate);
-      const referenceList = h('ul', { class: 'ref-chips', 'aria-label': 'リファレンス' });
-      const suggestionList = h('ul', { class: 'ref-suggestions', id: 'ref-suggestions', role: 'listbox', hidden: true });
-      const referenceInput = h('input', {
-         class: 'input',
-         'aria-label': 'リファレンスを追加',
-         placeholder: '曲名を入力して Enter',
-         autocomplete: 'off',
-         role: 'combobox',
-         'aria-autocomplete': 'list',
-         'aria-controls': 'ref-suggestions',
-         'aria-expanded': 'false',
-         oninput: () => updateSuggestions(),
-         onkeydown: onReferenceKeydown,
-         onblur: () => {
-            closeSuggestions();
-            commit();
-         },
+      const references = createReferenceField({
+         getReferences: taskReferences,
+         onChange: (next) => saveFields({ references: next }),
+         onBlur: commit,
       });
-      const referenceField = field('リファレンス', h('div', { class: 'ref-field' },
-         referenceList,
-         h('div', { class: 'ref-input' }, referenceInput, suggestionList)));
+      const referenceField = field('リファレンス', references.el);
 
       const panel = h('aside', { class: 'drawer', role: 'dialog', 'aria-label': 'タスク詳細', tabIndex: -1 },
          h('header', { class: 'drawer-head' },
@@ -276,8 +165,7 @@ export function createTaskDrawer(projectId, { onSelectionChange } = {}) {
       document.body.classList.add('drawer-open');
       el = {
          panel, backdrop, title, trackName, linkedNote, deleteButton,
-         memo, statusButtons, statusField, startDate, endDate, startField, endField, laneName,
-         referenceField, referenceList, referenceInput, suggestionList,
+         memo, statusButtons, statusField, startDate, endDate, startField, endField, laneName, references,
       };
    }
 
@@ -307,8 +195,8 @@ export function createTaskDrawer(projectId, { onSelectionChange } = {}) {
       el.startField.hidden = task.status === 'todo';
       el.endField.hidden = task.status !== 'done';
       el.laneName.textContent = [context.lane?.name, clip && barRange(clip)].filter(Boolean).join('・');
-      knownReferences = context.knownReferences;
-      renderReferences();
+      el.references.setKnown(context.knownReferences);
+      el.references.render();
    }
 
    async function open(taskId) {
@@ -317,8 +205,7 @@ export function createTaskDrawer(projectId, { onSelectionChange } = {}) {
       const context = await loadContext(taskId);
       if (!context || requested !== taskId) return;
       if (!el) build();
-      el.referenceInput.value = '';
-      closeSuggestions();
+      el.references.reset();
       apply(context, { force: true });
       el.panel.focus({ preventScroll: true });
       onSelectionChange?.(taskId);

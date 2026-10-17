@@ -4,11 +4,13 @@
 import * as actions from '../actions.js';
 import { clipEnd } from '../domain/arrangement.js';
 import { audibleNotes } from '../domain/midi.js';
+import { collectReferences } from '../domain/reference.js';
 import { STATUS_LABELS, STATUSES } from '../domain/task.js';
 import { repo, subscribe } from '../state.js';
 import { h, icon } from './components/dom.js';
 import { reportError, showToast } from './components/toast.js';
 import { clipMidi, downloadMidi } from './midiExport.js';
+import { createReferenceField } from './referenceField.js';
 
 /** 「3〜6小節」のような範囲の表示。1小節なら「3小節目」。 */
 export function barRange(clip) {
@@ -43,12 +45,15 @@ export function createClipDrawer(projectId, { onSelectionChange, onOpenPianoRoll
          track: tracks.find((t) => t.id === found.trackId) ?? null,
          lane: lanes.find((l) => l.id === linked?.laneId) ?? null,
          task: linked ?? null,
+         knownReferences: collectReferences(tasks),
       };
    }
 
    // 入力欄の内容に変更があれば保存する。名前は空でもよい
    function commit() {
       if (!clip || !el) return;
+      // 曲名を打ったまま閉じたり欄を離れたりしても、消さずに足す
+      el.references.commitPending();
       const patch = {};
       const name = el.name.value.trim();
       if (name !== clip.name) patch.name = name;
@@ -56,6 +61,18 @@ export function createClipDrawer(projectId, { onSelectionChange, onOpenPianoRoll
       if (!Object.keys(patch).length) return;
       clip = { ...clip, ...patch }; // 同じ変更を二度保存しないように先に反映しておく
       run(actions.updateClip(projectId, clip.id, patch));
+   }
+
+   // 連動タスクのリファレンスを保存する(同じ変更を二度保存しないように、手元に先に反映する)。
+   // 失敗したら、保存済みの状態を読み直して欄に戻す
+   function saveReferences(next) {
+      const task = context?.task;
+      if (!task) return;
+      context = { ...context, task: { ...task, references: next } };
+      run(actions.updateTask(projectId, task.id, { references: next }).catch((error) => {
+         run(resync());
+         throw error;
+      }));
    }
 
    function remove() {
@@ -88,6 +105,13 @@ export function createClipDrawer(projectId, { onSelectionChange, onOpenPianoRoll
          },
       }, STATUS_LABELS[status]));
       const statusField = field('ステータス', h('div', { class: 'segments' }, statusButtons));
+      // 連動タスクのリファレンス。ボードのタスク詳細と同じ欄で、どちらで変えても同じタスクのものが変わる
+      const references = createReferenceField({
+         getReferences: () => context?.task?.references ?? [],
+         onChange: saveReferences,
+         onBlur: commit,
+      });
+      const referenceField = field('リファレンス', references.el);
       const midi = () => clipMidi(context.project, context.track, clip);
       const midiRow = h('div', { class: 'drawer-midi' },
          h('button', {
@@ -112,6 +136,7 @@ export function createClipDrawer(projectId, { onSelectionChange, onOpenPianoRoll
             name,
             section,
             statusField,
+            referenceField,
             midiRow,
             field('詳細', memo),
             h('div', { class: 'drawer-foot clip-foot' },
@@ -128,7 +153,7 @@ export function createClipDrawer(projectId, { onSelectionChange, onOpenPianoRoll
 
       document.getElementById('overlay-root').append(backdrop, panel);
       document.body.classList.add('drawer-open');
-      el = { panel, backdrop, name, memo, where, section, noteCount, statusButtons, statusField };
+      el = { panel, backdrop, name, memo, where, section, noteCount, statusButtons, statusField, references, referenceField };
    }
 
    // 読み込んだ内容を表示に反映する。編集中(フォーカス中)の欄は上書きしない
@@ -152,6 +177,10 @@ export function createClipDrawer(projectId, { onSelectionChange, onOpenPianoRoll
       for (const button of el.statusButtons) {
          button.setAttribute('aria-pressed', String(button.dataset.status === task?.status));
       }
+      // リファレンスも、ボードに出ていない間は隠す(タスクの中には残っていて、また区間に入れば戻る)
+      el.referenceField.hidden = !task;
+      el.references.setKnown(context.knownReferences);
+      el.references.render();
    }
 
    async function open(clipId, { focusName = false } = {}) {
@@ -160,6 +189,7 @@ export function createClipDrawer(projectId, { onSelectionChange, onOpenPianoRoll
       const context = await loadContext(clipId);
       if (!context || requested !== clipId) return;
       if (!el) build();
+      el.references.reset();
       apply(context, { force: true });
       // 作った直後は、すぐ名前を打てるようにする
       if (focusName) el.name.focus();
