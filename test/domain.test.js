@@ -1330,6 +1330,26 @@ test('upgradeStorage: 古ければ、変換前のデータを残してから変�
    equal(await upgradeStorage(repository), false, '2回目は何もしない');
 });
 
+test('upgradeStorage: v8 の保存先は、v9 を飛ばして v10 に変換する(スケールは1小節目から C メジャー)', async () => {
+   const { tables, repository } = fakeSupabase();
+   const { project, lanes } = createProject({ title: '曲A' });
+   const { scales, ...v8project } = { ...project, bpm: 140 };
+   const { project: template } = createTemplate({ name: 'テンプレート' });
+   await repository.saveProject(v8project);
+   await repository.saveProject(template);
+   await repository.saveLanes(lanes);
+   await repository.setMeta('schemaVersion', 8);
+
+   equal(await upgradeStorage(repository), true);
+   equal(await repository.getMeta('schemaVersion'), SCHEMA_VERSION);
+   const saved = await repository.getProject(project.id);
+   equal([saved.bpm, saved.scales, 'scale' in saved], [140, [{ bar: 1, root: 0, mode: 'major' }], false]);
+   equal((await repository.getProject(template.id)).scales, undefined, 'テンプレートには足さない');
+   equal((await repository.getLanes(project.id)).length, lanes.length, 'ほかのデータはそのまま');
+   const backups = tables.app_meta.filter((m) => m.key.startsWith('backup:v8:'));
+   equal([backups.length, backups[0].value.projects.find((p) => p.id === project.id).scales], [1, undefined], '変換前のまま残る');
+});
+
 test('upgradeStorage: 新しければ止める(何も書き換えない)', async () => {
    const { tables, repository } = fakeSupabase();
    await repository.setMeta('schemaVersion', SCHEMA_VERSION + 1);
