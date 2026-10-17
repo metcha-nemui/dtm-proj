@@ -335,10 +335,12 @@ export const placeClip = serial(async (projectId, clipId, patch) => {
    await changed(projectId);
 });
 
-/** 選んだクリップを、まとめて横に bars 小節ずらす(複数選択での移動)。 */
-export const shiftClips = serial(async (projectId, clipIds, bars) => {
+/** 選んだクリップとセクションマーカーを、まとめて横に bars 小節ずらす(複数選択での移動)。selection は { clipIds, markerIds } */
+export const shiftSelection = serial(async (projectId, selection, bars) => {
    const [clips, markers] = await Promise.all([repo().getClips(projectId), repo().getMarkers(projectId)]);
-   await repo().saveClips(arrangementDomain.shiftClips(clips, clipIds, bars, markers));
+   const moved = arrangementDomain.shiftSelection(clips, markers, selection, bars);
+   if (moved.clips.length) await repo().saveClips(moved.clips);
+   if (moved.markers.length) await repo().saveMarkers(moved.markers);
    await syncArrangement(projectId);
    await changed(projectId);
 });

@@ -2,8 +2,8 @@
 // Node でも動く: node -e "import('./test/domain.test.js').then(m => m.report()).then(ok => process.exit(ok ? 0 : 1))"
 
 import {
-   addClip, addMarker, addTrack, arrangementBars, canPlace, canShiftClips, clipEnd, clipSection, duplicateClip, markerSpans, moveTrack,
-   placeClip, renameTrack, setClipNotes, shiftClips, syncClipTasks, updateClip, updateMarker, updateTrackMix, updateTrackSound,
+   addClip, addMarker, addTrack, arrangementBars, canPlace, canShiftSelection, clipEnd, clipSection, duplicateClip, markerSpans, moveTrack,
+   placeClip, renameTrack, setClipNotes, shiftSelection, syncClipTasks, updateClip, updateMarker, updateTrackMix, updateTrackSound,
 } from '../js/domain/arrangement.js';
 import {
    audibleNotes, audibleTrackIds, buildMidiFile, clipTicks, filterPrograms, inScale, MAX_BPM, midiFileName, MIN_BPM, moveScale, normalizeBpm,
@@ -854,23 +854,50 @@ test('duplicateClip: 名前・詳細・ノートをコピーした別のクリ�
    equal(duplicateClip(source, all, { trackId: drums.id, startBar: 9 }, markers).startBar, 9);
 });
 
-test('shiftClips: 選んだクリップをまとめて横にずらす。1つでも置けなければどれも動かさない', () => {
+test('shiftSelection: 選んだクリップをまとめて横にずらす。1つでも置けなければどれも動かさない', () => {
    const { project, lane, synth, drums, clips, a, b } = arrangementFixture(); // シンセ 1〜4 と 9〜10
    const c = addClip(drums, [], { startBar: 3, bars: 2 });
    const all = [...clips, c];
-   const moved = shiftClips(all, [a.id, c.id], 2);
-   equal(moved.map((x) => [x.id, x.trackId, x.startBar, x.bars]), [[a.id, synth.id, 3, 4], [c.id, drums.id, 5, 2]], 'トラックは変えない');
+   const shift = (clipIds, bars, markers = null) => shiftSelection(all, markers, { clipIds }, bars);
+   const can = (clipIds, bars, markers = null) => canShiftSelection(all, markers, { clipIds }, bars);
+   const moved = shift([a.id, c.id], 2);
+   equal(moved.clips.map((x) => [x.id, x.trackId, x.startBar, x.bars]), [[a.id, synth.id, 3, 4], [c.id, drums.id, 5, 2]], 'トラックは変えない');
+   equal(moved.markers, [], 'マーカーは選んでいない');
    equal(a.startBar, 1, '元のレコードは変えない');
-   equal(canShiftClips(all, [a.id, c.id], 2), true);
-   equal(canShiftClips(all, [a.id, c.id], 5), false, 'a が b に重なる');
-   throws(() => shiftClips(all, [a.id, c.id], 5), '1つでも重なれば動かさない');
-   equal(shiftClips(all, [a.id, b.id], 3).map((x) => x.startBar), [4, 12], '選んだもの同士は互いに邪魔しない');
-   equal(canShiftClips(all, [a.id], -1), false, '1小節目より前');
+   equal(can([a.id, c.id], 2), true);
+   equal(can([a.id, c.id], 5), false, 'a が b に重なる');
+   throws(() => shift([a.id, c.id], 5), '1つでも重なれば動かさない');
+   equal(shift([a.id, b.id], 3).clips.map((x) => x.startBar), [4, 12], '選んだもの同士は互いに邪魔しない');
+   equal(can([a.id], -1), false, '1小節目より前');
    const markers = [addMarker(project.id, [], lane('Aメロ'), 9)];
-   equal(canShiftClips(all, [b.id], -4, markers), false, '5〜6小節は区間の外');
-   equal(canShiftClips(all, [b.id], -1, markers), true, '8〜9小節は区間に掛かる');
-   equal(canShiftClips(all, [b.id, a.id], 4, markers), false, 'a(5〜8)が区間の外');
-   equal(canShiftClips(all, ['none'], 1), false, 'ないクリップ');
+   equal(can([b.id], -4, markers), false, '5〜6小節は区間の外');
+   equal(can([b.id], -1, markers), true, '8〜9小節は区間に掛かる');
+   equal(can([b.id, a.id], 4, markers), false, 'a(5〜8)が区間の外');
+   equal(can(['none'], 1), false, 'ないクリップ');
+});
+
+test('shiftSelection: マーカーも一緒にずらす。区間は動かした後のマーカーで判定する', () => {
+   const { project, lane, clips, a, b } = arrangementFixture(); // シンセ 1〜4 と 9〜10
+   const verse = addMarker(project.id, [], lane('Aメロ'), 1);
+   const chorus = addMarker(project.id, [verse], lane('サビ'), 9);
+   const markers = [verse, chorus];
+   const can = (selection, bars) => canShiftSelection(clips, markers, selection, bars);
+   const moved = shiftSelection(clips, markers, { clipIds: [b.id], markerIds: [chorus.id] }, 4);
+   equal(moved.clips.map((x) => x.startBar), [13]);
+   equal(moved.markers.map((m) => [m.id, m.bar]), [[chorus.id, 13]]);
+   equal(chorus.bar, 9, '元のレコードは変えない');
+   equal(shiftSelection(clips, markers, { markerIds: [chorus.id] }, 2).clips, [], 'マーカーだけでも動かせる');
+   equal(can({ clipIds: [b.id], markerIds: [chorus.id] }, -8), false, '選んでいない Aメロ と同じ小節');
+   equal(can({ markerIds: [verse.id, chorus.id] }, -1), false, '1小節目より前');
+   equal(can({ clipIds: [a.id, b.id], markerIds: [verse.id, chorus.id] }, 8), true, '選んだもの同士は互いに邪魔しない');
+   // 選んでいないクリップは見ない(マーカー1つのドラッグと同じく、区間の外になれば無所属になる)
+   equal(can({ markerIds: [verse.id, chorus.id] }, 5), true, '1〜4小節の a が区間の外になっても動かせる');
+   equal(can({ clipIds: [a.id], markerIds: [chorus.id] }, -8), false, 'a(-7〜)は1小節目より前');
+   equal(can({ clipIds: [a.id], markerIds: [verse.id] }, 2), true, '一緒に動けば区間の中');
+   equal(canShiftSelection(clips, [chorus], { clipIds: [b.id], markerIds: [chorus.id] }, -4), true, '一緒に動けば、元の区間の外へも動かせる');
+   equal(canShiftSelection(clips, [chorus], { clipIds: [b.id] }, -4), false, 'クリップだけなら区間の外');
+   equal(can({ markerIds: ['none'] }, 1), false, 'ないマーカー');
+   equal(canShiftSelection(clips, null, { markerIds: [verse.id] }, 1), false, 'マーカーを渡していない');
 });
 
 test('filterPrograms: 番号・音色名・系統名で絞り込み、系統ごとにまとめる', () => {

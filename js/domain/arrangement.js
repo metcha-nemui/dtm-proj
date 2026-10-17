@@ -150,41 +150,52 @@ export function placeClip(clips, clipId, patch, markers = null) {
    return touch(clip, { ...place, notes: normalizeNotes((clip.notes ?? []).map((n) => ({ ...n, start: n.start + shift }))) });
 }
 
-// まとめて横にずらしたあとの置き場所。動かすクリップ同士は並びを保ったまま動くので、互いの重なりは見ない
-function shiftedPlaces(clips, clipIds, bars) {
-   const ids = new Set(clipIds);
-   const moving = clips.filter((c) => ids.has(c.id));
-   if (moving.length !== ids.size) throw new Error('クリップが見つかりません');
-   return {
-      moving,
-      rest: clips.filter((c) => !ids.has(c.id)),
-      places: moving.map((c) => ({ trackId: c.trackId, startBar: c.startBar + bars, bars: c.bars })),
-   };
+// 選んだクリップとマーカーを、まとめて横に bars 小節ずらす(複数選択での移動)。
+// 選んだもの同士は並びを保ったまま動くので、互いの重なりは見ない。
+// クリップが区間に入っているかは、動かした後のマーカーで判定する(一緒に動かせば、区間の外にはならない)
+
+function pickById(records, ids, label) {
+   const set = new Set(ids);
+   const moving = records.filter((r) => set.has(r.id));
+   if (moving.length !== set.size) throw new Error(`${label}が見つかりません`);
+   return { moving, rest: records.filter((r) => !set.has(r.id)) };
 }
 
 /**
- * 選んだクリップを、まとめて横に bars 小節ずらせるか(1つでも置けなければ false)。ドラッグ中の見た目にも使う。
- * @param {object[]|null} [markers] 渡すと、どれもセクションマーカーの区間に入っていることを求める
+ * 選んだクリップとマーカーを、まとめて横に bars 小節ずらせるか(1つでも置けなければ false)。ドラッグ中の見た目にも使う。
+ * @param {object[]|null} markers プロジェクトのマーカー。null なら、クリップが区間に入っているかを見ない(マーカーは選べない)
+ * @param {{ clipIds?: string[], markerIds?: string[] }} selection
  */
-export function canShiftClips(clips, clipIds, bars, markers = null) {
+export function canShiftSelection(clips, markers, selection, bars) {
    try {
-      const { rest, places } = shiftedPlaces(clips, clipIds, bars);
-      return places.every((place) => canPlace(rest, place, null, markers));
+      shiftSelection(clips, markers, selection, bars);
+      return true;
    } catch {
       return false;
    }
 }
 
 /**
- * 選んだクリップを、まとめて横に bars 小節ずらす(トラックは変えない)。1つでも置けなければ、どれも動かさない。
- * ノートはクリップの先頭からの相対なので、そのまま付いていく。
- * @returns {object[]} 動かしたクリップ
+ * 選んだクリップとマーカーを、まとめて横に bars 小節ずらす(クリップのトラックは変えない)。1つでも置けなければ、どれも動かさない。
+ * クリップは、選んでいないクリップと重ならず、動かした後のマーカーの区間に入ること。マーカーは、1小節目より前に出ず、
+ * 選んでいないマーカーと同じ小節にならないこと。ノートはクリップの先頭からの相対なので、そのまま付いていく。
+ * @param {object[]|null} markers canShiftSelection と同じ
+ * @returns {{ clips: object[], markers: object[] }} 動かしたクリップとマーカー
  */
-export function shiftClips(clips, clipIds, bars, markers = null) {
+export function shiftSelection(clips, markers, { clipIds = [], markerIds = [] }, bars) {
    if (!Number.isInteger(bars)) throw new Error('小節の指定が正しくありません');
-   const { moving, rest, places } = shiftedPlaces(clips, clipIds, bars);
-   for (const place of places) assertPlaceable(rest, place, null, markers);
-   return moving.map((c, i) => touch(c, { startBar: places[i].startBar }));
+   if (markerIds.length && !markers) throw new Error('マーカーが見つかりません');
+   const picked = pickById(clips, clipIds, 'クリップ');
+   const pickedMarkers = pickById(markers ?? [], markerIds, 'マーカー');
+   const markerBars = pickedMarkers.moving.map((m) => m.bar + bars);
+   for (const bar of markerBars) assertFreeBar(pickedMarkers.rest, bar);
+   const nextMarkers = markers && [...pickedMarkers.rest, ...pickedMarkers.moving.map((m, i) => ({ ...m, bar: markerBars[i] }))];
+   const places = picked.moving.map((c) => ({ trackId: c.trackId, startBar: c.startBar + bars, bars: c.bars }));
+   for (const place of places) assertPlaceable(picked.rest, place, null, nextMarkers);
+   return {
+      clips: picked.moving.map((c, i) => touch(c, { startBar: places[i].startBar })),
+      markers: pickedMarkers.moving.map((m, i) => touch(m, { bar: markerBars[i] })),
+   };
 }
 
 // ---- セクションマーカー ----

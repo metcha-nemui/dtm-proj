@@ -10,7 +10,7 @@
 
 import * as actions from '../actions.js';
 import {
-   arrangementBars, canPlace, canShiftClips, clipEnd, clipSection, markerSpans, UNTITLED_CLIP,
+   arrangementBars, canPlace, canShiftSelection, clipEnd, clipSection, markerSpans, UNTITLED_CLIP,
 } from '../domain/arrangement.js';
 import {
    audibleNotes, audibleTrackIds, CENTER_PAN, clipTicks, DEFAULT_VOLUME, KEY_NAMES, MAX_BPM, MIN_BPM, noteEvents, PPQ,
@@ -70,16 +70,23 @@ export function mount(container, { id: projectId }) {
       if (clipId) root.querySelector(`.clip[data-clip-id="${CSS.escape(clipId)}"]`)?.classList.add('is-selected');
    }
 
-   // 複数選択(Ctrl+ドラッグで囲む、Ctrl+クリック、Ctrl+A)で選んでいるクリップ。まとめて横に動かすためのもの。
+   // 複数選択(Ctrl+ドラッグで囲む、Ctrl+クリック、Ctrl+A)で選んでいるクリップとセクションマーカー。まとめて横に動かすためのもの。
    // 詳細やピアノロールで開いているクリップ(is-selected)とは別に持つ
-   let picked = new Set();
+   let picked = new Set(); // クリップの id
+   let pickedMarkers = new Set(); // マーカーの id
+   const pickedCount = () => picked.size + pickedMarkers.size;
+   const selection = () => ({ clipIds: [...picked], markerIds: [...pickedMarkers] });
 
    function markPicked() {
       for (const el of root.querySelectorAll('.clip')) el.classList.toggle('is-picked', picked.has(el.dataset.clipId));
+      for (const el of root.querySelectorAll('.arr-flag[data-marker-id]')) {
+         el.classList.toggle('is-picked', pickedMarkers.has(el.dataset.markerId));
+      }
    }
 
-   function setPicked(ids) {
-      picked = new Set(ids);
+   function setPicked(clipIds, markerIds = []) {
+      picked = new Set(clipIds);
+      pickedMarkers = new Set(markerIds);
       markPicked();
    }
    const drawer = createClipDrawer(projectId, {
@@ -305,7 +312,7 @@ export function mount(container, { id: projectId }) {
    };
    document.addEventListener('keydown', onKeydown);
 
-   // 複数選択のキー操作。Ctrl+A で全部を選び、←→ で選んだものを1小節ずつ動かし、Esc で選択を外す。
+   // 複数選択のキー操作。Ctrl+A で全部(クリップとマーカー)を選び、←→ で選んだものを1小節ずつ動かし、Esc で選択を外す。
    // 入力欄やピアノロール・クリップ詳細の中、ダイアログ・メニューを開いている間は、そちらの操作を優先する
    function onPickKeydown(e) {
       if (e.defaultPrevented || !data?.project) return false;
@@ -313,10 +320,10 @@ export function mount(container, { id: projectId }) {
       if (document.querySelector('dialog[open], .menu')) return false;
       if (e.key.toLowerCase() === 'a' && (e.ctrlKey || e.metaKey) && !e.shiftKey && !e.altKey) {
          e.preventDefault();
-         setPicked(data.clips.map((c) => c.id));
+         setPicked(data.clips.map((c) => c.id), data.markers.map((m) => m.id));
          return true;
       }
-      if (!picked.size) return false;
+      if (!pickedCount()) return false;
       if (e.key === 'Escape') {
          e.preventDefault();
          setPicked([]);
@@ -330,19 +337,17 @@ export function mount(container, { id: projectId }) {
       return false;
    }
 
-   // 選んだクリップを、まとめて横に bars 小節ずらす。置けない位置(重なる・範囲の外)なら動かさない。
-   // 保存を待たずに動かしておく(続けて押したときも、動かした後の位置から数える)
+   // 選んだクリップとマーカーを、まとめて横に bars 小節ずらす。置けない位置(重なる・範囲の外・マーカーが同じ小節)なら動かさない。
+   // 保存を待たずに動かして描き直しておく(続けて押したときも、動かした後の位置から数える。区間の帯も一緒に動く)。
+   // 動かしたら true
    function shiftPicked(bars) {
-      const ids = [...picked];
-      if (!canShiftClips(data.clips, ids, bars, data.markers)) return;
+      const picks = selection();
+      if (!canShiftSelection(data.clips, data.markers, picks, bars)) return false;
       data.clips = data.clips.map((c) => (picked.has(c.id) ? { ...c, startBar: c.startBar + bars } : c));
-      for (const clip of data.clips) {
-         if (picked.has(clip.id)) {
-            const el = root.querySelector(`.clip[data-clip-id="${CSS.escape(clip.id)}"]`);
-            if (el) setPlace(el, clip);
-         }
-      }
-      runPlaced(actions.shiftClips(projectId, ids, bars));
+      data.markers = data.markers.map((m) => (pickedMarkers.has(m.id) ? { ...m, bar: m.bar + bars } : m));
+      render();
+      runPlaced(actions.shiftSelection(projectId, picks, bars));
+      return true;
    }
 
    const sections = () => data.lanes.filter((l) => l.type === 'section');
@@ -559,20 +564,23 @@ export function mount(container, { id: projectId }) {
    }
 
    /**
-    * Ctrl+ドラッグで囲んだクリップを選ぶ(Shift も押していれば、いまの選択に足す)。トラックをまたいで囲める。
-    * 動かさずに離したら(Ctrl+クリック)、押したクリップの選択を切り替える。
-    * 囲んでいる間にスクロールしても、範囲はトラックの上の位置で追う
+    * Ctrl+ドラッグで囲んだクリップとセクションマーカーの旗を選ぶ(Shift も押していれば、いまの選択に足す)。
+    * トラックをまたいで囲め、トラックからセクションの段まで(段からトラックへも)伸ばせる。
+    * 動かさずに離したら(Ctrl+クリック)、押したクリップか旗の選択を切り替える。
+    * 囲んでいる間にスクロールしても、範囲はトラックの上の位置で追う(貼り付いた段の旗は、見えている位置で判定する)
     */
    function marqueeClips(down) {
-      const area = root.querySelector('.arr-tracks');
+      const area = root.querySelector('.arr-inner');
       const scroller = root.querySelector('.arr');
-      const base = down.shiftKey ? new Set(picked) : new Set();
+      const baseClips = down.shiftKey ? [...picked] : [];
+      const baseMarkers = down.shiftKey ? [...pickedMarkers] : [];
       const local = (e) => {
          const rect = area.getBoundingClientRect();
          return { x: e.clientX - rect.left, y: e.clientY - rect.top };
       };
       const from = local(down);
       const underClip = down.target.closest('.clip')?.dataset.clipId ?? null;
+      const underMarker = down.target.closest('.arr-flag[data-marker-id]')?.dataset.markerId ?? null;
       const box = h('div', { class: 'arr-marquee' });
       let last = down;
       const update = () => {
@@ -584,13 +592,16 @@ export function mount(container, { id: projectId }) {
          if (box.parentElement !== area) area.append(box);
          Object.assign(box.style, { left: `${left}px`, top: `${top}px`, width: `${right - left}px`, height: `${bottom - top}px` });
          const rect = area.getBoundingClientRect();
-         const hit = [...area.querySelectorAll('.clip')].filter((el) => {
+         const hits = (selector) => [...area.querySelectorAll(selector)].filter((el) => {
             const r = el.getBoundingClientRect();
             const x = r.left - rect.left;
             const y = r.top - rect.top;
             return x < right && x + r.width > left && y < bottom && y + r.height > top;
-         }).map((el) => el.dataset.clipId);
-         setPicked([...base, ...hit]);
+         });
+         setPicked(
+            [...baseClips, ...hits('.arr-tracks .clip').map((el) => el.dataset.clipId)],
+            [...baseMarkers, ...hits('.arr-flag[data-marker-id]').map((el) => el.dataset.markerId)],
+         );
       };
       scroller.addEventListener('scroll', update);
       drag(down, {
@@ -601,43 +612,61 @@ export function mount(container, { id: projectId }) {
          onEnd: (moved) => {
             scroller.removeEventListener('scroll', update);
             box.remove();
-            if (moved || !underClip) return;
-            const next = new Set(picked);
-            if (next.has(underClip)) next.delete(underClip);
-            else next.add(underClip);
-            setPicked(next);
+            if (moved) return;
+            const toggle = (set, id) => {
+               const next = new Set(set);
+               if (next.has(id)) next.delete(id);
+               else next.add(id);
+               return next;
+            };
+            if (underClip) setPicked(toggle(picked, underClip), pickedMarkers);
+            else if (underMarker) setPicked(picked, toggle(pickedMarkers, underMarker));
          },
       });
    }
 
-   /** 選んだクリップをまとめて横に動かす(上下には動かさない)。動かさずに離したら、選択を外して押したクリップを開く */
-   function dragPicked(down, clip) {
-      const fromLane = down.currentTarget;
-      const grab = barAt(fromLane, down.clientX);
-      const ids = [...picked];
+   /**
+    * 選んだクリップとマーカーをまとめて横に動かす(上下には動かさない)。選んだクリップか旗を掴んだときに呼ぶ。
+    * 動かさずに離したら選択を外し、クリップなら開く(旗なら、続く click でいつものメニューが出る)
+    */
+   function dragPicked(down, clip = null) {
+      const fromRow = down.currentTarget.closest('.arr-lane, .arr-markers');
+      const grab = barAt(fromRow, down.clientX);
+      const picks = selection();
       const clips = data.clips.filter((c) => picked.has(c.id));
+      const markers = data.markers.filter((m) => pickedMarkers.has(m.id));
       const ghosts = new Map(clips.map((c) => [c.id, h('div', { class: 'clip-ghost' })]));
-      const clipEls = () => ids.map((id) => root.querySelector(`.clip[data-clip-id="${CSS.escape(id)}"]`)).filter(Boolean);
+      const clipEls = () => picks.clipIds.map((id) => root.querySelector(`.clip[data-clip-id="${CSS.escape(id)}"]`)).filter(Boolean);
+      const flagOf = (marker) => root.querySelector(`.arr-flag[data-marker-id="${CSS.escape(marker.id)}"]`);
       let bars = 0;
       drag(down, {
          onMove: (e) => {
-            bars = barAt(fromLane, e.clientX) - grab;
-            const ok = canShiftClips(data.clips, ids, bars, data.markers);
+            bars = barAt(fromRow, e.clientX) - grab;
+            const ok = canShiftSelection(data.clips, data.markers, picks, bars);
             for (const c of clips) {
                const laneEl = root.querySelector(`.arr-lane[data-track-id="${CSS.escape(c.trackId)}"]`);
                if (laneEl) showGhost(ghosts.get(c.id), laneEl, { ...c, startBar: Math.max(1, c.startBar + bars) }, ok);
             }
             for (const el of clipEls()) el.classList.add('is-moving');
+            // 旗は、マーカー1つのドラッグと同じく、旗そのものを動かして見せる
+            for (const m of markers) {
+               const flag = flagOf(m);
+               if (!flag) continue;
+               flag.style.setProperty('--start', String(Math.max(1, m.bar + bars)));
+               flag.classList.add('is-moving');
+               flag.classList.toggle('is-invalid', !ok);
+            }
          },
          onEnd: (moved) => {
             for (const ghost of ghosts.values()) ghost.remove();
             for (const el of clipEls()) el.classList.remove('is-moving');
             if (!moved) {
                setPicked([]);
-               openClip(clip.id);
+               if (clip) openClip(clip.id);
                return;
             }
-            if (bars) shiftPicked(bars);
+            // 置けなければ、動かしかけた旗を元の位置に描き直す
+            if (!bars || !shiftPicked(bars)) render();
          },
       });
    }
@@ -913,6 +942,7 @@ export function mount(container, { id: projectId }) {
 
    // マーカーの段。下には小節ごとの透明なボタン(押すとその小節にマーカーを置く)を敷き、
    // その上に、区間の色帯(押せない)と、マーカーの旗(押すとメニュー、横にドラッグで移動)を重ねる。
+   // 旗は複数選択にも入る(Ctrl+クリック、Ctrl+ドラッグで囲む)。選んだ旗を掴むと、選んだクリップと一緒に動く
    function markerRow(spans, colors) {
       const slots = Array.from({ length: data.bars }, (_, i) => h('button', {
          type: 'button',
@@ -921,7 +951,10 @@ export function mount(container, { id: projectId }) {
          title: `${i + 1}小節目にマーカーを置く`,
          'aria-label': `${i + 1}小節目にマーカーを置く`,
          dataset: { focusKey: `slot:${i + 1}` },
-         onclick: (e) => openSlotMenu(i + 1, e.currentTarget),
+         onclick: (e) => {
+            if (e.ctrlKey || e.metaKey) return;
+            openSlotMenu(i + 1, e.currentTarget);
+         },
       }));
       const bands = spans.map(({ marker, lane, from, to }) => h('div', {
          class: 'arr-band',
@@ -930,21 +963,39 @@ export function mount(container, { id: projectId }) {
       const flags = spans.map(({ marker, lane, from, to }) => {
          const flag = h('button', {
             type: 'button',
-            class: 'arr-flag',
+            class: `arr-flag${pickedMarkers.has(marker.id) ? ' is-picked' : ''}`,
             style: { '--start': String(from), '--len': String(to - from + 1), '--lane-color': colors.get(marker.laneId) ?? 'var(--border)' },
             title: `${lane?.name ?? ''}(${from}小節目から)ドラッグで移動`,
-            dataset: { focusKey: `marker:${marker.id}` },
-            onpointerdown: (e) => dragMarker(e, marker, flag),
+            dataset: { focusKey: `marker:${marker.id}`, markerId: marker.id },
+            onpointerdown: (e) => {
+               if (e.button !== 0) return;
+               if (e.ctrlKey || e.metaKey) {
+                  marqueeClips(e);
+                  return;
+               }
+               if (pickedCount() > 1 && pickedMarkers.has(marker.id)) {
+                  dragPicked(e);
+                  return;
+               }
+               if (pickedCount()) setPicked([]);
+               dragMarker(e, marker, flag);
+            },
             onclick: (e) => {
-               if (suppressClick) return;
+               if (suppressClick || e.ctrlKey || e.metaKey) return;
                openMarkerMenu(marker, lane, e.currentTarget);
             },
          }, lane?.name ?? '');
          return flag;
       });
+      // 旗の外(小節のボタン)を Ctrl で押したら、そこから囲む。Ctrl なしで押したら、複数選択を外す
+      const onRowPointerDown = (e) => {
+         if (e.button !== 0 || e.target.closest('.arr-flag')) return;
+         if (e.ctrlKey || e.metaKey) marqueeClips(e);
+         else if (pickedCount()) setPicked([]);
+      };
       return h('div', { class: 'arr-row arr-marker-row arr-section-row' },
          h('div', { class: 'arr-corner arr-corner-label' }, 'セクション'),
-         h('div', { class: 'arr-markers' }, slots, bands, flags));
+         h('div', { class: 'arr-markers', onpointerdown: onRowPointerDown }, slots, bands, flags));
    }
 
    // スケールの段。作りはマーカーの段と同じ(小節のボタンの上に、区間の帯と旗を重ねる)。
@@ -1037,11 +1088,11 @@ export function mount(container, { id: projectId }) {
             const edge = e.target.closest('.clip-edge')?.dataset.edge ?? 'move';
             const clip = clipEl && data.clips.find((c) => c.id === clipEl.dataset.clipId);
             // 選んだものの1つを掴んだら、まとめて横に動かす。それ以外を押したら、選択を外す
-            if (clip && edge === 'move' && picked.size > 1 && picked.has(clip.id)) {
+            if (clip && edge === 'move' && pickedCount() > 1 && picked.has(clip.id)) {
                dragPicked(e, clip);
                return;
             }
-            if (e.button === 0 && picked.size) setPicked([]);
+            if (e.button === 0 && pickedCount()) setPicked([]);
             if (!clip) {
                dragCreate(e, track);
                return;
@@ -1247,8 +1298,9 @@ export function mount(container, { id: projectId }) {
       if (!alive) return;
       // tasks は、トラックの削除の確認に出す連動タスクの数と、クリップの色(連動タスクのステータス)に使う
       data = { project, lanes: sortByOrder(lanes), tracks: withLocal(sortByOrder(tracks)), clips, markers, tasks };
-      // 消えたクリップは選択から外す
+      // 消えたクリップとマーカーは選択から外す
       picked = new Set(clips.filter((c) => picked.has(c.id)).map((c) => c.id));
+      pickedMarkers = new Set(markers.filter((m) => pickedMarkers.has(m.id)).map((m) => m.id));
       render();
       if (!project) return;
       pianoRoll.update(data);
