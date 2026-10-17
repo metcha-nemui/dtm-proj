@@ -177,6 +177,26 @@ export function trackSound(track) {
    };
 }
 
+/** トラックのミュート・ソロ。項目がない(足す前の)データでも、どちらも false を返す。 */
+export function trackMix(track) {
+   return { mute: Boolean(track?.mute), solo: Boolean(track?.solo) };
+}
+
+/**
+ * 再生で鳴らすトラックの id。ソロのトラックがあればソロのものだけ、なければミュートしていないものを鳴らす
+ * (ソロはミュートより強い。ソロにしたトラックは、ミュートしていても鳴らす)。
+ * 書き出し(.mid)には使わない(DAW へは全トラックを渡す)。
+ * @param {object[]} tracks
+ * @param {string|null} [alwaysId] ミュート・ソロに関わらず鳴らすトラック(ピアノロールで、編集中のクリップを頭から再生するとき)
+ * @returns {Set<string>}
+ */
+export function audibleTrackIds(tracks, alwaysId = null) {
+   const soloing = tracks.some((t) => trackMix(t).solo);
+   const ids = new Set(tracks.filter((t) => (soloing ? trackMix(t).solo : !trackMix(t).mute)).map((t) => t.id));
+   if (alwaysId != null) ids.add(alwaysId);
+   return ids;
+}
+
 /**
  * トラックごとの MIDI チャンネル(0始まり)。ドラムのトラックは 10ch。
  * それ以外は、トラックの並び順に 1ch から割り振り、10ch は飛ばす。16本目以降は先頭から使い回す

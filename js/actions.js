@@ -277,6 +277,13 @@ export const updateTrackSound = serial(async (projectId, trackId, patch) => {
    await changed(projectId);
 });
 
+/** トラックのミュート・ソロを変える。patch は { mute?, solo? } */
+export const updateTrackMix = serial(async (projectId, trackId, patch) => {
+   const tracks = await repo().getTracks(projectId);
+   await repo().saveTrack(arrangementDomain.updateTrackMix(find(tracks, trackId, 'トラック'), patch));
+   await changed(projectId);
+});
+
 export const moveTrack = serial(async (projectId, trackId, toIndex) => {
    await repo().saveTracks(arrangementDomain.moveTrack(await repo().getTracks(projectId), trackId, toIndex));
    await changed(projectId);

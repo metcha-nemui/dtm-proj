@@ -45,11 +45,11 @@ button.project-tab {
 
 .arr-page {
    --bar: 28px; /* 1小節の幅 */
-   --arr-head: 168px; /* 左のトラック名の列の幅 */
+   --arr-head: 232px; /* 左のトラック名の列の幅(ミュート・ソロと、音量・パンのスライダーが入る幅) */
    --arr-ruler-h: 22px;
    --arr-marker-h: 28px;
    --arr-scale-h: 24px;
-   --arr-track-h: 48px;
+   --arr-track-h: 68px;
 
    display: flex;
    flex-direction: column;
@@ -448,7 +448,8 @@ button.project-tab {
 
 @media (max-width: 720px) {
    .arr-page {
-      --arr-head: 104px;
+      --arr-head: 148px;
+      --arr-track-h: 52px;
    }
 
    /* 狭いので、件数は出さず、タブは2行目へ回す余地を残す */
@@ -458,6 +459,11 @@ button.project-tab {
 
    /* トラック名を少しでも長く見せる(並べ替えは見出しのどこを掴んでもできる) */
    .arr-head > .icon:first-child {
+      display: none;
+   }
+
+   /* スライダーを置く幅がないので、音量・パンはダイアログ(音色名を押す)で変える */
+   .arr-head .arr-mix {
       display: none;
    }
 
@@ -595,6 +601,102 @@ button.project-tab {
 .arr-head-sound:hover {
    color: var(--text);
    text-decoration: underline;
+}
+
+/* トラック名の行(名前、ミュート、ソロ、メニュー) */
+.arr-head-top {
+   display: flex;
+   align-items: center;
+   gap: 2px;
+   min-width: 0;
+}
+
+.arr-head-top .btn-icon {
+   flex: none;
+   width: 24px;
+   height: 24px;
+}
+
+.arr-mix-toggle.is-on.is-mute {
+   background: var(--doing-soft);
+   color: var(--doing);
+}
+
+.arr-mix-toggle.is-on.is-solo {
+   background: var(--accent-soft);
+   color: var(--accent);
+}
+
+.arr-head .arr-mix-toggle.is-on:hover {
+   background: var(--surface-2);
+}
+
+/* 鳴らさないトラック(ミュート、またはほかのトラックがソロ)は、クリップを薄くする */
+.arr-track.is-silent .clip {
+   opacity: 0.4;
+}
+
+/* 音量・パンのスライダーと数値の欄 */
+.arr-mix {
+   display: flex;
+   gap: var(--space-2);
+   margin-top: 2px;
+   cursor: default;
+}
+
+.arr-mix-item {
+   display: flex;
+   flex: 1;
+   align-items: center;
+   gap: 2px;
+   min-width: 0;
+}
+
+.arr-mix-icon {
+   display: flex;
+   flex: none;
+}
+
+.arr-slider {
+   flex: 1;
+   min-width: 0;
+   height: 14px;
+   margin: 0;
+   accent-color: var(--accent);
+   cursor: pointer;
+}
+
+.arr-mix-number {
+   flex: none;
+   width: 28px;
+   height: 18px;
+   padding: 0 2px;
+   border: 1px solid transparent;
+   border-radius: var(--radius-sm);
+   background: transparent;
+   color: var(--text);
+   font: inherit;
+   font-size: 11px;
+   font-variant-numeric: tabular-nums;
+   text-align: right;
+   appearance: textfield;
+}
+
+.arr-mix-number::-webkit-inner-spin-button,
+.arr-mix-number::-webkit-outer-spin-button {
+   margin: 0;
+   appearance: none;
+}
+
+.arr-mix-number:hover,
+.arr-mix-number:focus {
+   border-color: var(--border);
+   background: var(--surface);
+   outline: none;
+}
+
+.arr-mix-number:focus {
+   border-color: var(--accent);
 }
 
 /* クリップの中のノートの並び(表示だけ) */

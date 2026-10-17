@@ -3,12 +3,12 @@
 
 import {
    addClip, addMarker, addTrack, arrangementBars, canPlace, clipEnd, clipSection, markerSpans, moveTrack, placeClip,
-   renameTrack, setClipNotes, syncClipTasks, updateClip, updateMarker, updateTrackSound,
+   renameTrack, setClipNotes, syncClipTasks, updateClip, updateMarker, updateTrackMix, updateTrackSound,
 } from '../js/domain/arrangement.js';
 import {
-   audibleNotes, buildMidiFile, clipTicks, inScale, MAX_BPM, midiFileName, MIN_BPM, moveScale, normalizeBpm, normalizeNotes,
-   normalizeScale, normalizeScales, noteEvents, PPQ, projectBpm, projectScales, removeScale, scaleAt, scaleLabel, scaleSpans,
-   secondsToTicks, setScaleAt, soundLabel, TICKS_PER_BAR, ticksToSeconds, trackChannels, trackSound, varLen,
+   audibleNotes, audibleTrackIds, buildMidiFile, clipTicks, inScale, MAX_BPM, midiFileName, MIN_BPM, moveScale, normalizeBpm,
+   normalizeNotes, normalizeScale, normalizeScales, noteEvents, PPQ, projectBpm, projectScales, removeScale, scaleAt, scaleLabel,
+   scaleSpans, secondsToTicks, setScaleAt, soundLabel, TICKS_PER_BAR, ticksToSeconds, trackChannels, trackMix, trackSound, varLen,
 } from '../js/domain/midi.js';
 import { addDays, daysBetween, toDateString, weekendDaysBetween } from '../js/domain/date.js';
 import { deadlineRange, deadlineRows } from '../js/domain/deadline.js';
@@ -875,6 +875,28 @@ test('トラックの音: 既定はピアノ・音量100・パン中央。範囲
    const changed = updateTrackSound(track, { program: 300, pan: -5, drum: true });
    equal([changed.program, changed.volume, changed.pan, changed.drum, changed.name], [127, 100, 0, true, 'Lead']);
    equal([soundLabel(track), soundLabel(changed)], ['1. Acoustic Grand Piano', 'ドラム']);
+});
+
+test('ミュート・ソロ: 新しいトラックはどちらもなし。項目がなければなし。音の設定は変えない', () => {
+   const track = addTrack('p', [], 'Lead');
+   equal(trackMix(track), { mute: false, solo: false });
+   equal(trackMix({}), trackMix(track), '項目がない(足す前の)トラック');
+   const muted = updateTrackMix(updateTrackSound(track, { volume: 80 }), { mute: 1 });
+   equal([muted.mute, muted.solo, muted.volume, muted.name], [true, false, 80, 'Lead']);
+   equal(updateTrackMix(muted, { solo: true }).mute, true, '片方だけ変える');
+   equal(track.mute, false, '元のレコードは変えない');
+});
+
+test('audibleTrackIds: ソロがあればソロだけ、なければミュートしていないもの。alwaysId は必ず鳴らす', () => {
+   const [a, b, c] = ['a', 'b', 'c'].map((id) => ({ id }));
+   const ids = (tracks, alwaysId) => [...audibleTrackIds(tracks, alwaysId)].sort();
+   equal(ids([a, b, c]), ['a', 'b', 'c']);
+   equal(ids([{ ...a, mute: true }, b, c]), ['b', 'c']);
+   equal(ids([a, { ...b, solo: true }, c]), ['b']);
+   equal(ids([a, { ...b, solo: true, mute: true }, { ...c, solo: true }]), ['b', 'c'], 'ソロはミュートより強い');
+   equal(ids([{ ...a, mute: true }, b], 'a'), ['a', 'b'], 'ミュートしていても鳴らす');
+   equal(ids([a, { ...b, solo: true }], 'a'), ['a', 'b'], 'ほかのトラックがソロでも鳴らす');
+   equal(ids([]), []);
 });
 
 test('trackChannels: 並び順に 1ch から。10ch はドラム専用で、16本目からは使い回す', () => {

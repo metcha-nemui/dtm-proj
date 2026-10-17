@@ -12,8 +12,9 @@
 import * as actions from '../actions.js';
 import { arrangementBars, canPlace, clipEnd, clipSection, markerSpans, UNTITLED_CLIP } from '../domain/arrangement.js';
 import {
-   audibleNotes, clipTicks, GM_PROGRAMS, KEY_NAMES, MAX_BPM, MIN_BPM, noteEvents, projectBpm, projectScales, scaleAt,
-   scaleLabel, SCALE_MODES, setupMessages, soundLabel, TICKS_PER_BAR, trackChannels, trackSound,
+   audibleNotes, audibleTrackIds, CENTER_PAN, clipTicks, DEFAULT_VOLUME, GM_PROGRAMS, KEY_NAMES, MAX_BPM, MIN_BPM, noteEvents,
+   projectBpm, projectScales, scaleAt, scaleLabel, SCALE_MODES, setupMessages, soundLabel, TICKS_PER_BAR, trackChannels, trackMix,
+   trackSound,
 } from '../domain/midi.js';
 import { sortByOrder } from '../domain/order.js';
 import { sectionColors } from '../domain/project.js';
@@ -67,7 +68,8 @@ export function mount(container, { id: projectId }) {
    const pianoRoll = createPianoRoll({
       projectId,
       onSelectionChange: () => markSelected(),
-      onPlayClip: (clip) => startPlayback((clip.startBar - 1) * TICKS_PER_BAR).catch(reportPlayError),
+      // 編集中のクリップのトラックは、ミュートしていても(ほかのトラックがソロでも)鳴らす
+      onPlayClip: (clip) => startPlayback((clip.startBar - 1) * TICKS_PER_BAR, clip.trackId).catch(reportPlayError),
       onOpenDetail: (clipId) => drawer.open(clipId),
    });
    root.append(view, pianoRoll.el);
@@ -87,23 +89,75 @@ export function mount(container, { id: projectId }) {
    // 再生を始める位置(小節)は、ルーラーを押して決める。止めても動かない
 
    let startBar = 1;
-   let playSignature = null; // 再生中の中身。読み直して変わっていたら、いまの位置から鳴らし直す
+   let played = null; // 再生中の中身(playbackInput)。変わったら syncPlayback で差し替える
+   let alwaysTrackId = null; // ミュート・ソロに関わらず鳴らすトラック(ピアノロールから再生したとき)
    let frame = null;
 
    function playbackInput() {
       const channels = trackChannels(data.tracks);
+      const audible = audibleTrackIds(data.tracks, alwaysTrackId);
+      // ミュートしたトラックの音も、終わりの位置には数える(全部ミュートしても、曲の終わりまで再生位置を進める)
+      const all = noteEvents({ tracks: data.tracks, clips: data.clips });
       return {
          bpm: projectBpm(data.project),
          setup: data.tracks.flatMap((t) => setupMessages(t, channels.get(t.id))),
-         events: noteEvents({ tracks: data.tracks, clips: data.clips }),
+         events: noteEvents({ tracks: data.tracks, clips: data.clips.filter((c) => audible.has(c.trackId)) }),
+         endTick: all.at(-1)?.tick ?? 0,
       };
    }
 
-   async function startPlayback(fromTick) {
+   async function startPlayback(fromTick, alwaysId = null) {
+      alwaysTrackId = alwaysId;
       const input = playbackInput();
-      playSignature = JSON.stringify(input);
+      played = input;
       await sound.play({ ...input, fromTick: Math.max(0, fromTick) });
       follow();
+   }
+
+   // 再生中に中身(ミュート・ソロ、音色・音量・パン、ノート)が変わったら、止めずに差し替える(伸びている音を途切れさせない)。
+   // BPM が変わったときだけは、時刻の計算が変わるので、いまの位置から鳴らし直す
+   async function syncPlayback() {
+      if (!sound.isPlaying() || !played) return;
+      const input = playbackInput();
+      if (input.bpm !== played.bpm) {
+         await startPlayback(sound.playbackTick() ?? 0, alwaysTrackId);
+         return;
+      }
+      const sent = new Set(played.setup.map((m) => JSON.stringify(m)));
+      const eventsChanged = JSON.stringify(input.events) !== JSON.stringify(played.events);
+      sound.updatePlayback({
+         messages: input.setup.filter((m) => !sent.has(JSON.stringify(m))),
+         events: eventsChanged ? input.events : undefined,
+         endTick: input.endTick,
+      });
+      played = input;
+   }
+
+   // 保存を待たずに、手元のトラックを変えておく(スライダーやミュートを、すぐ音に効かせる)。
+   // 保存が続けて走ると、先の保存のあとの読み直しには後の変更がまだ入っていない。古い値に一瞬戻って音が揺れないよう、
+   // 保存がすべて終わるまでは、読み直したトラックに手元の変更を重ねる
+   const localTracks = new Map(); // トラックの id → まだ保存し終えていない変更
+   let localSaves = 0;
+   const withLocal = (tracks) => tracks.map((t) => (localTracks.has(t.id) ? { ...t, ...localTracks.get(t.id) } : t));
+
+   function setLocalTrack(trackId, patch) {
+      localTracks.set(trackId, { ...localTracks.get(trackId), ...patch });
+      data.tracks = withLocal(data.tracks);
+      run(syncPlayback());
+   }
+
+   function saveLocal(promise) {
+      localSaves++;
+      promise
+         .catch((error) => {
+            reportError(error);
+            localTracks.clear(); // 保存済みの状態を読み直す
+         })
+         .finally(() => {
+            if (--localSaves > 0) return;
+            localTracks.clear();
+            run(refresh());
+         });
    }
 
    function togglePlayback() {
@@ -659,7 +713,7 @@ export function mount(container, { id: projectId }) {
       h('span', { class: 'clip-edge is-end', dataset: { edge: 'end' }, title: 'ドラッグで長さを変える' }));
    }
 
-   function trackRow(track, boundaries) {
+   function trackRow(track, boundaries, audible) {
       const menuButton = h('button', {
          type: 'button',
          class: 'btn btn-icon',
@@ -703,20 +757,101 @@ export function mount(container, { id: projectId }) {
       boundaries.map((bar) => h('div', { class: 'arr-boundary', style: { '--start': String(bar) } })),
       clips.map(clipElement));
 
-      return h('div', { class: 'arr-row arr-track', dataset: { trackId: track.id } },
+      const { mute, solo } = trackMix(track);
+      return h('div', { class: `arr-row arr-track${audible.has(track.id) ? '' : ' is-silent'}`, dataset: { trackId: track.id } },
          h('div', { class: 'arr-head', title: 'ドラッグで並べ替え' },
             icon('grip-vertical', 14),
             h('span', { class: 'arr-head-text' },
-               h('span', { class: 'arr-head-name', title: track.name }, track.name),
+               h('span', { class: 'arr-head-top' },
+                  h('span', { class: 'arr-head-name', title: track.name }, track.name),
+                  mixButton(track, 'mute', mute),
+                  mixButton(track, 'solo', solo),
+                  menuButton),
                h('button', {
                   type: 'button',
                   class: 'arr-head-sound',
                   title: `${soundLabel(track)}(押すと音色・音量・パンを変える)`,
                   dataset: { focusKey: `track-sound:${track.id}` },
                   onclick: () => run(trackSoundDialog(track)),
-               }, soundLabel(track))),
-            menuButton),
+               }, soundLabel(track)),
+               h('span', { class: 'arr-mix' }, mixSlider(track, 'volume'), mixSlider(track, 'pan')))),
          lane);
+   }
+
+   // ミュート・ソロのボタン。押すとすぐに音と表示を変え、裏で保存する
+   function mixButton(track, key, on) {
+      const label = key === 'mute' ? 'ミュート' : 'ソロ';
+      return h('button', {
+         type: 'button',
+         class: `btn btn-icon arr-mix-toggle is-${key}${on ? ' is-on' : ''}`,
+         title: key === 'mute' ? 'ミュート(再生で鳴らさない)' : 'ソロ(ソロのトラックだけを鳴らす)',
+         'aria-label': `${track.name}の${label}`,
+         'aria-pressed': String(on),
+         dataset: { focusKey: `${key}:${track.id}` },
+         onclick: () => {
+            const patch = { [key]: !on };
+            setLocalTrack(track.id, patch);
+            render();
+            saveLocal(actions.updateTrackMix(projectId, track.id, patch));
+         },
+      }, icon(key === 'mute' ? 'volume-x' : 'headphones', 14));
+   }
+
+   // 音量・パンの横スライダーと、値の入力欄。どちらで変えても、もう一方に映す。
+   // 動かしている間は手元の値と音だけを変え、離したとき(入力欄は確定したとき)に保存する。ダブルクリックで既定値に戻す
+   function mixSlider(track, kind) {
+      const isVolume = kind === 'volume';
+      const label = isVolume ? '音量' : 'パン';
+      const fallback = isVolume ? DEFAULT_VOLUME : CENTER_PAN;
+      const value = trackSound(track)[kind];
+      const hint = isVolume ? '音量(0〜127)' : 'パン(0 = 左、64 = 中央、127 = 右)';
+      const save = (v) => saveLocal(actions.updateTrackSound(projectId, track.id, { [kind]: v }));
+      const setValue = (v) => {
+         slider.value = String(v);
+         number.value = String(v);
+         setLocalTrack(track.id, { [kind]: v });
+      };
+      const slider = h('input', {
+         type: 'range',
+         class: 'arr-slider',
+         min: '0',
+         max: '127',
+         step: '1',
+         value: String(value),
+         title: `${hint}。ダブルクリックで ${fallback} に戻す`,
+         'aria-label': `${track.name}の${label}`,
+         dataset: { focusKey: `${kind}:${track.id}` },
+         oninput: () => setValue(Number(slider.value)),
+         onchange: () => save(Number(slider.value)),
+         ondblclick: () => {
+            setValue(fallback);
+            save(fallback);
+         },
+      });
+      const number = h('input', {
+         type: 'number',
+         class: 'arr-mix-number',
+         min: '0',
+         max: '127',
+         step: '1',
+         value: String(value),
+         title: hint,
+         'aria-label': `${track.name}の${label}(数値)`,
+         dataset: { focusKey: `${kind}-number:${track.id}` },
+         onchange: () => {
+            // 空欄は元のまま。範囲の外は端に寄せてから保存する
+            const v = number.value.trim() === '' ? Number(slider.value) : trackSound({ [kind]: number.value })[kind];
+            setValue(v);
+            save(v);
+         },
+         onkeydown: (e) => {
+            if (e.key === 'Enter') number.blur();
+         },
+      });
+      return h('span', { class: `arr-mix-item is-${kind}` },
+         h('span', { class: 'arr-mix-icon', title: label }, icon(isVolume ? 'volume-2' : 'arrow-left-right', 12)),
+         slider,
+         number);
    }
 
    function setupSortable() {
@@ -724,7 +859,7 @@ export function mount(container, { id: projectId }) {
       sortable = createSortable(root.querySelector('.arr-tracks'), {
          draggable: '.arr-track',
          handle: '.arr-head',
-         filter: 'button',
+         filter: 'button, input',
          preventOnFilter: false,
          onEnd: ({ item, oldIndex, newIndex }) => {
             if (oldIndex === newIndex) return;
@@ -761,6 +896,8 @@ export function mount(container, { id: projectId }) {
       const colors = sectionColors(data.lanes);
       const spans = markerSpans(data.markers, data.lanes, data.bars);
       const boundaries = spans.map((s) => s.from).filter((bar) => bar > 1);
+      // ミュートしている(ほかのトラックがソロの)トラックは、クリップを薄く出す
+      const audible = audibleTrackIds(data.tracks);
       const scroll = captureScroll();
 
       keepFocus(view, () => view.replaceChildren(
@@ -772,7 +909,7 @@ export function mount(container, { id: projectId }) {
                rulerRow(),
                markerRow(spans, colors),
                scaleRow(),
-               h('div', { class: 'arr-tracks' }, data.tracks.map((track) => trackRow(track, boundaries))),
+               h('div', { class: 'arr-tracks' }, data.tracks.map((track) => trackRow(track, boundaries, audible))),
                h('div', { class: 'arr-row arr-foot' },
                   h('button', {
                      type: 'button',
@@ -800,14 +937,11 @@ export function mount(container, { id: projectId }) {
       ]);
       if (!alive) return;
       // tasks はトラックの削除の確認に、連動タスクの数を出すためだけに使う
-      data = { project, lanes: sortByOrder(lanes), tracks: sortByOrder(tracks), clips, markers, tasks };
+      data = { project, lanes: sortByOrder(lanes), tracks: withLocal(sortByOrder(tracks)), clips, markers, tasks };
       render();
       if (!project || project.isTemplate) return;
       pianoRoll.update(data);
-      // 再生中にノートや音色、BPM が変わったら、いまの位置から鳴らし直す
-      if (sound.isPlaying() && JSON.stringify(playbackInput()) !== playSignature) {
-         await startPlayback(sound.playbackTick() ?? 0);
-      }
+      await syncPlayback();
    }
 
    const unsubscribe = subscribe(() => run(refresh()));

@@ -162,9 +162,10 @@ export const isPlaying = () => playing !== null;
  * @param {number[][]} options.setup 頭で送るメッセージ(チャンネルごとの音色・音量・パン)
  * @param {{ tick: number, data: number[] }[]} options.events noteEvents の結果
  * @param {number} options.fromTick ここから鳴らす(曲の頭が 0)
+ * @param {number} [options.endTick] ここまでは、鳴らす音がなくても止めない(全トラックをミュートしても再生位置を進める)
  * @param {() => void} [options.onEnd] 最後まで鳴らし終えたとき
  */
-export async function play({ bpm, setup, events, fromTick, onEnd }) {
+export async function play({ bpm, setup, events, fromTick, endTick = 0, onEnd }) {
    stop();
    const s = await ready();
    for (const data of setup) s.sendMessage(data);
@@ -177,8 +178,10 @@ export async function play({ bpm, setup, events, fromTick, onEnd }) {
       // 再生位置より前で始まる音は鳴らさない(途中から鳴らしたときに、頭の切れた音を出さない)
       events: events.filter((e) => ((e.data[0] & 0xf0) === 0x90 ? e.tick >= fromTick : e.tick > fromTick)),
       index: 0,
-      sounding: new Map(), // 鳴らした(予約した)まま止めていない音。'チャンネル:高さ' → [チャンネル, 高さ]
+      sounding: new Map(), // 鳴らした(予約した)まま止めていない音。'チャンネル:高さ' → [チャンネル, 高さ, 鳴らす時刻]
       lastSentAt: startAt,
+      sentUntil: -Infinity, // この時刻までのイベントは送った(予約した)
+      endTick,
       onEnd,
       timer: null,
    };
@@ -206,15 +209,53 @@ function pump(state) {
          continue; // 鳴らしていない音(途中から再生したときの、前の音の終わり)
       }
       state.synth.sendMessage(event.data, 0, { time: Math.max(at, now) });
-      if (kind === 0x90) sounding.set(key, [event.data[0] & 0x0f, event.data[1]]);
+      if (kind === 0x90) sounding.set(key, [event.data[0] & 0x0f, event.data[1], at]);
       else sounding.delete(key);
       state.lastSentAt = Math.max(state.lastSentAt, at);
       state.index++;
    }
-   if (state.index >= events.length && now > state.lastSentAt + 0.1) {
+   state.sentUntil = horizon;
+   const endAt = Math.max(state.lastSentAt, timeOf(state, state.endTick));
+   if (state.index >= events.length && now > endAt + 0.1) {
       const { onEnd } = state;
       stop();
       onEnd?.();
+   }
+}
+
+/**
+ * 再生を止めずに、中身を差し替える(ミュート・ソロ、音量・パン、ノートの編集)。止まっていれば何もしない。
+ * 鳴らし直すと、いま伸びている音が途切れるため、送り済みの位置より先のイベントだけを入れ替える。
+ * 新しい中身に終わり(ノートオフ)がなくなった音(消したノートや、ミュートしたトラックの音)は、すぐに止める。
+ * @param {object} options
+ * @param {number[][]} [options.messages] すぐに送るメッセージ(変わった音色・音量・パン)
+ * @param {{ tick: number, data: number[] }[]} [options.events] 新しいイベント列(noteEvents の結果)。省略すると変えない
+ * @param {number} [options.endTick]
+ */
+export function updatePlayback({ messages = [], events, endTick }) {
+   const state = playing;
+   if (!state) return;
+   const now = ctx.currentTime;
+   for (const data of messages) state.synth.sendMessage(data, 0, { time: now });
+   if (endTick != null) state.endTick = endTick;
+   if (!events) return;
+   const key = (e) => `${e.data[0] & 0x0f}:${e.data[1]}`;
+   state.events = events.filter((e) => timeOf(state, e.tick) > state.sentUntil);
+   state.index = 0;
+   // その高さで次に来るのがノートオフなら、鳴っている音の終わりがまだある(次がノートオンなら、別の音の終わり)
+   const ending = new Set();
+   const seen = new Set();
+   for (const e of state.events) {
+      const k = key(e);
+      if (seen.has(k)) continue;
+      seen.add(k);
+      if ((e.data[0] & 0xf0) === 0x80) ending.add(k);
+   }
+   for (const [k, [channel, pitch, at]] of state.sounding) {
+      if (ending.has(k)) continue;
+      // 予約だけしてまだ鳴っていない音もあるので、鳴らす時刻より後で止める
+      state.synth.noteOff(channel, pitch, { time: Math.max(now, at) + 0.001 });
+      state.sounding.delete(k);
    }
 }
 

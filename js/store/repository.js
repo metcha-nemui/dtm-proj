@@ -81,6 +81,8 @@ const UNTRACKED_VERSION = 6;
  * @property {number} volume 音量(0〜127)
  * @property {number} pan パン(0〜127。64 が中央)
  * @property {boolean} drum ドラムのトラック(10ch で鳴らす)
+ * @property {boolean} [mute] ミュート(再生で鳴らさない。書き出しには入れる)。項目がなければ false
+ * @property {boolean} [solo] ソロ(ソロのトラックがあれば、それだけを鳴らす)。項目がなければ false
  * @property {string} createdAt
  * @property {string} updatedAt
  */

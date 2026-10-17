@@ -2,7 +2,7 @@
 // DOMにもrepositoryにも依存しない。受け取ったレコードは変更せず、保存すべき新しいレコードを返す。
 // 小節は1始まりの整数。クリップは startBar から bars 小節ぶん(startBar + bars - 1 小節目まで)を占める。
 
-import { normalizeNotes, TICKS_PER_BAR, trackSound } from './midi.js';
+import { normalizeNotes, TICKS_PER_BAR, trackMix, trackSound } from './midi.js';
 import { assertSection, uniqueLaneName } from './project.js';
 import { orderAtEnd, reorder, sortByOrder } from './order.js';
 import { newRecord, touch } from './record.js';
@@ -27,6 +27,7 @@ export function addTrack(projectId, tracks, name = '') {
       name: uniqueLaneName(base, tracks.map((t) => t.name)),
       order: orderAtEnd(tracks),
       ...trackSound(null),
+      ...trackMix(null),
    });
 }
 
@@ -36,6 +37,14 @@ export function addTrack(projectId, tracks, name = '') {
  */
 export function updateTrackSound(track, patch) {
    return touch(track, trackSound({ ...trackSound(track), ...patch }));
+}
+
+/**
+ * トラックのミュート・ソロを変える。
+ * @param {{ mute?: boolean, solo?: boolean }} patch
+ */
+export function updateTrackMix(track, patch) {
+   return touch(track, trackMix({ ...trackMix(track), ...patch }));
 }
 
 export function renameTrack(track, name) {
