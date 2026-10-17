@@ -23,6 +23,7 @@ import { sectionColors } from '../domain/project.js';
 import { repo, subscribe } from '../state.js';
 import { confirmDialog, formDialog } from './components/dialog.js';
 import { h, icon, keepFocus } from './components/dom.js';
+import { knob } from './components/knob.js';
 import { openMenu } from './components/menu.js';
 import { createSortable, domIndex } from './components/sortable.js';
 import { reportError, showToast } from './components/toast.js';
@@ -37,6 +38,8 @@ const DRAG_THRESHOLD = 4; // これより動かなければクリック(詳細�
 const SVG_NS = 'http://www.w3.org/2000/svg';
 
 const clamp = (n, min, max) => Math.max(min, Math.min(n, max));
+// パンの表記(64 が中央)。「L12」「中央」「R30」
+const panLabel = (pan) => (pan === CENTER_PAN ? '中央' : pan < CENTER_PAN ? `L${CENTER_PAN - pan}` : `R${pan - CENTER_PAN}`);
 
 export function mount(container, { id: projectId }) {
    const root = h('div', { class: 'arr-page' });
@@ -263,7 +266,7 @@ export function mount(container, { id: projectId }) {
    // 入力欄やピアノロール・クリップ詳細の中、ダイアログ・メニューを開いている間は、そちらの操作を優先する
    function onPickKeydown(e) {
       if (e.defaultPrevented || !data?.project || data.project.isTemplate) return false;
-      if (e.target.closest?.('input, textarea, select, [contenteditable], .pr, .drawer')) return false;
+      if (e.target.closest?.('input, textarea, select, [contenteditable], .pr, .drawer, .knob')) return false;
       if (document.querySelector('dialog[open], .menu')) return false;
       if (e.key.toLowerCase() === 'a' && (e.ctrlKey || e.metaKey) && !e.shiftKey && !e.altKey) {
          e.preventDefault();
@@ -1023,14 +1026,44 @@ export function mount(container, { id: projectId }) {
                   mixButton(track, 'mute', mute),
                   mixButton(track, 'solo', solo),
                   menuButton),
-               h('button', {
-                  type: 'button',
-                  class: 'arr-head-sound',
-                  title: `${soundLabel(track)}(押すと音色・音量・パンを変える)`,
-                  dataset: { focusKey: `track-sound:${track.id}` },
-                  onclick: () => run(trackSoundDialog(track)),
-               }, soundLabel(track)))),
+               h('span', { class: 'arr-head-bottom' },
+                  h('button', {
+                     type: 'button',
+                     class: 'arr-head-sound',
+                     title: `${soundLabel(track)}(押すと音色・音量・パンを変える)`,
+                     dataset: { focusKey: `track-sound:${track.id}` },
+                     onclick: () => run(trackSoundDialog(track)),
+                  }, soundLabel(track)),
+                  soundKnob(track, 'volume'),
+                  soundKnob(track, 'pan')))),
          lane);
+   }
+
+   // 音量・パンのつまみ。ミュート・ソロと同じく、動かしている間はすぐ音に効かせ、離したら裏で保存する。
+   // 動かしている間は再描画を待たせる(作り直すと、掴んでいるつまみが消える)
+   function soundKnob(track, key) {
+      const sound = trackSound(track);
+      const isPan = key === 'pan';
+      return knob({
+         value: sound[key],
+         reset: isPan ? CENTER_PAN : DEFAULT_VOLUME,
+         bipolar: isPan,
+         label: `${track.name}の${isPan ? 'パン' : '音量'}`,
+         format: isPan ? panLabel : String,
+         focusKey: `${key}:${track.id}`,
+         onInput: (value) => setLocalTrack(track.id, { [key]: value }),
+         onChange: (value) => saveLocal(actions.updateTrackSound(projectId, track.id, { [key]: value })),
+         onDragStart: () => {
+            dragging = true;
+         },
+         onDragEnd: () => {
+            dragging = false;
+            if (renderPending) {
+               renderPending = false;
+               render();
+            }
+         },
+      });
    }
 
    // ミュート・ソロのボタン。押すとすぐに音と表示を変え、裏で保存する

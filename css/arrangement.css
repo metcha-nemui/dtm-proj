@@ -654,6 +654,71 @@ button.project-tab {
    text-decoration: underline;
 }
 
+/* 音色名と、音量・パンのつまみの行 */
+.arr-head-bottom {
+   display: flex;
+   align-items: center;
+   gap: 2px;
+   min-width: 0;
+}
+
+.arr-head-bottom .arr-head-sound {
+   flex: 1;
+   min-width: 0;
+   margin-right: var(--space-1);
+}
+
+/* つまみ(音量・パン)。目盛りの円弧の上に、値までを塗った円弧と針を重ねる */
+.knob {
+   display: inline-flex;
+   flex: none;
+   align-items: center;
+   justify-content: center;
+   width: 24px;
+   height: 22px;
+   padding: 0;
+   border: 0;
+   border-radius: var(--radius-sm);
+   background: none;
+   color: var(--text-muted);
+   cursor: ns-resize;
+   touch-action: none;
+}
+
+.knob:hover {
+   background: var(--surface-2);
+}
+
+.knob:focus-visible {
+   outline: 2px solid var(--accent);
+   outline-offset: -1px;
+}
+
+.knob svg {
+   overflow: visible;
+}
+
+.knob-track,
+.knob-fill {
+   fill: none;
+   stroke-width: 2.5;
+   stroke-linecap: round;
+}
+
+.knob-track {
+   stroke: var(--border);
+}
+
+.knob-fill {
+   stroke: var(--accent);
+}
+
+.knob-needle {
+   stroke: var(--text);
+   stroke-width: 1.5;
+   stroke-linecap: round;
+}
+
 /* トラック名の行(名前、ミュート、ソロ、メニュー) */
 .arr-head-top {
    display: flex;
