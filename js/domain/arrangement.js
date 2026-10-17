@@ -150,6 +150,43 @@ export function placeClip(clips, clipId, patch, markers = null) {
    return touch(clip, { ...place, notes: normalizeNotes((clip.notes ?? []).map((n) => ({ ...n, start: n.start + shift }))) });
 }
 
+// まとめて横にずらしたあとの置き場所。動かすクリップ同士は並びを保ったまま動くので、互いの重なりは見ない
+function shiftedPlaces(clips, clipIds, bars) {
+   const ids = new Set(clipIds);
+   const moving = clips.filter((c) => ids.has(c.id));
+   if (moving.length !== ids.size) throw new Error('クリップが見つかりません');
+   return {
+      moving,
+      rest: clips.filter((c) => !ids.has(c.id)),
+      places: moving.map((c) => ({ trackId: c.trackId, startBar: c.startBar + bars, bars: c.bars })),
+   };
+}
+
+/**
+ * 選んだクリップを、まとめて横に bars 小節ずらせるか(1つでも置けなければ false)。ドラッグ中の見た目にも使う。
+ * @param {object[]|null} [markers] 渡すと、どれもセクションマーカーの区間に入っていることを求める
+ */
+export function canShiftClips(clips, clipIds, bars, markers = null) {
+   try {
+      const { rest, places } = shiftedPlaces(clips, clipIds, bars);
+      return places.every((place) => canPlace(rest, place, null, markers));
+   } catch {
+      return false;
+   }
+}
+
+/**
+ * 選んだクリップを、まとめて横に bars 小節ずらす(トラックは変えない)。1つでも置けなければ、どれも動かさない。
+ * ノートはクリップの先頭からの相対なので、そのまま付いていく。
+ * @returns {object[]} 動かしたクリップ
+ */
+export function shiftClips(clips, clipIds, bars, markers = null) {
+   if (!Number.isInteger(bars)) throw new Error('小節の指定が正しくありません');
+   const { moving, rest, places } = shiftedPlaces(clips, clipIds, bars);
+   for (const place of places) assertPlaceable(rest, place, null, markers);
+   return moving.map((c, i) => touch(c, { startBar: places[i].startBar }));
+}
+
 // ---- セクションマーカー ----
 // マーカーはボードのセクション(レーン)を指す。名前と色はレーンのものを使い、マーカーには持たせない。
 // セクションは、マーカーの小節から次のマーカーの手前まで続く。同じ小節には1つだけ置ける。

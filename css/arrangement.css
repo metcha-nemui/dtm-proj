@@ -333,6 +333,25 @@ button.project-tab {
    box-shadow: var(--shadow-1);
 }
 
+/* 複数選択で選んでいるクリップ。詳細で開いているもの(is-selected の実線)と見分けられるよう、点線の枠にする */
+.clip.is-picked {
+   outline: 2px dashed var(--text);
+   outline-offset: 1px;
+}
+
+/* Ctrl+ドラッグで囲む範囲 */
+.arr-tracks {
+   position: relative;
+}
+
+.arr-marquee {
+   position: absolute;
+   z-index: 3;
+   border: 1px solid var(--accent);
+   background: color-mix(in srgb, var(--accent) 12%, transparent);
+   pointer-events: none;
+}
+
 .clip.is-moving {
    opacity: 0.35;
 }

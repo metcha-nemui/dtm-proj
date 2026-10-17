@@ -10,7 +10,9 @@
 // ピアノロールのパネルは再描画で作り直さない(編集中の状態を持っているため)。作り直すのは view の中だけ。
 
 import * as actions from '../actions.js';
-import { arrangementBars, canPlace, clipEnd, clipSection, markerSpans, UNTITLED_CLIP } from '../domain/arrangement.js';
+import {
+   arrangementBars, canPlace, canShiftClips, clipEnd, clipSection, markerSpans, UNTITLED_CLIP,
+} from '../domain/arrangement.js';
 import {
    audibleNotes, audibleTrackIds, CENTER_PAN, clipTicks, DEFAULT_VOLUME, GM_PROGRAMS, KEY_NAMES, MAX_BPM, MIN_BPM, noteEvents, PPQ,
    projectBpm, projectScales, scaleAt, scaleLabel, SCALE_MODES, setupMessages, soundLabel, TICKS_PER_BAR, trackChannels, trackMix,
@@ -60,6 +62,19 @@ export function mount(container, { id: projectId }) {
       const clipId = drawer.clipId ?? pianoRoll.clipId;
       for (const el of root.querySelectorAll('.clip.is-selected')) el.classList.remove('is-selected');
       if (clipId) root.querySelector(`.clip[data-clip-id="${CSS.escape(clipId)}"]`)?.classList.add('is-selected');
+   }
+
+   // 複数選択(Ctrl+ドラッグで囲む、Ctrl+クリック、Ctrl+A)で選んでいるクリップ。まとめて横に動かすためのもの。
+   // 詳細やピアノロールで開いているクリップ(is-selected)とは別に持つ
+   let picked = new Set();
+
+   function markPicked() {
+      for (const el of root.querySelectorAll('.clip')) el.classList.toggle('is-picked', picked.has(el.dataset.clipId));
+   }
+
+   function setPicked(ids) {
+      picked = new Set(ids);
+      markPicked();
    }
    const drawer = createClipDrawer(projectId, {
       onSelectionChange: () => markSelected(),
@@ -233,6 +248,7 @@ export function mount(container, { id: projectId }) {
          stopDuplicate();
          return;
       }
+      if (onPickKeydown(e)) return;
       if (e.code !== 'Space' || e.repeat || e.defaultPrevented) return;
       if (!e.target.closest?.('.arr-mix-toggle')
          && e.target.closest?.('input, textarea, select, button, [contenteditable], .clip')) return;
@@ -241,6 +257,46 @@ export function mount(container, { id: projectId }) {
       togglePlayback();
    };
    document.addEventListener('keydown', onKeydown);
+
+   // 複数選択のキー操作。Ctrl+A で全部を選び、←→ で選んだものを1小節ずつ動かし、Esc で選択を外す。
+   // 入力欄やピアノロール・クリップ詳細の中、ダイアログ・メニューを開いている間は、そちらの操作を優先する
+   function onPickKeydown(e) {
+      if (e.defaultPrevented || !data?.project || data.project.isTemplate) return false;
+      if (e.target.closest?.('input, textarea, select, [contenteditable], .pr, .drawer')) return false;
+      if (document.querySelector('dialog[open], .menu')) return false;
+      if (e.key.toLowerCase() === 'a' && (e.ctrlKey || e.metaKey) && !e.shiftKey && !e.altKey) {
+         e.preventDefault();
+         setPicked(data.clips.map((c) => c.id));
+         return true;
+      }
+      if (!picked.size) return false;
+      if (e.key === 'Escape') {
+         e.preventDefault();
+         setPicked([]);
+         return true;
+      }
+      if ((e.key === 'ArrowLeft' || e.key === 'ArrowRight') && !e.ctrlKey && !e.metaKey && !e.altKey) {
+         e.preventDefault();
+         shiftPicked(e.key === 'ArrowRight' ? 1 : -1);
+         return true;
+      }
+      return false;
+   }
+
+   // 選んだクリップを、まとめて横に bars 小節ずらす。置けない位置(重なる・範囲の外)なら動かさない。
+   // 保存を待たずに動かしておく(続けて押したときも、動かした後の位置から数える)
+   function shiftPicked(bars) {
+      const ids = [...picked];
+      if (!canShiftClips(data.clips, ids, bars, data.markers)) return;
+      data.clips = data.clips.map((c) => (picked.has(c.id) ? { ...c, startBar: c.startBar + bars } : c));
+      for (const clip of data.clips) {
+         if (picked.has(clip.id)) {
+            const el = root.querySelector(`.clip[data-clip-id="${CSS.escape(clip.id)}"]`);
+            if (el) setPlace(el, clip);
+         }
+      }
+      runPlaced(actions.shiftClips(projectId, ids, bars));
+   }
 
    const sections = () => data.lanes.filter((l) => l.type === 'section');
    // 置けるか(同じトラックのクリップと重ならず、セクションマーカーの範囲に入っている)
@@ -451,6 +507,90 @@ export function mount(container, { id: projectId }) {
             setPlace(clipEl, place);
             if (laneEl !== fromLane) laneEl.append(clipEl);
             runPlaced(actions.placeClip(projectId, clip.id, place));
+         },
+      });
+   }
+
+   /**
+    * Ctrl+ドラッグで囲んだクリップを選ぶ(Shift も押していれば、いまの選択に足す)。トラックをまたいで囲める。
+    * 動かさずに離したら(Ctrl+クリック)、押したクリップの選択を切り替える。
+    * 囲んでいる間にスクロールしても、範囲はトラックの上の位置で追う
+    */
+   function marqueeClips(down) {
+      const area = root.querySelector('.arr-tracks');
+      const scroller = root.querySelector('.arr');
+      const base = down.shiftKey ? new Set(picked) : new Set();
+      const local = (e) => {
+         const rect = area.getBoundingClientRect();
+         return { x: e.clientX - rect.left, y: e.clientY - rect.top };
+      };
+      const from = local(down);
+      const underClip = down.target.closest('.clip')?.dataset.clipId ?? null;
+      const box = h('div', { class: 'arr-marquee' });
+      let last = down;
+      const update = () => {
+         const to = local(last);
+         const left = Math.min(from.x, to.x);
+         const right = Math.max(from.x, to.x);
+         const top = Math.min(from.y, to.y);
+         const bottom = Math.max(from.y, to.y);
+         if (box.parentElement !== area) area.append(box);
+         Object.assign(box.style, { left: `${left}px`, top: `${top}px`, width: `${right - left}px`, height: `${bottom - top}px` });
+         const rect = area.getBoundingClientRect();
+         const hit = [...area.querySelectorAll('.clip')].filter((el) => {
+            const r = el.getBoundingClientRect();
+            const x = r.left - rect.left;
+            const y = r.top - rect.top;
+            return x < right && x + r.width > left && y < bottom && y + r.height > top;
+         }).map((el) => el.dataset.clipId);
+         setPicked([...base, ...hit]);
+      };
+      scroller.addEventListener('scroll', update);
+      drag(down, {
+         onMove: (e) => {
+            last = e;
+            update();
+         },
+         onEnd: (moved) => {
+            scroller.removeEventListener('scroll', update);
+            box.remove();
+            if (moved || !underClip) return;
+            const next = new Set(picked);
+            if (next.has(underClip)) next.delete(underClip);
+            else next.add(underClip);
+            setPicked(next);
+         },
+      });
+   }
+
+   /** 選んだクリップをまとめて横に動かす(上下には動かさない)。動かさずに離したら、選択を外して押したクリップを開く */
+   function dragPicked(down, clip) {
+      const fromLane = down.currentTarget;
+      const grab = barAt(fromLane, down.clientX);
+      const ids = [...picked];
+      const clips = data.clips.filter((c) => picked.has(c.id));
+      const ghosts = new Map(clips.map((c) => [c.id, h('div', { class: 'clip-ghost' })]));
+      const clipEls = () => ids.map((id) => root.querySelector(`.clip[data-clip-id="${CSS.escape(id)}"]`)).filter(Boolean);
+      let bars = 0;
+      drag(down, {
+         onMove: (e) => {
+            bars = barAt(fromLane, e.clientX) - grab;
+            const ok = canShiftClips(data.clips, ids, bars, data.markers);
+            for (const c of clips) {
+               const laneEl = root.querySelector(`.arr-lane[data-track-id="${CSS.escape(c.trackId)}"]`);
+               if (laneEl) showGhost(ghosts.get(c.id), laneEl, { ...c, startBar: Math.max(1, c.startBar + bars) }, ok);
+            }
+            for (const el of clipEls()) el.classList.add('is-moving');
+         },
+         onEnd: (moved) => {
+            for (const ghost of ghosts.values()) ghost.remove();
+            for (const el of clipEls()) el.classList.remove('is-moving');
+            if (!moved) {
+               setPicked([]);
+               openClip(clip.id);
+               return;
+            }
+            if (bars) shiftPicked(bars);
          },
       });
    }
@@ -799,7 +939,7 @@ export function mount(container, { id: projectId }) {
       const status = outside ? null : data.tasks.find((t) => t.clipId === clip.id)?.status;
       const preview = notePreview(clip);
       return h('div', {
-         class: `clip${clip.name ? '' : ' is-untitled'}${outside ? ' is-outside' : ''}${status === 'doing' || status === 'done' ? ` is-${status}` : ''}`,
+         class: `clip${clip.name ? '' : ' is-untitled'}${outside ? ' is-outside' : ''}${status === 'doing' || status === 'done' ? ` is-${status}` : ''}${picked.has(clip.id) ? ' is-picked' : ''}`,
          style: { '--start': String(clip.startBar), '--len': String(clip.bars) },
          dataset: { clipId: clip.id, focusKey: `clip:${clip.id}` },
          tabIndex: 0,
@@ -837,13 +977,24 @@ export function mount(container, { id: projectId }) {
          class: 'arr-lane',
          dataset: { trackId: track.id },
          onpointerdown: (e) => {
+            if (e.button === 0 && (e.ctrlKey || e.metaKey)) {
+               marqueeClips(e);
+               return;
+            }
             const clipEl = e.target.closest('.clip');
-            if (!clipEl) {
+            const edge = e.target.closest('.clip-edge')?.dataset.edge ?? 'move';
+            const clip = clipEl && data.clips.find((c) => c.id === clipEl.dataset.clipId);
+            // 選んだものの1つを掴んだら、まとめて横に動かす。それ以外を押したら、選択を外す
+            if (clip && edge === 'move' && picked.size > 1 && picked.has(clip.id)) {
+               dragPicked(e, clip);
+               return;
+            }
+            if (e.button === 0 && picked.size) setPicked([]);
+            if (!clip) {
                dragCreate(e, track);
                return;
             }
-            const clip = data.clips.find((c) => c.id === clipEl.dataset.clipId);
-            if (clip) dragClip(e, clip, e.target.closest('.clip-edge')?.dataset.edge ?? 'move');
+            dragClip(e, clip, edge);
          },
          // クリップのダブルクリックでピアノロールを開く。空いているところなら、1小節のクリップを作る
          ondblclick: (e) => {
@@ -988,6 +1139,8 @@ export function mount(container, { id: projectId }) {
       if (!alive) return;
       // tasks は、トラックの削除の確認に出す連動タスクの数と、クリップの色(連動タスクのステータス)に使う
       data = { project, lanes: sortByOrder(lanes), tracks: withLocal(sortByOrder(tracks)), clips, markers, tasks };
+      // 消えたクリップは選択から外す
+      picked = new Set(clips.filter((c) => picked.has(c.id)).map((c) => c.id));
       render();
       if (!project || project.isTemplate) return;
       pianoRoll.update(data);

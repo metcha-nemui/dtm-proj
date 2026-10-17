@@ -364,6 +364,14 @@ export const placeClip = serial(async (projectId, clipId, patch) => {
    await changed(projectId);
 });
 
+/** 選んだクリップを、まとめて横に bars 小節ずらす(複数選択での移動)。 */
+export const shiftClips = serial(async (projectId, clipIds, bars) => {
+   const [clips, markers] = await Promise.all([repo().getClips(projectId), repo().getMarkers(projectId)]);
+   await repo().saveClips(arrangementDomain.shiftClips(clips, clipIds, bars, markers));
+   await syncArrangement(projectId);
+   await changed(projectId);
+});
+
 /** @returns 削除したクリップと、その連動タスク({ clip, task })。restoreClip に渡すと元に戻せる */
 export const deleteClip = serial(async (projectId, clipId) => {
    const [clips, tasks] = await Promise.all([repo().getClips(projectId), repo().getTasks(projectId)]);

@@ -2,8 +2,8 @@
 // Node でも動く: node -e "import('./test/domain.test.js').then(m => m.report()).then(ok => process.exit(ok ? 0 : 1))"
 
 import {
-   addClip, addMarker, addTrack, arrangementBars, canPlace, clipEnd, clipSection, duplicateClip, markerSpans, moveTrack, placeClip,
-   renameTrack, setClipNotes, syncClipTasks, updateClip, updateMarker, updateTrackMix, updateTrackSound,
+   addClip, addMarker, addTrack, arrangementBars, canPlace, canShiftClips, clipEnd, clipSection, duplicateClip, markerSpans, moveTrack,
+   placeClip, renameTrack, setClipNotes, shiftClips, syncClipTasks, updateClip, updateMarker, updateTrackMix, updateTrackSound,
 } from '../js/domain/arrangement.js';
 import {
    audibleNotes, audibleTrackIds, buildMidiFile, clipTicks, inScale, MAX_BPM, midiFileName, MIN_BPM, moveScale, normalizeBpm,
@@ -942,6 +942,25 @@ test('duplicateClip: 名前・詳細・ノートをコピーした別のクリ�
    const markers = [addMarker(project.id, [], lane('Aメロ'), 9)];
    throws(() => duplicateClip(source, all, { trackId: drums.id, startBar: 1 }, markers), '区間の外');
    equal(duplicateClip(source, all, { trackId: drums.id, startBar: 9 }, markers).startBar, 9);
+});
+
+test('shiftClips: 選んだクリップをまとめて横にずらす。1つでも置けなければどれも動かさない', () => {
+   const { project, lane, synth, drums, clips, a, b } = arrangementFixture(); // シンセ 1〜4 と 9〜10
+   const c = addClip(drums, [], { startBar: 3, bars: 2 });
+   const all = [...clips, c];
+   const moved = shiftClips(all, [a.id, c.id], 2);
+   equal(moved.map((x) => [x.id, x.trackId, x.startBar, x.bars]), [[a.id, synth.id, 3, 4], [c.id, drums.id, 5, 2]], 'トラックは変えない');
+   equal(a.startBar, 1, '元のレコードは変えない');
+   equal(canShiftClips(all, [a.id, c.id], 2), true);
+   equal(canShiftClips(all, [a.id, c.id], 5), false, 'a が b に重なる');
+   throws(() => shiftClips(all, [a.id, c.id], 5), '1つでも重なれば動かさない');
+   equal(shiftClips(all, [a.id, b.id], 3).map((x) => x.startBar), [4, 12], '選んだもの同士は互いに邪魔しない');
+   equal(canShiftClips(all, [a.id], -1), false, '1小節目より前');
+   const markers = [addMarker(project.id, [], lane('Aメロ'), 9)];
+   equal(canShiftClips(all, [b.id], -4, markers), false, '5〜6小節は区間の外');
+   equal(canShiftClips(all, [b.id], -1, markers), true, '8〜9小節は区間に掛かる');
+   equal(canShiftClips(all, [b.id, a.id], 4, markers), false, 'a(5〜8)が区間の外');
+   equal(canShiftClips(all, ['none'], 1), false, 'ないクリップ');
 });
 
 test('noteEvents: 曲の頭からの位置で並べ、同じ位置ではノートオフを先に置く', () => {
