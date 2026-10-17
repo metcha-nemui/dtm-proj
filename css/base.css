@@ -74,10 +74,15 @@ textarea {
 }
 
 .app-brand {
-   font-weight: 700;
-   color: var(--text);
-   text-decoration: none;
-   white-space: nowrap;
+   flex: none;
+   display: flex;
+   align-items: center;
+   color: var(--accent);
+}
+
+.app-brand-icon {
+   width: 28px;
+   height: 28px;
 }
 
 .app-nav {

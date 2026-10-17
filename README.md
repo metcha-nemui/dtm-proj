@@ -193,6 +193,7 @@ manifest.webmanifest      PWA のマニフェスト(名前、アイコン、表�
 sw.js                     Service Worker(オフラインでの起動のためのキャッシュ)
 icons/                    アプリのアイコン。icon.svg(角丸。ファビコンにも使う)と icon-maskable.svg(全面塗り。OS が切り抜く)が元で、
                           PNG(192・512・maskable 512・apple-touch-icon 180)はヘッドレス Chrome で SVG を表示してスクリーンショットで書き出した
+                          (画面ヘッダーの左端には、文字の代わりにこの記号だけを背景なし・アクセント色で index.html に直接埋め込んで出している)
 test.html                 ドメインロジックのテストをブラウザで実行
 test/domain.test.js       テスト本体(Nodeでも動く)。Supabase 実装は、APIのふりをする fetch で確かめている
 supabase/schema.sql       Supabase のテーブル定義(SQL Editor に貼り付けて実行する)

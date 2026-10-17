@@ -33,7 +33,16 @@
 </head>
 <body>
    <header class="app-header">
-      <a class="app-brand" href="#/">DTM工程管理</a>
+      <a class="app-brand" href="#/" aria-label="DTM工程管理" title="DTM工程管理">
+         <!-- アプリアイコン(icons/icon.svg)の記号だけを、背景なしで出す。線の色は CSS の color(テーマのアクセント色)に従う -->
+         <svg class="app-brand-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M21 15V6"/>
+            <path d="M18.5 18a2.5 2.5 0 1 0 0-5 2.5 2.5 0 0 0 0 5Z"/>
+            <path d="M12 12H3"/>
+            <path d="M16 6H3"/>
+            <path d="M12 18H3"/>
+         </svg>
+      </a>
       <nav class="app-nav">
          <a href="#/" data-nav="projects">プロジェクト</a>
          <a href="#/templates" data-nav="templates">テンプレート</a>
