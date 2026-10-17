@@ -770,8 +770,13 @@ button.project-tab {
    background: var(--surface);
 }
 
-.pr-row.is-black {
+/* スケールの外の音(C メジャーなら黒鍵の行)。主音の行は少し色を付ける */
+.pr-row.is-out {
    background: color-mix(in srgb, var(--text) 7%, var(--surface));
+}
+
+.pr-row.is-root {
+   background: color-mix(in srgb, var(--accent) 8%, var(--surface));
 }
 
 .pr-row.is-c {
@@ -816,6 +821,15 @@ button.project-tab {
 /* クリップの範囲の外(鳴らさない) */
 .pr-note.is-outside {
    opacity: 0.35;
+}
+
+/* Ctrl+ドラッグの範囲選択 */
+.pr-marquee {
+   position: absolute;
+   z-index: 1;
+   border: 1px solid var(--doing);
+   background: color-mix(in srgb, var(--doing) 15%, transparent);
+   pointer-events: none;
 }
 
 .pr-playhead {

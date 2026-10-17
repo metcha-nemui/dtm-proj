@@ -2,7 +2,7 @@
 // 受け取ったレコードは変更せず、保存すべき新しいレコードを返す。
 
 import { daysBetween, normalizeDate, toDateString } from './date.js';
-import { DEFAULT_BPM, normalizeBpm } from './midi.js';
+import { DEFAULT_BPM, DEFAULT_SCALE, normalizeBpm, normalizeScale } from './midi.js';
 import { ORDER_STEP, placeAt, reorder, sortByOrder } from './order.js';
 import { newRecord, touch } from './record.js';
 import { copyTask } from './task.js';
@@ -114,6 +114,7 @@ export function createProject({ title, memo = '', dueDate = null }, source = nul
       dueDate: normalizeDueDate(dueDate),
       isTemplate: false,
       bpm: DEFAULT_BPM,
+      scale: { ...DEFAULT_SCALE },
    });
    return { project, ...copyBoard(project.id, source) };
 }
@@ -132,7 +133,7 @@ export function createTemplate({ name, memo = '' }, source = null) {
    return { project, ...copyBoard(project.id, source) };
 }
 
-/** タイトル・メモ・締切・BPM(アレンジの再生と書き出しに使う)を編集する。 */
+/** タイトル・メモ・締切・BPM(アレンジの再生と書き出しに使う)・スケール(ピアノロールの塗り分けに使う)を編集する。 */
 export function updateProject(project, patch) {
    const next = {};
    if ('title' in patch) {
@@ -143,6 +144,7 @@ export function updateProject(project, patch) {
    if ('memo' in patch) next.memo = patch.memo;
    if ('dueDate' in patch) next.dueDate = normalizeDueDate(patch.dueDate);
    if ('bpm' in patch) next.bpm = normalizeBpm(patch.bpm);
+   if ('scale' in patch) next.scale = normalizeScale(patch.scale);
    return touch(project, next);
 }
 

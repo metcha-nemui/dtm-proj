@@ -1,6 +1,6 @@
 // アレンジのクリップを MIDI として扱うためのドメインロジック(ノート、音色、再生するイベント列、.mid の書き出し)。
 // DOMにもrepositoryにも依存しない。受け取ったレコードは変更せず、新しい値を返す。
-// 拍子は 4/4 固定、テンポは曲全体で1つ(Project.bpm)。テンポチェンジや CC のオートメーションは持たない(下書き用)。
+// 拍子は 4/4 固定、テンポは曲全体で1つ(Project.bpm)。キーも曲全体で1つ(Project.scale。ピアノロールの表示だけに使う)。テンポチェンジや CC のオートメーションは持たない(下書き用)。
 //
 // 時間の単位は tick(4分音符 = PPQ tick)。ノートの位置はクリップの先頭からの相対で持つので、
 // クリップを動かせばノートも付いていく。クリップの範囲の外にはみ出したノートは消さずに持ち、鳴らさない。
@@ -65,11 +65,45 @@ export function audibleNotes(clip) {
 
 /** 音の高さの名前(60 = C4)。 */
 export function pitchName(pitch) {
-   const names = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B'];
-   return `${names[pitch % 12]}${Math.floor(pitch / 12) - 1}`;
+   return `${KEY_NAMES[pitch % 12]}${Math.floor(pitch / 12) - 1}`;
 }
 
 export const isBlackKey = (pitch) => [1, 3, 6, 8, 10].includes(pitch % 12);
+
+// ---- スケール(ピアノロールの行の塗り分けに使う) ----
+
+// キー(主音)とメジャー / マイナーだけを持つ。教会旋法などは扱わない。マイナーは自然的短音階
+export const KEY_NAMES = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B'];
+export const SCALE_MODES = [
+   { value: 'major', label: 'メジャー', steps: [0, 2, 4, 5, 7, 9, 11] },
+   { value: 'minor', label: 'マイナー', steps: [0, 2, 3, 5, 7, 8, 10] },
+];
+export const DEFAULT_SCALE = Object.freeze({ root: 0, mode: 'major' });
+
+/** スケールを正規化する。主音は 0〜11(0 = C)、mode は 'major' か 'minor'。おかしな値は C メジャーに寄せる。 */
+export function normalizeScale(scale) {
+   const root = Math.round(Number(scale?.root));
+   return {
+      root: Number.isFinite(root) ? ((root % 12) + 12) % 12 : DEFAULT_SCALE.root,
+      mode: SCALE_MODES.some((m) => m.value === scale?.mode) ? scale.mode : DEFAULT_SCALE.mode,
+   };
+}
+
+/** プロジェクトのスケール。項目がない(v8 以前の)データでも C メジャーを返す。 */
+export const projectScale = (project) => normalizeScale(project?.scale ?? DEFAULT_SCALE);
+
+/** その音がスケールの音か。 */
+export function inScale(pitch, scale) {
+   const { root, mode } = normalizeScale(scale);
+   const steps = SCALE_MODES.find((m) => m.value === mode).steps;
+   return steps.includes((((pitch - root) % 12) + 12) % 12);
+}
+
+/** スケールの表記(例: 「A マイナー」)。 */
+export function scaleLabel(scale) {
+   const { root, mode } = normalizeScale(scale);
+   return `${KEY_NAMES[root]} ${SCALE_MODES.find((m) => m.value === mode).label}`;
+}
 
 // ---- トラックの音 ----
 

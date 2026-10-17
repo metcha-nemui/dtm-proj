@@ -6,8 +6,8 @@ import {
    renameTrack, setClipNotes, syncClipTasks, updateClip, updateMarker, updateTrackSound,
 } from '../js/domain/arrangement.js';
 import {
-   audibleNotes, buildMidiFile, clipTicks, MAX_BPM, midiFileName, MIN_BPM, normalizeBpm, normalizeNotes, noteEvents, PPQ,
-   projectBpm, secondsToTicks, soundLabel, TICKS_PER_BAR, ticksToSeconds, trackChannels, trackSound, varLen,
+   audibleNotes, buildMidiFile, clipTicks, inScale, MAX_BPM, midiFileName, MIN_BPM, normalizeBpm, normalizeNotes,
+   normalizeScale, noteEvents, PPQ, projectBpm, projectScale, scaleLabel, secondsToTicks, soundLabel, TICKS_PER_BAR, ticksToSeconds, trackChannels, trackSound, varLen,
 } from '../js/domain/midi.js';
 import { addDays, daysBetween, toDateString, weekendDaysBetween } from '../js/domain/date.js';
 import { deadlineRange, deadlineRows } from '../js/domain/deadline.js';
@@ -982,9 +982,36 @@ test('migrate: v7 のデータは、BPM 120・ピアノ・ノートなしとし�
       tracks: [{ id: 'tr', projectId: 'p' }],
       clips: [{ id: 'c', projectId: 'p', trackId: 'tr', startBar: 1, bars: 1 }],
    });
-   equal(data.projects, [{ id: 'p', isTemplate: false, bpm: 120 }, { id: 't', isTemplate: true }]);
+   equal(data.projects, [{ id: 'p', isTemplate: false, bpm: 120, scale: { root: 0, mode: 'major' } }, { id: 't', isTemplate: true }]);
    equal(data.tracks, [{ id: 'tr', projectId: 'p', program: 0, volume: 100, pan: 64, drum: false }]);
    equal(data.clips[0].notes, []);
+});
+
+test('migrate: v8 のデータは、C メジャーとして読み込む(あるものは正規化して残す)', () => {
+   const data = migrate({
+      schemaVersion: 8,
+      projects: [{ id: 'p', isTemplate: false, bpm: 90 }, { id: 'q', isTemplate: false, bpm: 90, scale: { root: 21, mode: 'x' } }, { id: 't', isTemplate: true }],
+   });
+   equal(data.projects.map((p) => p.scale), [{ root: 0, mode: 'major' }, { root: 9, mode: 'major' }, undefined]);
+});
+
+test('normalizeScale / projectScale: 主音は 0〜11、mode は major か minor。なければ C メジャー', () => {
+   equal([normalizeScale({ root: -3, mode: 'minor' }), normalizeScale(null), projectScale({})],
+      [{ root: 9, mode: 'minor' }, { root: 0, mode: 'major' }, { root: 0, mode: 'major' }]);
+   const { project } = createProject({ title: 'p' });
+   equal(project.scale, { root: 0, mode: 'major' }, '新しいプロジェクトは C メジャー');
+   equal(updateProject(project, { scale: { root: '2', mode: 'minor' } }).scale, { root: 2, mode: 'minor' });
+   equal(createTemplate({ name: 't' }).project.scale, undefined, 'テンプレートは持たない');
+});
+
+test('inScale / scaleLabel', () => {
+   const pick = (scale) => Array.from({ length: 12 }, (_, i) => 60 + i).filter((p) => inScale(p, scale)).map((p) => p - 60);
+   equal(pick({ root: 0, mode: 'major' }), [0, 2, 4, 5, 7, 9, 11], 'C メジャー = 白鍵');
+   equal(pick({ root: 9, mode: 'minor' }), [0, 2, 4, 5, 7, 9, 11], 'A マイナーも白鍵');
+   equal(pick({ root: 2, mode: 'major' }), [1, 2, 4, 6, 7, 9, 11], 'D メジャー');
+   equal(pick({ root: 4, mode: 'minor' }), [0, 2, 4, 6, 7, 9, 11], 'E マイナー');
+   assert(inScale(1, { root: 1, mode: 'major' }) && !inScale(2, { root: 1, mode: 'major' }), '低い音でも');
+   equal([scaleLabel({ root: 9, mode: 'minor' }), scaleLabel({})], ['A マイナー', 'C メジャー']);
 });
 
 // ---- stats ----

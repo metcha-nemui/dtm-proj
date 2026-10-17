@@ -1,14 +1,16 @@
 // ピアノロール。アレンジ画面の下に出すパネルで、選んだクリップ1つのノートを編集する。
 // 操作は FL Studio に寄せている:空いているところを押すとノートを置き(そのままドラッグで動かせる)、
 // ノートを掴むと移動、右端を掴むと長さを変える。右クリックで消す(押したままなぞると続けて消す)。
-// ノートを置く長さは、最後に触ったノートの長さ。
+// ノートを置く長さは、最後に触ったノートの長さ。Ctrl+ドラッグで囲んだノートを選ぶ(Shift も押すと選択に足す)。
+// 行の塗り分けは鍵盤の白黒ではなく、プロジェクトのスケール(キーとメジャー / マイナー)に合わせる。
 //
 // 編集は手元の notes に反映してから、操作の区切り(ポインタを離したとき)ごとにクリップのノートを丸ごと保存する。
 // 表示の単位は px、ノートの単位は tick(midi.js)。
 
 import * as actions from '../actions.js';
 import {
-   BEATS_PER_BAR, clipTicks, isBlackKey, normalizeNotes, pitchName, PPQ, setupMessages, TICKS_PER_BAR, trackChannels,
+   BEATS_PER_BAR, clipTicks, inScale, isBlackKey, KEY_NAMES, normalizeNotes, pitchName, PPQ, projectScale, SCALE_MODES,
+   setupMessages, TICKS_PER_BAR, trackChannels,
 } from '../domain/midi.js';
 import { sortByOrder } from '../domain/order.js';
 import { UNTITLED_CLIP } from '../domain/arrangement.js';
@@ -78,6 +80,16 @@ export function createPianoRoll({ projectId, onSelectionChange, onPlayClip, onOp
          }
       },
    }, SNAPS.map((s) => h('option', { value: s.value, selected: Number(s.value) === snap }, s.label)));
+   // スケールはプロジェクトに1つ(曲のキー)。変えるとすぐ塗り直し、保存の結果は update で戻ってくる
+   const changeScale = () => {
+      const scale = { root: Number(keySelect.value), mode: modeSelect.value };
+      renderScale(scale);
+      actions.updateProject(projectId, { scale }).catch(reportError);
+   };
+   const keySelect = h('select', { class: 'select pr-snap', 'aria-label': 'キー', onchange: changeScale },
+      KEY_NAMES.map((name, i) => h('option', { value: String(i) }, name)));
+   const modeSelect = h('select', { class: 'select pr-snap', 'aria-label': 'メジャー / マイナー', onchange: changeScale },
+      SCALE_MODES.map((m) => h('option', { value: m.value }, m.label)));
    const keys = h('div', { class: 'pr-keys' });
    const ruler = h('div', { class: 'pr-ruler' });
    const rows = h('div', { class: 'pr-rows', 'aria-hidden': 'true' });
@@ -97,6 +109,8 @@ export function createPianoRoll({ projectId, onSelectionChange, onPlayClip, onOp
          title,
          range,
          h('label', { class: 'pr-snap-label muted' }, 'グリッド', snapSelect),
+         h('span', { class: 'pr-snap-label muted', title: 'スケール(グリッドの行を、スケールの音とそれ以外で塗り分ける)' },
+            'スケール', keySelect, modeSelect),
          h('span', { class: 'pr-spacer' }),
          h('button', {
             type: 'button', class: 'btn btn-icon', title: 'このクリップの頭から再生', 'aria-label': 'このクリップの頭から再生',
@@ -113,7 +127,8 @@ export function createPianoRoll({ projectId, onSelectionChange, onPlayClip, onOp
          h('button', { type: 'button', class: 'btn btn-icon', 'aria-label': 'ピアノロールを閉じる', onclick: () => close() }, icon('x'))),
       scroller);
 
-   // 鍵盤とグリッドの行は、上が高い音(127)。128音ぶんを一度だけ作る
+   // 鍵盤とグリッドの行は、上が高い音(127)。128音ぶんを一度だけ作る。行の塗り分けは renderScale で付ける
+   const rowEls = [];
    for (let pitch = 127; pitch >= 0; pitch--) {
       const black = isBlackKey(pitch);
       const isC = pitch % 12 === 0;
@@ -125,7 +140,8 @@ export function createPianoRoll({ projectId, onSelectionChange, onPlayClip, onOp
             preview(pitch);
          },
       }, isC ? pitchName(pitch) : ''));
-      rows.append(h('div', { class: `pr-row${black ? ' is-black' : ''}${isC ? ' is-c' : ''}` }));
+      rowEls[pitch] = h('div', { class: `pr-row${isC ? ' is-c' : ''}` });
+      rows.append(rowEls[pitch]);
    }
 
    const clip = () => data?.clips.find((c) => c.id === clipId) ?? null;
@@ -153,9 +169,20 @@ export function createPianoRoll({ projectId, onSelectionChange, onPlayClip, onOp
       inner.style.setProperty('--pr-bar', `${TICKS_PER_BAR * PX}px`);
       inner.style.setProperty('--pr-beat', `${BEAT}px`);
       inner.style.setProperty('--pr-row', `${ROW}px`);
+      renderScale(projectScale(data.project));
       ruler.replaceChildren(...Array.from({ length: c.bars * BEATS_PER_BAR }, (_, i) => h('span', {
          class: `pr-beat${i % BEATS_PER_BAR === 0 ? ' is-bar' : ''}`,
       }, i % BEATS_PER_BAR === 0 ? String(c.startBar + i / BEATS_PER_BAR) : '')));
+   }
+
+   // スケールの外の音の行を暗く、主音の行を少し色付きにする(鍵盤は実際の白黒のまま)
+   function renderScale(scale) {
+      keySelect.value = String(scale.root);
+      modeSelect.value = scale.mode;
+      rowEls.forEach((row, pitch) => {
+         row.classList.toggle('is-out', !inScale(pitch, scale));
+         row.classList.toggle('is-root', pitch % 12 === scale.root);
+      });
    }
 
    function renderNotes() {
@@ -183,6 +210,7 @@ export function createPianoRoll({ projectId, onSelectionChange, onPlayClip, onOp
          tick: (e.clientX - rect.left) / PX,
          pitch: Math.max(0, Math.min(127, 127 - Math.floor((e.clientY - rect.top) / ROW))),
          x: e.clientX - rect.left,
+         y: e.clientY - rect.top,
       };
    }
 
@@ -213,6 +241,10 @@ export function createPianoRoll({ projectId, onSelectionChange, onPlayClip, onOp
          return;
       }
       if (down.button !== 0) return;
+      if (down.ctrlKey || down.metaKey) {
+         marquee(down);
+         return;
+      }
       down.preventDefault();
       const at = pointAt(down);
       let target = noteAtTarget(down.target);
@@ -316,6 +348,52 @@ export function createPianoRoll({ projectId, onSelectionChange, onPlayClip, onOp
       grid.addEventListener('pointercancel', end);
    }
 
+   // Ctrl+ドラッグで、囲んだ範囲に掛かるノートを選ぶ。Shift も押していれば、いまの選択に足す。
+   // 囲んでいる間にホイールでスクロールしても、範囲はグリッドの上の位置で追う
+   function marquee(down) {
+      down.preventDefault();
+      const base = down.shiftKey ? new Set(selected) : new Set();
+      const from = pointAt(down);
+      const box = h('div', { class: 'pr-marquee' });
+      grid.append(box);
+      let last = down;
+      const update = () => {
+         const to = pointAt(last);
+         const left = Math.min(from.x, to.x);
+         const right = Math.max(from.x, to.x);
+         const top = Math.min(from.y, to.y);
+         const bottom = Math.max(from.y, to.y);
+         Object.assign(box.style, { left: `${left}px`, top: `${top}px`, width: `${right - left}px`, height: `${bottom - top}px` });
+         // 行の上端・下端の位置で比べる(描いているノートの見た目の範囲と揃える)
+         const hit = (n) => {
+            const x = n.start * PX;
+            const y = (127 - n.pitch) * ROW;
+            return x < right && x + Math.max(3, n.length * PX) > left && y < bottom && y + ROW > top;
+         };
+         selected = new Set([...base, ...notes.filter(hit)]);
+         renderNotes();
+      };
+      update();
+      dragging = true;
+      grid.setPointerCapture(down.pointerId);
+      const move = (e) => {
+         last = e;
+         update();
+      };
+      const end = () => {
+         grid.removeEventListener('pointermove', move);
+         grid.removeEventListener('pointerup', end);
+         grid.removeEventListener('pointercancel', end);
+         scroller.removeEventListener('scroll', update);
+         box.remove();
+         dragging = false;
+      };
+      grid.addEventListener('pointermove', move);
+      grid.addEventListener('pointerup', end);
+      grid.addEventListener('pointercancel', end);
+      scroller.addEventListener('scroll', update);
+   }
+
    // 並びを整えて保存する。選択はノートの中身で引き継ぐ
    function commit() {
       const keys = new Set([...selected].map(noteKey));
@@ -346,17 +424,17 @@ export function createPianoRoll({ projectId, onSelectionChange, onPlayClip, onOp
             close();
          }
       } else if ((e.key === 'ArrowUp' || e.key === 'ArrowDown') && list.length) {
-         // 上下で半音(Shift で1オクターブ)動かす
+         // 上下で半音(Shift か Ctrl で1オクターブ)動かす
          e.preventDefault();
-         const step = (e.key === 'ArrowUp' ? 1 : -1) * (e.shiftKey ? 12 : 1);
+         const step = (e.key === 'ArrowUp' ? 1 : -1) * (e.shiftKey || e.ctrlKey || e.metaKey ? 12 : 1);
          if (list.some((n) => n.pitch + step < 0 || n.pitch + step > 127)) return;
          for (const n of list) n.pitch += step;
          if (list.length === 1) preview(list[0].pitch);
          commit();
       } else if ((e.key === 'ArrowLeft' || e.key === 'ArrowRight') && list.length) {
-         // 左右でグリッド1つ分動かす
+         // 左右でグリッド1つ分(Shift か Ctrl で1小節)動かす
          e.preventDefault();
-         const step = (e.key === 'ArrowRight' ? 1 : -1) * snap;
+         const step = (e.key === 'ArrowRight' ? 1 : -1) * (e.shiftKey || e.ctrlKey || e.metaKey ? TICKS_PER_BAR : snap);
          for (const n of list) n.start += step;
          commit();
       }
