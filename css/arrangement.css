@@ -351,6 +351,25 @@ button.project-tab {
    font-weight: normal;
 }
 
+/* 連動タスクのステータス。ボードのタスクと同じ配色(未着手はいまの青、作業中はオレンジ、完了は緑) */
+.clip.is-doing {
+   border-color: var(--doing);
+   background: var(--doing-soft);
+}
+
+.clip.is-done {
+   border-color: var(--done);
+   background: color-mix(in srgb, var(--done) 18%, var(--surface));
+}
+
+.clip.is-doing .clip-notes {
+   fill: var(--doing);
+}
+
+.clip.is-done .clip-notes {
+   fill: var(--done);
+}
+
 /* セクションマーカーの範囲の外(ボードに出ていない)。点線と薄い地で見分ける */
 .clip.is-outside {
    border-style: dashed;

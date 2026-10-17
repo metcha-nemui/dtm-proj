@@ -4,6 +4,7 @@
 import * as actions from '../actions.js';
 import { clipEnd } from '../domain/arrangement.js';
 import { audibleNotes } from '../domain/midi.js';
+import { STATUS_LABELS, STATUSES } from '../domain/task.js';
 import { repo, subscribe } from '../state.js';
 import { h, icon } from './components/dom.js';
 import { reportError, showToast } from './components/toast.js';
@@ -41,6 +42,7 @@ export function createClipDrawer(projectId, { onSelectionChange, onOpenPianoRoll
          clip: found,
          track: tracks.find((t) => t.id === found.trackId) ?? null,
          lane: lanes.find((l) => l.id === linked?.laneId) ?? null,
+         task: linked ?? null,
       };
    }
 
@@ -75,6 +77,17 @@ export function createClipDrawer(projectId, { onSelectionChange, onOpenPianoRoll
       const where = h('span', { class: 'drawer-lane muted' });
       const section = h('p', { class: 'drawer-linked-note' });
       const noteCount = h('span', { class: 'muted' });
+      // 連動タスクのステータス。ボードのタスク詳細と同じボタンで、変えるとクリップの色も変わる
+      const statusButtons = STATUSES.map((status) => h('button', {
+         type: 'button',
+         class: 'segment',
+         dataset: { status },
+         onclick: () => {
+            const task = context?.task;
+            if (task) run(actions.setTaskStatus(projectId, task.id, status));
+         },
+      }, STATUS_LABELS[status]));
+      const statusField = field('ステータス', h('div', { class: 'segments' }, statusButtons));
       const midi = () => clipMidi(context.project, context.track, clip);
       const midiRow = h('div', { class: 'drawer-midi' },
          h('button', {
@@ -98,6 +111,7 @@ export function createClipDrawer(projectId, { onSelectionChange, onOpenPianoRoll
          h('div', { class: 'drawer-body' },
             name,
             section,
+            statusField,
             midiRow,
             field('詳細', memo),
             h('div', { class: 'drawer-foot clip-foot' },
@@ -114,7 +128,7 @@ export function createClipDrawer(projectId, { onSelectionChange, onOpenPianoRoll
 
       document.getElementById('overlay-root').append(backdrop, panel);
       document.body.classList.add('drawer-open');
-      el = { panel, backdrop, name, memo, where, section, noteCount };
+      el = { panel, backdrop, name, memo, where, section, noteCount, statusButtons, statusField };
    }
 
    // 読み込んだ内容を表示に反映する。編集中(フォーカス中)の欄は上書きしない
@@ -132,6 +146,12 @@ export function createClipDrawer(projectId, { onSelectionChange, onOpenPianoRoll
       el.section.textContent = context.lane
          ? `ボードの「${context.lane.name}」にタスクとして出ています。`
          : 'セクションマーカーの範囲の外にあるので、ボードには出ていません。';
+      // ボードに出ていない(無所属の)間は、タスクのステータスを変えさせない
+      const task = context.lane ? context.task : null;
+      el.statusField.hidden = !task;
+      for (const button of el.statusButtons) {
+         button.setAttribute('aria-pressed', String(button.dataset.status === task?.status));
+      }
    }
 
    async function open(clipId, { focusName = false } = {}) {
