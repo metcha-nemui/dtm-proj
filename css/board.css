@@ -713,6 +713,8 @@
 
 .drawer-memo {
    min-height: 140px;
+   /* 高さは内容に合わせて JS が決める(autoGrow.js)。手で変えるとぶつかるので止める */
+   resize: none;
 }
 
 /* 開始日と終了日を横に並べる */

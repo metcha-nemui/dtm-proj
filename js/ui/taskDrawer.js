@@ -8,6 +8,7 @@ import { UNTITLED_CLIP } from '../domain/arrangement.js';
 import { collectReferences } from '../domain/reference.js';
 import { STATUSES, STATUS_LABELS, isValidPeriod } from '../domain/task.js';
 import { repo, subscribe } from '../state.js';
+import { autoGrow, fitTextarea } from './components/autoGrow.js';
 import { h, icon } from './components/dom.js';
 import { reportError, showToast } from './components/toast.js';
 import { barRange } from './clipDrawer.js';
@@ -127,7 +128,7 @@ export function createTaskDrawer(projectId, { onSelectionChange } = {}) {
          'アレンジのクリップから来たタスクです。セクションはアレンジのマーカーで決まります。',
          h('a', { href: `#/p/${projectId}/arrange` }, 'アレンジで見る'));
       const deleteButton = h('button', { type: 'button', class: 'btn btn-danger', onclick: remove }, 'タスクを削除');
-      const memo = h('textarea', { class: 'textarea drawer-memo', 'aria-label': 'メモ', placeholder: 'メモ', onchange: commit });
+      const memo = autoGrow(h('textarea', { class: 'textarea drawer-memo', 'aria-label': 'メモ', placeholder: 'メモ', onchange: commit }));
       const statusButtons = STATUSES.map((status) => h('button', {
          type: 'button',
          class: 'segment',
@@ -197,6 +198,8 @@ export function createTaskDrawer(projectId, { onSelectionChange } = {}) {
       el.laneName.textContent = [context.lane?.name, clip && barRange(clip)].filter(Boolean).join('・');
       el.references.setKnown(context.knownReferences);
       el.references.render();
+      // 中身と、上の欄(リファレンスのチップ・日付)の高さが変わるので、最後に合わせる
+      fitTextarea(el.memo);
    }
 
    async function open(taskId) {

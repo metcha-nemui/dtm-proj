@@ -7,6 +7,7 @@ import { audibleNotes } from '../domain/midi.js';
 import { collectReferences } from '../domain/reference.js';
 import { STATUS_LABELS, STATUSES } from '../domain/task.js';
 import { repo, subscribe } from '../state.js';
+import { autoGrow, fitTextarea } from './components/autoGrow.js';
 import { h, icon } from './components/dom.js';
 import { reportError, showToast } from './components/toast.js';
 import { clipMidi, downloadMidi } from './midiExport.js';
@@ -90,7 +91,7 @@ export function createClipDrawer(projectId, { onSelectionChange, onOpenPianoRoll
       const name = h('input', {
          class: 'input drawer-title', 'aria-label': 'クリップ名', placeholder: 'クリップ名', autocomplete: 'off', onchange: commit,
       });
-      const memo = h('textarea', { class: 'textarea drawer-memo', 'aria-label': '詳細', placeholder: '詳細', onchange: commit });
+      const memo = autoGrow(h('textarea', { class: 'textarea drawer-memo', 'aria-label': '詳細', placeholder: '詳細', onchange: commit }));
       const where = h('span', { class: 'drawer-lane muted' });
       const section = h('p', { class: 'drawer-linked-note' });
       const noteCount = h('span', { class: 'muted' });
@@ -181,6 +182,8 @@ export function createClipDrawer(projectId, { onSelectionChange, onOpenPianoRoll
       el.referenceField.hidden = !task;
       el.references.setKnown(context.knownReferences);
       el.references.render();
+      // 中身と、上の欄(リファレンスのチップ・ステータス)の高さが変わるので、最後に合わせる
+      fitTextarea(el.memo);
    }
 
    async function open(clipId, { focusName = false } = {}) {
