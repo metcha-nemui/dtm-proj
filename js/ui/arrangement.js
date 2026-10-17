@@ -31,6 +31,7 @@ import { arrangementMidi, downloadMidi } from './midiExport.js';
 import * as sound from './synth.js';
 import { createPianoRoll } from './pianoRoll.js';
 import { programPicker } from './programPicker.js';
+import { projectHead } from './projectHeader.js';
 import { projectTabs } from './projectTabs.js';
 
 const DRAG_THRESHOLD = 4; // これより動かなければクリック(詳細を開く・メニューを出す)として扱う(px)
@@ -815,8 +816,7 @@ export function mount(container, { id: projectId }) {
    function toolbar() {
       const { project } = data;
       return h('div', { class: 'board-toolbar' },
-         h('a', { class: 'btn btn-icon', href: '#/', 'aria-label': 'プロジェクト一覧へ', title: 'プロジェクト一覧へ' }, icon('arrow-left')),
-         h('h1', { class: 'board-title', title: project.memo || null }, project.title),
+         projectHead({ project, tasks: data.tasks, run }),
          projectTabs(projectId, 'arrange'),
          transport(),
          h('span', { class: 'muted board-summary' }, `トラック${data.tracks.length}・クリップ${data.clips.length}`));
@@ -962,7 +962,8 @@ export function mount(container, { id: projectId }) {
       h('span', { class: 'clip-edge is-end', dataset: { edge: 'end' }, title: 'ドラッグで長さを変える' }));
    }
 
-   function trackRow(track, boundaries, audible) {
+   // index はトラックの並び順(0 始まり)。見出しに番号として出す(保存はしない)
+   function trackRow(track, index, boundaries, audible) {
       const menuButton = h('button', {
          type: 'button',
          class: 'btn btn-icon',
@@ -1021,6 +1022,7 @@ export function mount(container, { id: projectId }) {
       return h('div', { class: `arr-row arr-track${audible.has(track.id) ? '' : ' is-silent'}`, dataset: { trackId: track.id } },
          h('div', { class: 'arr-head', title: 'ドラッグで並べ替え' },
             icon('grip-vertical', 14),
+            h('span', { class: 'arr-head-num', title: `${index + 1}番目のトラック` }, String(index + 1)),
             h('span', { class: 'arr-head-text' },
                h('span', { class: 'arr-head-top' },
                   h('span', { class: 'arr-head-name', title: track.name }, track.name),
@@ -1164,7 +1166,7 @@ export function mount(container, { id: projectId }) {
                rulerRow(),
                markerRow(spans, colors),
                scaleRow(),
-               h('div', { class: 'arr-tracks' }, data.tracks.map((track) => trackRow(track, boundaries, audible))),
+               h('div', { class: 'arr-tracks' }, data.tracks.map((track, i) => trackRow(track, i, boundaries, audible))),
                h('div', { class: 'arr-row arr-foot' },
                   h('button', {
                      type: 'button',

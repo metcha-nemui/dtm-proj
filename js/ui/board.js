@@ -2,11 +2,10 @@
 
 import * as actions from '../actions.js';
 import { sortByOrder } from '../domain/order.js';
-import { listReferences } from '../domain/reference.js';
 import { sectionColors } from '../domain/project.js';
 import { summarize } from '../domain/stats.js';
 import { repo, subscribe } from '../state.js';
-import { confirmDialog, formDialog, viewDialog } from './components/dialog.js';
+import { confirmDialog, formDialog } from './components/dialog.js';
 import { h, icon, keepFocus, progressBar } from './components/dom.js';
 import { openMenu } from './components/menu.js';
 import { createSortable, domIndex } from './components/sortable.js';
@@ -14,7 +13,7 @@ import { reportError, showToast } from './components/toast.js';
 import { dueBadge } from './dueBadge.js';
 import { renderGantt } from './gantt.js';
 import { renderLane } from './lane.js';
-import { deleteProjectDialog, editProjectDialog } from './projectDialogs.js';
+import { projectHead } from './projectHeader.js';
 import { projectTabs } from './projectTabs.js';
 import { createTaskDrawer } from './taskDrawer.js';
 
@@ -204,47 +203,11 @@ export function mount(container, { id: projectId }) {
       if (today) gantt.scrollLeft = today.offsetLeft - gantt.clientWidth * 0.7;
    }
 
-   // プロジェクトのタスクに付いているリファレンスの曲名を、名前順に見せる。見るだけで、どのタスクのものかは出さない
-   function showReferences() {
-      const names = listReferences(data.tasks);
-      return viewDialog({
-         title: names.length ? `リファレンス(${names.length}曲)` : 'リファレンス',
-         body: names.length
-            ? h('ul', { class: 'ref-dialog-list' }, names.map((name) => h('li', null, name)))
-            : h('p', { class: 'dialog-message muted' }, 'まだありません。タスク詳細で曲名を付けると、ここに並びます。'),
-      });
-   }
-
    function toolbar() {
       const { project, tasks } = data;
       const stats = summarize(tasks);
-      const remove = () => run(deleteProjectDialog(project).then((deleted) => { if (deleted) location.hash = '#/'; }));
-      const menuButton = h('button', {
-         type: 'button',
-         class: 'btn btn-icon',
-         'aria-label': 'プロジェクトのメニュー',
-         dataset: { focusKey: 'project-menu' },
-         onclick: () => openMenu(menuButton, [
-            { label: '名前・締切・メモを編集', onSelect: () => run(editProjectDialog(project)) },
-            { label: 'プロジェクトを削除', danger: true, onSelect: remove },
-         ]),
-      }, icon('ellipsis-vertical'));
-
-      const head = [
-         h('a', { class: 'btn btn-icon', href: '#/', 'aria-label': 'プロジェクト一覧へ', title: 'プロジェクト一覧へ' }, icon('arrow-left')),
-         h('h1', { class: 'board-title', title: project.memo || null }, project.title),
-         h('button', {
-            type: 'button',
-            class: 'btn btn-icon',
-            'aria-label': 'リファレンスの一覧',
-            title: 'リファレンスの一覧',
-            dataset: { focusKey: 'references' },
-            onclick: () => run(showReferences()),
-         }, icon('music')),
-         menuButton,
-      ];
       return h('div', { class: 'board-toolbar' },
-         head,
+         projectHead({ project, tasks, run }),
          projectTabs(projectId, 'board'),
          h('div', { class: 'board-progress' },
             progressBar(stats.ratio),

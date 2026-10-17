@@ -258,6 +258,15 @@ button.project-tab {
    cursor: grab;
 }
 
+/* トラック番号(上から順に振る。保存はしない) */
+.arr-head-num {
+   flex: none;
+   min-width: 2ch;
+   font-size: 12px;
+   font-variant-numeric: tabular-nums;
+   text-align: right;
+}
+
 .arr-head-name {
    flex: 1;
    min-width: 0;
