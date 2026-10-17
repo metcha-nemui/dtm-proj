@@ -353,6 +353,30 @@ export const GM_PROGRAMS = [
    'Guitar Fret Noise', 'Breath Noise', 'Seashore', 'Bird Tweet', 'Telephone Ring', 'Helicopter', 'Applause', 'Gunshot',
 ];
 
+/** General MIDI の音色の系統(8音色ずつ、16系統)。音色を選ぶ画面の見出しと絞り込みに使う。 */
+export const GM_FAMILIES = [
+   'ピアノ', 'クロマチック・パーカッション', 'オルガン', 'ギター', 'ベース', 'ストリングス', 'アンサンブル', 'ブラス',
+   'リード', 'パイプ', 'シンセリード', 'シンセパッド', 'シンセ効果', '民族楽器', '打楽器', '効果音',
+];
+
+const searchText = (text) => String(text).normalize('NFKC').toLowerCase();
+
+/**
+ * 音色を絞り込む。空白で区切った語がすべて、番号(1始まり)・音色名・系統名のどこかに含まれるものを残す
+ * (全角・半角、大文字・小文字は区別しない)。系統ごとにまとめ、1つも残らない系統は返さない。
+ * @returns {{ family: string, programs: number[] }[]} programs は 0 始まりの音色番号
+ */
+export function filterPrograms(query) {
+   const terms = searchText(query ?? '').split(/\s+/).filter(Boolean);
+   return GM_FAMILIES.map((family, f) => ({
+      family,
+      programs: Array.from({ length: 8 }, (_, i) => f * 8 + i).filter((program) => {
+         const text = searchText(`${program + 1} ${GM_PROGRAMS[program]} ${family}`);
+         return terms.every((term) => text.includes(term));
+      }),
+   })).filter((group) => group.programs.length);
+}
+
 /** トラックの音色の表示名。 */
 export function soundLabel(track) {
    const { program, drum } = trackSound(track);

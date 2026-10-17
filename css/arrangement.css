@@ -705,6 +705,70 @@ button.project-tab {
    position: relative;
 }
 
+/* 音色を選ぶ部品(トラックの音のダイアログ)。系統ごとの見出しの下に、音色のボタンを数列に並べる */
+.program-current {
+   margin: var(--space-1) 0;
+   font-size: 12px;
+}
+
+.program-list {
+   max-height: min(46vh, 420px);
+   overflow-y: auto;
+   padding: var(--space-1);
+   border: 1px solid var(--border);
+   border-radius: var(--radius-sm);
+}
+
+.program-group + .program-group {
+   margin-top: var(--space-2);
+}
+
+.program-family {
+   position: sticky;
+   top: calc(-1 * var(--space-1));
+   margin: 0 0 2px;
+   padding: 2px var(--space-1);
+   background: var(--surface);
+   color: var(--text-muted);
+   font-size: 12px;
+   font-weight: 600;
+}
+
+.program-grid {
+   display: grid;
+   grid-template-columns: repeat(auto-fill, minmax(168px, 1fr));
+   gap: 2px;
+}
+
+.program-option {
+   overflow: hidden;
+   padding: 3px var(--space-2);
+   border: 1px solid transparent;
+   border-radius: var(--radius-sm);
+   background: transparent;
+   color: var(--text);
+   font-size: 12px;
+   text-align: left;
+   text-overflow: ellipsis;
+   white-space: nowrap;
+   cursor: pointer;
+}
+
+.program-option:hover {
+   background: var(--surface-2);
+}
+
+.program-option[aria-pressed="true"] {
+   border-color: var(--accent);
+   background: var(--accent-soft);
+   font-weight: 600;
+}
+
+.program-empty {
+   padding: var(--space-3);
+   text-align: center;
+}
+
 /* クリップ詳細の下端。複製を左、削除を右に */
 .clip-foot {
    display: flex;

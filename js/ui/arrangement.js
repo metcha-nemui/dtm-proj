@@ -14,7 +14,7 @@ import {
    arrangementBars, canPlace, canShiftClips, clipEnd, clipSection, markerSpans, UNTITLED_CLIP,
 } from '../domain/arrangement.js';
 import {
-   audibleNotes, audibleTrackIds, CENTER_PAN, clipTicks, DEFAULT_VOLUME, GM_PROGRAMS, KEY_NAMES, MAX_BPM, MIN_BPM, noteEvents, PPQ,
+   audibleNotes, audibleTrackIds, CENTER_PAN, clipTicks, DEFAULT_VOLUME, KEY_NAMES, MAX_BPM, MIN_BPM, noteEvents, PPQ,
    projectBpm, projectScales, scaleAt, scaleLabel, SCALE_MODES, setupMessages, soundLabel, TICKS_PER_BAR, trackChannels, trackMix,
    trackSound,
 } from '../domain/midi.js';
@@ -30,6 +30,7 @@ import { barRange, createClipDrawer } from './clipDrawer.js';
 import { arrangementMidi, downloadMidi } from './midiExport.js';
 import * as sound from './synth.js';
 import { createPianoRoll } from './pianoRoll.js';
+import { programPicker } from './programPicker.js';
 import { projectTabs } from './projectTabs.js';
 
 const DRAG_THRESHOLD = 4; // これより動かなければクリック(詳細を開く・メニューを出す)として扱う(px)
@@ -668,12 +669,10 @@ export function mount(container, { id: projectId }) {
       const sound = trackSound(track);
       const values = await formDialog({
          title: `「${track.name}」の音`,
-         message: 'OS の MIDI 音源(General MIDI)の音色で鳴らします。',
+         message: '音源(設定画面で選んだ SoundFont / DLS)の General MIDI の音色で鳴らします。',
+         wide: true,
          fields: [
-            {
-               name: 'program', label: '音色', type: 'select', value: String(sound.program),
-               options: GM_PROGRAMS.map((name, i) => ({ value: String(i), label: `${i + 1}. ${name}` })),
-            },
+            { name: 'program', label: '音色', type: 'custom', render: (id) => programPicker(id, sound.program) },
             { name: 'drum', label: 'ドラム(10ch で鳴らす。音色は使わない)', type: 'checkbox', value: sound.drum },
             {
                name: 'volume', label: '音量(0〜127)', type: 'range', value: String(sound.volume),

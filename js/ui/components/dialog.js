@@ -3,11 +3,11 @@
 import { h } from './dom.js';
 
 // build(close) で中身を作る。close(value) で閉じると、その値で Promise が解決する。
-// Esc や背景クリックで閉じたときは null。
-function showDialog(build) {
+// Esc や背景クリックで閉じたときは null。wide なら幅を広げる(中身の多いダイアログ)。
+function showDialog(build, { wide = false } = {}) {
    return new Promise((resolve) => {
       let result = null;
-      const dialog = h('dialog', { class: 'dialog' });
+      const dialog = h('dialog', { class: `dialog${wide ? ' is-wide' : ''}` });
       const close = (value) => {
          result = value;
          dialog.close();
@@ -65,6 +65,7 @@ export function viewDialog({ title, body }) {
 function readValue(field, el) {
    if (field.type === 'checkbox') return el.checked;
    if (field.type === 'range') return el.querySelector('input[type=number]').value;
+   if (field.type === 'custom') return el.value;
    return el.value;
 }
 
@@ -104,6 +105,8 @@ function control(field) {
          return h('input', { ...common, type: 'checkbox', checked: Boolean(field.value) });
       case 'range':
          return rangeControl(field);
+      case 'custom':
+         return field.render(`field-${field.name}`);
       default:
          return h('input', {
             ...common, class: 'input', type: field.type ?? 'text', value: field.value ?? '',
@@ -118,14 +121,17 @@ function control(field) {
  * @param {string} options.title
  * @param {string} [options.message]
  * @param {string} [options.submitLabel]
- * @param {Array<{ name: string, label: string, type?: 'text'|'number'|'textarea'|'select'|'checkbox'|'range',
+ * @param {Array<{ name: string, label: string, type?: 'text'|'number'|'textarea'|'select'|'checkbox'|'range'|'custom',
  *   value?: any, placeholder?: string, required?: boolean,
  *   options?: Array<{ value: string, label: string }>,
- *   min?: number, max?: number, step?: number, reset?: number }>} options.fields
- *   range は横スライダーと数値の欄。min / max / step はその範囲、reset はスライダーのダブルクリックで戻す値
+ *   min?: number, max?: number, step?: number, reset?: number,
+ *   render?: (id: string) => HTMLElement & { value: any } }>} options.fields
+ *   range は横スライダーと数値の欄。min / max / step はその範囲、reset はスライダーのダブルクリックで戻す値。
+ *   custom は render(id) が作る部品を置き、その value を読む(id はラベルが指す要素に付ける)
+ * @param {boolean} [options.wide] ダイアログの幅を広げる
  * @returns {Promise<Object|null>} name をキーにした入力値。キャンセルなら null
  */
-export function formDialog({ title, message, fields, submitLabel = '保存' }) {
+export function formDialog({ title, message, fields, submitLabel = '保存', wide = false }) {
    return showDialog((close) => {
       const controls = new Map(fields.map((f) => [f, control(f)]));
       const onsubmit = (e) => {
@@ -151,5 +157,5 @@ export function formDialog({ title, message, fields, submitLabel = '保存' }) {
          h('div', { class: 'dialog-actions' },
             h('button', { type: 'button', class: 'btn', onclick: () => close(null) }, 'キャンセル'),
             h('button', { type: 'submit', class: 'btn btn-primary' }, submitLabel)));
-   });
+   }, { wide });
 }

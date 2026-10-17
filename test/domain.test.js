@@ -6,7 +6,7 @@ import {
    placeClip, renameTrack, setClipNotes, shiftClips, syncClipTasks, updateClip, updateMarker, updateTrackMix, updateTrackSound,
 } from '../js/domain/arrangement.js';
 import {
-   audibleNotes, audibleTrackIds, buildMidiFile, clipTicks, inScale, MAX_BPM, midiFileName, MIN_BPM, moveScale, normalizeBpm,
+   audibleNotes, audibleTrackIds, buildMidiFile, clipTicks, filterPrograms, inScale, MAX_BPM, midiFileName, MIN_BPM, moveScale, normalizeBpm,
    normalizeNotes, normalizeScale, normalizeScales, noteEvents, PPQ, projectBpm, projectScales, removeScale, scaleAt, scaleLabel,
    scaleSpans, secondsToTicks, setScaleAt, soundLabel, TICKS_PER_BAR, ticksToSeconds, trackChannels, trackMix, trackSound, varLen,
 } from '../js/domain/midi.js';
@@ -961,6 +961,16 @@ test('shiftClips: 選んだクリップをまとめて横にずらす。1つで�
    equal(canShiftClips(all, [b.id], -1, markers), true, '8〜9小節は区間に掛かる');
    equal(canShiftClips(all, [b.id, a.id], 4, markers), false, 'a(5〜8)が区間の外');
    equal(canShiftClips(all, ['none'], 1), false, 'ないクリップ');
+});
+
+test('filterPrograms: 番号・音色名・系統名で絞り込み、系統ごとにまとめる', () => {
+   const all = filterPrograms('');
+   equal([all.length, all.flatMap((g) => g.programs).length, all[0].family], [16, 128, 'ピアノ'], '空なら全部');
+   equal(filterPrograms('bass').map((g) => g.family), ['ベース', 'ストリングス', 'リード', 'シンセリード'], '音色名の一部(Contrabass、Bassoon も入る)');
+   equal(filterPrograms('ＢＡＳＳ　slap').flatMap((g) => g.programs), [36, 37], '全角・大文字、複数の語');
+   equal(filterPrograms('ストリングス').flatMap((g) => g.programs), [40, 41, 42, 43, 44, 45, 46, 47], '系統名');
+   equal(filterPrograms('128').flatMap((g) => g.programs), [127], '番号');
+   equal(filterPrograms('zzz'), [], '合うものがない');
 });
 
 test('noteEvents: 曲の頭からの位置で並べ、同じ位置ではノートオフを先に置く', () => {
