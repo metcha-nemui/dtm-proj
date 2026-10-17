@@ -102,10 +102,14 @@ button.project-tab {
    border-bottom: 1px solid var(--border);
 }
 
-/* スケールの段は、マーカーの段の下に貼り付ける(マーカーの段の作りを使い回す) */
+/* スケールの段はルーラーのすぐ下、セクションの段はその下に貼り付ける(どちらもマーカーの段の作りを使い回す) */
 .arr-marker-row.arr-scale-row {
-   top: calc(var(--arr-ruler-h) + var(--arr-marker-h));
+   top: var(--arr-ruler-h);
    height: var(--arr-scale-h);
+}
+
+.arr-marker-row.arr-section-row {
+   top: calc(var(--arr-ruler-h) + var(--arr-scale-h));
 }
 
 .arr-scale-row .arr-flag {

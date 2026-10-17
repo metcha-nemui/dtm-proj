@@ -1,5 +1,5 @@
 // アレンジ画面(#/p/:id/arrange)。DAW のアレンジ画面のように、トラックを縦に並べ、クリップを小節単位で置く。
-// 上端のルーラーの下にセクションマーカーの段と、スケール(転調)の段がある。マーカーはボードのセクションを指し、名前と色はそちらに従う。
+// 上端のルーラーの下にスケール(転調)の段と、セクションマーカーの段がある。マーカーはボードのセクションを指し、名前と色はそちらに従う。
 // クリップは、属するセクションのレーンにタスク(連動タスク)として出る。だから、セクションマーカーの範囲の外には
 // 新しく置けない(作る・動かす・伸ばす)。マーカーを動かしたり消したりして範囲の外になったクリップは、そのまま残す。
 //
@@ -942,7 +942,7 @@ export function mount(container, { id: projectId }) {
          }, lane?.name ?? '');
          return flag;
       });
-      return h('div', { class: 'arr-row arr-marker-row' },
+      return h('div', { class: 'arr-row arr-marker-row arr-section-row' },
          h('div', { class: 'arr-corner arr-corner-label' }, 'セクション'),
          h('div', { class: 'arr-markers' }, slots, bands, flags));
    }
@@ -1214,8 +1214,9 @@ export function mount(container, { id: projectId }) {
                // 再生位置の線。トラック名の列より下に重ねるため、先に置く(follow で動かす)
                h('div', { class: 'arr-playhead', hidden: true, 'aria-hidden': 'true' }),
                rulerRow(),
-               markerRow(spans, colors),
+               // セクションの段はトラックのすぐ上に置く(境目の点線がトラックへ続いて見えるように)
                scaleRow(),
+               markerRow(spans, colors),
                h('div', { class: 'arr-tracks' }, data.tracks.map((track, i) => trackRow(track, i, boundaries, audible))),
                h('div', { class: 'arr-row arr-foot' },
                   h('button', {
