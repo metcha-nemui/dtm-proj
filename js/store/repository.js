@@ -5,6 +5,7 @@
 // すべて非同期(Promise)で、実装を差し替えてもシグネチャは変えない。
 
 import { syncClipTasks } from '../domain/arrangement.js';
+import { normalizeNotes, projectBpm, trackSound } from '../domain/midi.js';
 
 // v4: テンプレートをプロジェクトと同じ形(isTemplate の付いたプロジェクト)で持つようにし、
 // セクション種別と定番タスクをやめた。それより前のデータは形が違い、変換を用意していないので読み込めない。
@@ -12,7 +13,9 @@ import { syncClipTasks } from '../domain/arrangement.js';
 // v6: アレンジ(トラック・クリップ・マーカー)を足した。v4・v5 のデータは、アレンジなしとして読み込む。
 // v7: クリップをボードのタスク(連動タスク。clipId を持つ)として出すようにした。
 // v6 以前のデータは、セクションに入っているクリップに連動タスクを作って読み込む。
-export const SCHEMA_VERSION = 7;
+// v8: クリップを MIDI クリップにした(プロジェクトの BPM、トラックの音色・音量・パン、クリップのノート)。
+// v7 以前のデータは、BPM 120、ピアノ・音量 100・パン中央、ノートなしとして読み込む。
+export const SCHEMA_VERSION = 8;
 const OLDEST_READABLE_VERSION = 4;
 // 保存先に schemaVersion を記録し始めたときのバージョン。記録がない保存先は、このバージョンのデータとみなす
 const UNTRACKED_VERSION = 6;
@@ -26,6 +29,7 @@ const UNTRACKED_VERSION = 6;
  * @property {string} memo
  * @property {string|null} dueDate 締切(YYYY-MM-DD)。なければ null。テンプレートでは使わない
  * @property {boolean} isTemplate
+ * @property {number} [bpm] アレンジの再生と書き出しのテンポ(拍子は 4/4 固定)。プロジェクトだけが持つ
  * @property {string} createdAt
  * @property {string} updatedAt
  */
@@ -68,8 +72,22 @@ const UNTRACKED_VERSION = 6;
  * @property {string} projectId
  * @property {string} name
  * @property {number} order
+ * @property {number} program 音色(General MIDI のプログラム番号。0〜127)。drum なら使わない
+ * @property {number} volume 音量(0〜127)
+ * @property {number} pan パン(0〜127。64 が中央)
+ * @property {boolean} drum ドラムのトラック(10ch で鳴らす)
  * @property {string} createdAt
  * @property {string} updatedAt
+ */
+
+/**
+ * ピアノロールのノート。位置はクリップの先頭からの相対で、単位は tick(4分音符 = 480)。
+ * クリップの範囲の外にはみ出したもの(start が負のものも)は、持っていても鳴らさない。
+ * @typedef {Object} Note
+ * @property {number} pitch 0〜127(60 が C4)
+ * @property {number} start
+ * @property {number} length 1以上
+ * @property {number} velocity 1〜127
  */
 
 /**
@@ -83,6 +101,7 @@ const UNTRACKED_VERSION = 6;
  * @property {string} memo 詳細
  * @property {number} startBar 1始まりの整数
  * @property {number} bars 1以上の整数
+ * @property {Note[]} notes 開始位置の順
  * @property {string} createdAt
  * @property {string} updatedAt
  */
@@ -348,5 +367,9 @@ export function migrate(json) {
          result.tasks.push(...save);
       }
    }
+   // v7 → v8: MIDI の項目を足した。Supabase の一括保存のため、項目の有無が混ざらないように揃える
+   result.projects = result.projects.map((p) => (p.isTemplate ? p : { ...p, bpm: projectBpm(p) }));
+   result.tracks = result.tracks.map((t) => ({ ...t, ...trackSound(t) }));
+   result.clips = result.clips.map((c) => ({ ...c, notes: normalizeNotes(c.notes) }));
    return result;
 }

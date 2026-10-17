@@ -2,6 +2,7 @@
 // DOMにもrepositoryにも依存しない。受け取ったレコードは変更せず、保存すべき新しいレコードを返す。
 // 小節は1始まりの整数。クリップは startBar から bars 小節ぶん(startBar + bars - 1 小節目まで)を占める。
 
+import { normalizeNotes, TICKS_PER_BAR, trackSound } from './midi.js';
 import { assertSection, uniqueLaneName } from './project.js';
 import { orderAtEnd, reorder, sortByOrder } from './order.js';
 import { newRecord, touch } from './record.js';
@@ -18,14 +19,23 @@ export const clipEnd = (clip) => clip.startBar + clip.bars - 1;
 
 // ---- トラック ----
 
-/** トラックを末尾に追加する。名前が空なら「トラック」。重なったら番号を振る。 */
+/** トラックを末尾に追加する。名前が空なら「トラック」。重なったら番号を振る。音色はピアノ。 */
 export function addTrack(projectId, tracks, name = '') {
    const base = String(name ?? '').trim() || DEFAULT_TRACK_NAME;
    return newRecord({
       projectId,
       name: uniqueLaneName(base, tracks.map((t) => t.name)),
       order: orderAtEnd(tracks),
+      ...trackSound(null),
    });
+}
+
+/**
+ * トラックの音(音色・音量・パン・ドラムか)を変える。範囲の外の値は端に寄せる。
+ * @param {{ program?: number, volume?: number, pan?: number, drum?: boolean }} patch
+ */
+export function updateTrackSound(track, patch) {
+   return touch(track, trackSound({ ...trackSound(track), ...patch }));
 }
 
 export function renameTrack(track, name) {
@@ -74,7 +84,12 @@ function assertPlaceable(clips, place, ignoreId, markers) {
 export function addClip(track, clips, { startBar, bars = 1, name = '' }, markers = null) {
    const place = { trackId: track.id, startBar, bars };
    assertPlaceable(clips, place, null, markers);
-   return newRecord({ projectId: track.projectId, ...place, name: String(name ?? '').trim(), memo: '' });
+   return newRecord({ projectId: track.projectId, ...place, name: String(name ?? '').trim(), memo: '', notes: [] });
+}
+
+/** クリップのノートを置き換える(ピアノロールでの編集)。位置はクリップの先頭からの相対(tick)。 */
+export function setClipNotes(clip, notes) {
+   return touch(clip, { notes: normalizeNotes(notes) });
 }
 
 /** 名前と詳細(memo)を編集する。名前は空でもよい。 */
@@ -87,6 +102,9 @@ export function updateClip(clip, patch) {
 
 /**
  * クリップの位置と長さを変える(移動、伸縮、別のトラックへの移動を兼ねる)。省略した項目はそのまま。
+ * 先頭と長さを両方変えたとき(左端での伸縮)は、ノートを曲の中の同じ位置に残す(ノートはクリップの先頭からの
+ * 相対で持つので、ずらし直す。縮めて手前にはみ出したノートは消さずに持ち、伸ばし直せば戻る)。
+ * 長さを変えずに先頭を変えたとき(移動)は、ノートもクリップと一緒に動く。
  * @param {object[]} clips プロジェクトの全クリップ
  * @param {string} clipId
  * @param {{ trackId?: string, startBar?: number, bars?: number }} patch
@@ -101,7 +119,9 @@ export function placeClip(clips, clipId, patch, markers = null) {
       bars: patch.bars ?? clip.bars,
    };
    assertPlaceable(clips, place, clipId, markers);
-   return touch(clip, place);
+   const shift = (clip.startBar - place.startBar) * TICKS_PER_BAR;
+   if (!shift || place.bars === clip.bars) return touch(clip, place);
+   return touch(clip, { ...place, notes: normalizeNotes((clip.notes ?? []).map((n) => ({ ...n, start: n.start + shift }))) });
 }
 
 // ---- セクションマーカー ----

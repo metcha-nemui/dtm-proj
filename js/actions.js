@@ -243,6 +243,13 @@ export const renameTrack = serial(async (projectId, trackId, name) => {
    await changed(projectId);
 });
 
+/** トラックの音(音色・音量・パン・ドラムか)を変える。patch は { program?, volume?, pan?, drum? } */
+export const updateTrackSound = serial(async (projectId, trackId, patch) => {
+   const tracks = await repo().getTracks(projectId);
+   await repo().saveTrack(arrangementDomain.updateTrackSound(find(tracks, trackId, 'トラック'), patch));
+   await changed(projectId);
+});
+
 export const moveTrack = serial(async (projectId, trackId, toIndex) => {
    await repo().saveTracks(arrangementDomain.moveTrack(await repo().getTracks(projectId), trackId, toIndex));
    await changed(projectId);
@@ -287,6 +294,14 @@ export const updateClip = serial(async (projectId, clipId, patch) => {
    const clips = await repo().getClips(projectId);
    await repo().saveClip(arrangementDomain.updateClip(find(clips, clipId, 'クリップ'), patch));
    await syncArrangement(projectId);
+   await changed(projectId);
+});
+
+/** ピアノロールで編集したノートを保存する(クリップのノートを丸ごと置き換える)。 */
+export const setClipNotes = serial(async (projectId, clipId, notes) => {
+   const clips = await repo().getClips(projectId);
+   await repo().saveClip(arrangementDomain.setClipNotes(find(clips, clipId, 'クリップ'), notes));
+   // ノートは連動タスクに関わらないので、syncArrangement は要らない
    await changed(projectId);
 });
 

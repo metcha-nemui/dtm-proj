@@ -3,9 +3,11 @@
 
 import * as actions from '../actions.js';
 import { clipEnd } from '../domain/arrangement.js';
+import { audibleNotes } from '../domain/midi.js';
 import { repo, subscribe } from '../state.js';
 import { h, icon } from './components/dom.js';
 import { reportError, showToast } from './components/toast.js';
+import { clipMidi, downloadMidi, setMidiDrag } from './midiExport.js';
 
 /** 「3〜6小節」のような範囲の表示。1小節なら「3小節目」。 */
 export function barRange(clip) {
@@ -14,23 +16,26 @@ export function barRange(clip) {
 
 /**
  * @param {string} projectId
- * @param {{ onSelectionChange?: (clipId: string|null) => void }} [options]
+ * @param {{ onSelectionChange?: (clipId: string|null) => void, onOpenPianoRoll?: (clipId: string) => void }} [options]
  */
-export function createClipDrawer(projectId, { onSelectionChange } = {}) {
+export function createClipDrawer(projectId, { onSelectionChange, onOpenPianoRoll } = {}) {
    let clip = null; // 表示中のクリップ(最後に読み込んだ、または保存した状態)
+   let context = null; // clip と一緒に読み込んだもの(.mid を作るのに、プロジェクトの BPM とトラックが要る)
    let el = null; // ドロワーのDOM。閉じている間は null
    let requested = null; // open() の競合を避けるための、最後に要求されたクリップID
    const run = (promise) => promise.catch(reportError);
 
    async function loadContext(clipId) {
-      const [clips, tracks, tasks, lanes] = await Promise.all([
-         repo().getClips(projectId), repo().getTracks(projectId), repo().getTasks(projectId), repo().getLanes(projectId),
+      const [project, clips, tracks, tasks, lanes] = await Promise.all([
+         repo().getProject(projectId), repo().getClips(projectId), repo().getTracks(projectId),
+         repo().getTasks(projectId), repo().getLanes(projectId),
       ]);
       const found = clips.find((c) => c.id === clipId);
       if (!found) return null;
       // ボードのどのセクションにタスクとして出ているか
       const linked = tasks.find((t) => t.clipId === clipId);
       return {
+         project,
          clip: found,
          track: tracks.find((t) => t.id === found.trackId) ?? null,
          lane: lanes.find((l) => l.id === linked?.laneId) ?? null,
@@ -67,6 +72,28 @@ export function createClipDrawer(projectId, { onSelectionChange } = {}) {
       const memo = h('textarea', { class: 'textarea drawer-memo', 'aria-label': '詳細', placeholder: '詳細', onchange: commit });
       const where = h('span', { class: 'drawer-lane muted' });
       const section = h('p', { class: 'drawer-linked-note' });
+      const noteCount = h('span', { class: 'muted' });
+      const midi = () => clipMidi(context.project, context.track, clip);
+      const midiRow = h('div', { class: 'drawer-midi' },
+         h('button', {
+            type: 'button',
+            class: 'btn',
+            onclick: () => {
+               const id = clip?.id;
+               if (id) onOpenPianoRoll?.(id);
+            },
+         }, icon('piano', 14), 'ピアノロールで編集'),
+         h('div', {
+            class: 'pr-drag',
+            draggable: 'true',
+            title: 'ドラッグして FL Studio などへ落とすと、.mid として渡せます',
+            ondragstart: (e) => setMidiDrag(e.dataTransfer, midi()),
+         }, icon('file-music', 14), 'ドラッグで .mid'),
+         h('button', {
+            type: 'button', class: 'btn btn-icon', title: '.mid を書き出す', 'aria-label': '.mid を書き出す',
+            onclick: () => downloadMidi(midi()),
+         }, icon('download')),
+         noteCount);
 
       const panel = h('aside', { class: 'drawer', role: 'dialog', 'aria-label': 'クリップ詳細', tabIndex: -1 },
          h('header', { class: 'drawer-head' },
@@ -75,6 +102,7 @@ export function createClipDrawer(projectId, { onSelectionChange } = {}) {
          h('div', { class: 'drawer-body' },
             name,
             section,
+            midiRow,
             field('詳細', memo),
             h('div', { class: 'drawer-foot' },
                h('button', { type: 'button', class: 'btn btn-danger', onclick: remove }, 'クリップを削除'))));
@@ -82,12 +110,15 @@ export function createClipDrawer(projectId, { onSelectionChange } = {}) {
 
       document.getElementById('overlay-root').append(backdrop, panel);
       document.body.classList.add('drawer-open');
-      el = { panel, backdrop, name, memo, where, section };
+      el = { panel, backdrop, name, memo, where, section, noteCount };
    }
 
    // 読み込んだ内容を表示に反映する。編集中(フォーカス中)の欄は上書きしない
-   function apply(context, { force = false } = {}) {
+   function apply(loaded, { force = false } = {}) {
+      context = loaded;
       clip = context.clip;
+      const count = audibleNotes(clip).length;
+      el.noteCount.textContent = count ? `ノート${count}個` : 'ノートなし';
       const set = (input, value) => {
          if (force || document.activeElement !== input) input.value = value;
       };

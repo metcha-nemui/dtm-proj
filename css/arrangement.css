@@ -452,3 +452,414 @@ button.project-tab {
       white-space: nowrap;
    }
 }
+
+/* ---- 再生(ツールバー) ---- */
+
+.arr-view {
+   display: flex;
+   flex: 1;
+   flex-direction: column;
+   min-height: 0;
+}
+
+.arr-transport {
+   display: flex;
+   align-items: center;
+   gap: var(--space-2);
+}
+
+.arr-play {
+   border-color: var(--border);
+   color: var(--text);
+}
+
+.arr-play.is-playing {
+   border-color: var(--danger);
+   color: var(--danger);
+}
+
+.arr-bpm {
+   display: inline-flex;
+   align-items: center;
+   gap: var(--space-1);
+   font-size: 12px;
+}
+
+.arr-bpm .input {
+   width: 64px;
+   padding: 3px var(--space-1);
+   font-variant-numeric: tabular-nums;
+}
+
+.arr-output {
+   width: auto;
+   max-width: 200px;
+   padding: 3px var(--space-1);
+   font-size: 12px;
+}
+
+.arr-output-name {
+   max-width: 200px;
+   overflow: hidden;
+   font-size: 12px;
+   text-overflow: ellipsis;
+   white-space: nowrap;
+}
+
+/* ルーラーを押すと、そこが再生を始める位置になる */
+.arr-ruler {
+   position: relative;
+   cursor: pointer;
+}
+
+.arr-cursor,
+.arr-playhead {
+   position: absolute;
+   top: 0;
+   bottom: 0;
+   width: 0;
+   border-left: 2px solid var(--danger);
+   pointer-events: none;
+}
+
+.arr-cursor {
+   left: calc((var(--start) - 1) * var(--bar));
+}
+
+.arr-cursor::before {
+   content: "";
+   position: absolute;
+   top: 0;
+   left: -6px;
+   border: 5px solid transparent;
+   border-top: 7px solid var(--danger);
+}
+
+/* 再生位置の線。トラック名の列(後に置いてある)より下に重なる */
+.arr-inner {
+   position: relative;
+}
+
+.arr-playhead {
+   z-index: 2;
+   left: calc(var(--arr-head) + (var(--start) - 1) * var(--bar));
+}
+
+/* トラックの音色(押すと変えられる) */
+.arr-head-text {
+   display: flex;
+   flex: 1;
+   flex-direction: column;
+   min-width: 0;
+   line-height: 1.3;
+}
+
+.arr-head-sound {
+   align-self: flex-start;
+   max-width: 100%;
+   padding: 0;
+   overflow: hidden;
+   border: 0;
+   background: none;
+   color: var(--text-muted);
+   font: inherit;
+   font-size: 11px;
+   text-align: left;
+   text-overflow: ellipsis;
+   white-space: nowrap;
+   cursor: pointer;
+}
+
+.arr-head-sound:hover {
+   color: var(--text);
+   text-decoration: underline;
+}
+
+/* クリップの中のノートの並び(表示だけ) */
+.clip-notes {
+   position: absolute;
+   top: 3px;
+   left: 1px;
+   width: calc(100% - 2px);
+   height: calc(100% - 6px);
+   fill: var(--accent);
+   opacity: 0.5;
+   pointer-events: none;
+}
+
+.clip-name {
+   position: relative;
+}
+
+/* 掴んで DAW へ .mid として渡す */
+.clip-midi {
+   position: relative;
+   display: inline-flex;
+   flex: none;
+   align-items: center;
+   justify-content: center;
+   width: 16px;
+   height: 16px;
+   border-radius: 3px;
+   background: var(--surface);
+   cursor: copy;
+}
+
+.clip .clip-midi .icon {
+   color: var(--accent);
+}
+
+.pr-drag {
+   display: inline-flex;
+   align-items: center;
+   gap: var(--space-1);
+   padding: 3px var(--space-2);
+   border: 1px dashed var(--accent);
+   border-radius: var(--radius-sm);
+   color: var(--accent);
+   font-size: 12px;
+   white-space: nowrap;
+   cursor: copy;
+   user-select: none;
+}
+
+.drawer-midi {
+   display: flex;
+   flex-wrap: wrap;
+   align-items: center;
+   gap: var(--space-2);
+   margin-bottom: var(--space-4);
+   font-size: 13px;
+}
+
+/* ---- ピアノロール(アレンジ画面の下のパネル) ---- */
+
+.pr {
+   display: flex;
+   flex: none;
+   flex-direction: column;
+   height: min(46vh, 460px);
+   border-top: 2px solid var(--border);
+   background: var(--surface);
+}
+
+.pr[hidden] {
+   display: none;
+}
+
+.pr-head {
+   display: flex;
+   flex: none;
+   flex-wrap: wrap;
+   align-items: center;
+   gap: var(--space-1) var(--space-2);
+   padding: var(--space-1) var(--space-2) var(--space-1) var(--space-3);
+   border-bottom: 1px solid var(--border);
+   font-size: 13px;
+}
+
+.pr-head > .icon {
+   color: var(--text-muted);
+}
+
+.pr-head .btn-icon:hover {
+   background: var(--surface-2);
+}
+
+.pr-title {
+   min-width: 0;
+   overflow: hidden;
+   font-weight: 600;
+   text-overflow: ellipsis;
+   white-space: nowrap;
+}
+
+.pr-range {
+   font-size: 12px;
+   white-space: nowrap;
+}
+
+.pr-snap-label {
+   display: inline-flex;
+   align-items: center;
+   gap: var(--space-1);
+   margin-left: var(--space-2);
+   font-size: 12px;
+}
+
+.pr-snap {
+   width: auto;
+   padding: 2px var(--space-1);
+   font-size: 12px;
+}
+
+.pr-spacer {
+   flex: 1;
+}
+
+.pr-scroll {
+   flex: 1;
+   min-height: 0;
+   overflow: auto;
+   outline: none;
+}
+
+.pr-inner {
+   --pr-keys: 52px;
+   --pr-ruler-h: 20px;
+
+   display: grid;
+   grid-template-columns: var(--pr-keys) var(--pr-width);
+   grid-template-rows: var(--pr-ruler-h) auto;
+   width: max-content;
+}
+
+.pr-corner,
+.pr-ruler {
+   position: sticky;
+   top: 0;
+   z-index: 3;
+   height: var(--pr-ruler-h);
+   border-bottom: 1px solid var(--border);
+   background: var(--surface);
+}
+
+.pr-corner {
+   left: 0;
+   z-index: 4;
+   border-right: 1px solid var(--border);
+}
+
+.pr-ruler {
+   display: flex;
+}
+
+.pr-beat {
+   flex: none;
+   width: var(--pr-beat);
+   padding-left: 3px;
+   border-left: 1px solid var(--border);
+   color: var(--text-muted);
+   font-size: 10px;
+   line-height: var(--pr-ruler-h);
+   font-variant-numeric: tabular-nums;
+}
+
+.pr-beat.is-bar {
+   border-left-color: var(--text-muted);
+   color: var(--text);
+}
+
+/* 鍵盤。上が高い音 */
+.pr-keys {
+   position: sticky;
+   left: 0;
+   z-index: 2;
+   border-right: 1px solid var(--border);
+}
+
+.pr-key {
+   height: var(--pr-row);
+   padding-right: 3px;
+   border-bottom: 1px solid color-mix(in srgb, var(--border) 60%, transparent);
+   background: var(--surface);
+   color: var(--text-muted);
+   font-size: 9px;
+   line-height: calc(var(--pr-row) - 1px);
+   text-align: right;
+   cursor: pointer;
+}
+
+.pr-key.is-black {
+   background: color-mix(in srgb, var(--surface) 25%, #000);
+}
+
+.pr-key.is-c {
+   border-bottom-color: var(--text-muted);
+}
+
+.pr-key:hover {
+   background: var(--accent-soft);
+}
+
+/* グリッド。行は鍵盤に合わせて塗り分け、縦線は1/16・1拍・1小節の3段階 */
+.pr-grid {
+   position: relative;
+   overflow: hidden;
+   cursor: crosshair;
+   touch-action: none;
+}
+
+.pr-row {
+   height: var(--pr-row);
+   border-bottom: 1px solid color-mix(in srgb, var(--border) 45%, transparent);
+   background: var(--surface);
+}
+
+.pr-row.is-black {
+   background: color-mix(in srgb, var(--text) 7%, var(--surface));
+}
+
+.pr-row.is-c {
+   border-bottom-color: var(--border);
+}
+
+.pr-notes {
+   position: absolute;
+   inset: 0;
+   background-image:
+      linear-gradient(to right, color-mix(in srgb, var(--text-muted) 60%, transparent) 1px, transparent 1px),
+      linear-gradient(to right, var(--border) 1px, transparent 1px),
+      linear-gradient(to right, color-mix(in srgb, var(--border) 45%, transparent) 1px, transparent 1px);
+   background-size: var(--pr-bar) 100%, var(--pr-beat) 100%, calc(var(--pr-beat) / 4) 100%;
+}
+
+.pr-note {
+   position: absolute;
+   height: calc(var(--pr-row) - 1px);
+   border: 1px solid color-mix(in srgb, var(--accent) 70%, #000);
+   border-radius: 2px;
+   background: var(--accent);
+   cursor: move;
+}
+
+/* 右端を掴むと長さを変えられる(幅は pianoRoll.js の EDGE と揃える) */
+.pr-note::after {
+   content: "";
+   position: absolute;
+   top: 0;
+   right: 0;
+   bottom: 0;
+   width: 6px;
+   cursor: ew-resize;
+}
+
+.pr-note.is-selected {
+   border-color: color-mix(in srgb, var(--doing) 60%, #000);
+   background: var(--doing);
+}
+
+/* クリップの範囲の外(鳴らさない) */
+.pr-note.is-outside {
+   opacity: 0.35;
+}
+
+.pr-playhead {
+   position: absolute;
+   top: 0;
+   bottom: 0;
+   z-index: 1;
+   width: 0;
+   border-left: 2px solid var(--danger);
+   pointer-events: none;
+}
+
+@media (max-width: 720px) {
+   .pr {
+      height: 50dvh;
+   }
+
+   .pr-snap-label {
+      margin-left: 0;
+   }
+}

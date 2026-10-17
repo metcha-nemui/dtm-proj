@@ -3,8 +3,12 @@
 
 import {
    addClip, addMarker, addTrack, arrangementBars, canPlace, clipEnd, clipSection, markerSpans, moveTrack, placeClip,
-   renameTrack, syncClipTasks, updateClip, updateMarker,
+   renameTrack, setClipNotes, syncClipTasks, updateClip, updateMarker, updateTrackSound,
 } from '../js/domain/arrangement.js';
+import {
+   audibleNotes, buildMidiFile, clipTicks, MAX_BPM, midiFileName, MIN_BPM, normalizeBpm, normalizeNotes, noteEvents, PPQ,
+   projectBpm, secondsToTicks, soundLabel, TICKS_PER_BAR, ticksToSeconds, trackChannels, trackSound, varLen,
+} from '../js/domain/midi.js';
 import { addDays, daysBetween, toDateString, weekendDaysBetween } from '../js/domain/date.js';
 import { deadlineRange, deadlineRows } from '../js/domain/deadline.js';
 import { ganttRange, ganttRows } from '../js/domain/gantt.js';
@@ -842,6 +846,145 @@ test('migrate: v6 のデータは、セクションに入っているクリッ�
    equal(linked.map((t) => t.title).sort(), ['シンセ: (無題)', 'ドラム: フィル'], '区間の外のクリップには作らない');
    equal(data.tasks.filter((t) => !t.clipId).every((t) => t.clipId === null), true, 'ふつうのタスクは clipId: null');
    equal(migrate(data).tasks.length, data.tasks.length, 'v7 のデータには足さない');
+});
+
+// ---- MIDI ----
+
+const note = (pitch, start, length = PPQ, velocity = 100) => ({ pitch, start, length, velocity });
+
+test('normalizeNotes: 整数に丸めて範囲に収め、開始位置 → 高さの順に並べる', () => {
+   equal(normalizeNotes([
+      { pitch: 64.4, start: 480, length: 0 }, { pitch: 200, start: -10.6, length: 120, velocity: 0 }, { pitch: 60, start: 480, length: 240 },
+   ]), [note(127, -11, 120, 1), note(60, 480, 240), note(64, 480, 1)]);
+   equal(normalizeNotes(undefined), [], '項目がなければなし');
+});
+
+test('normalizeBpm / projectBpm: 範囲に収め、項目がなければ 120', () => {
+   equal([normalizeBpm(128.556), normalizeBpm(5), normalizeBpm(999), normalizeBpm('x'), projectBpm({})], [128.56, MIN_BPM, MAX_BPM, 120, 120]);
+   const { project } = createProject({ title: 'x' });
+   equal(project.bpm, 120, '新しいプロジェクトは 120');
+   equal(updateProject(project, { bpm: '90' }).bpm, 90);
+   equal(createTemplate({ name: 't' }).project.bpm, undefined, 'テンプレートは持たない');
+});
+
+test('トラックの音: 既定はピアノ・音量100・パン中央。範囲の外は端に寄せる', () => {
+   const track = addTrack('p', [], 'Lead');
+   equal(trackSound(track), { program: 0, volume: 100, pan: 64, drum: false });
+   equal(trackSound({}), trackSound(track), '項目がない(v7 以前の)トラック');
+   const changed = updateTrackSound(track, { program: 300, pan: -5, drum: true });
+   equal([changed.program, changed.volume, changed.pan, changed.drum, changed.name], [127, 100, 0, true, 'Lead']);
+   equal([soundLabel(track), soundLabel(changed)], ['1. Acoustic Grand Piano', 'ドラム']);
+});
+
+test('trackChannels: 並び順に 1ch から。10ch はドラム専用で、16本目からは使い回す', () => {
+   const tracks = Array.from({ length: 17 }, (_, i) => ({ id: `t${i}`, drum: i === 1 }));
+   const channels = trackChannels(tracks);
+   equal(tracks.slice(0, 12).map((t) => channels.get(t.id)), [0, 9, 1, 2, 3, 4, 5, 6, 7, 8, 10, 11]);
+   equal([channels.get('t15'), channels.get('t16')], [15, 0], '16本目(ドラムを除いて)で先頭に戻る');
+});
+
+test('setClipNotes / audibleNotes: 範囲の外のノートは持つが鳴らさない。終わりで切る', () => {
+   const { a } = arrangementFixture(); // 4小節
+   equal(a.notes, [], '作ったときはノートなし');
+   const clip = setClipNotes(a, [note(60, -PPQ), note(62, 0), note(64, 4 * TICKS_PER_BAR - PPQ, 2 * PPQ), note(65, 4 * TICKS_PER_BAR)]);
+   equal(clip.notes.length, 4, '範囲の外も持つ');
+   equal(audibleNotes(clip), [note(62, 0), note(64, 4 * TICKS_PER_BAR - PPQ, PPQ)]);
+   equal(clipTicks(clip), 4 * TICKS_PER_BAR);
+});
+
+test('placeClip: 移動ではノートが付いていき、左端の伸縮では曲の中の同じ位置に残る', () => {
+   const { clips, a, b } = arrangementFixture();
+   const withNotes = setClipNotes(b, [note(60, 0), note(62, TICKS_PER_BAR)]); // 9〜10小節
+   const all = apply(clips, [withNotes]);
+   equal(placeClip(all, b.id, { startBar: 12 }).notes, withNotes.notes, '移動');
+   equal(placeClip(all, b.id, { bars: 4 }).notes, withNotes.notes, '右端の伸縮');
+   const shrunk = placeClip(all, b.id, { startBar: 10, bars: 1 });
+   equal(shrunk.notes.map((n) => n.start), [-TICKS_PER_BAR, 0], '左端を縮める(手前のノートは消さない)');
+   const grown = placeClip(apply(all, [shrunk]), b.id, { startBar: 8, bars: 3 });
+   equal(grown.notes.map((n) => n.start), [TICKS_PER_BAR, 2 * TICKS_PER_BAR], '左端を伸ばす');
+   equal(a.notes, [], '他のクリップは変えない');
+});
+
+test('noteEvents: 曲の頭からの位置で並べ、同じ位置ではノートオフを先に置く', () => {
+   const { synth, drums, a, b } = arrangementFixture();
+   const tracks = [synth, updateTrackSound(drums, { drum: true })];
+   const clips = [
+      setClipNotes(a, [note(60, 0), note(60, PPQ)]),
+      setClipNotes(b, [note(48, 0, PPQ, 90)]), // 9小節目
+      setClipNotes(addClip(drums, [], { startBar: 2, bars: 1 }), [note(36, 0, 60)]),
+   ];
+   equal(noteEvents({ tracks, clips }), [
+      { tick: 0, data: [0x90, 60, 100] },
+      { tick: PPQ, data: [0x80, 60, 0] },
+      { tick: PPQ, data: [0x90, 60, 100] },
+      { tick: 2 * PPQ, data: [0x80, 60, 0] },
+      { tick: TICKS_PER_BAR, data: [0x99, 36, 100] },
+      { tick: TICKS_PER_BAR + 60, data: [0x89, 36, 0] },
+      { tick: 8 * TICKS_PER_BAR, data: [0x90, 48, 90] },
+      { tick: 8 * TICKS_PER_BAR + PPQ, data: [0x80, 48, 0] },
+   ]);
+   equal(noteEvents({ tracks: [synth], clips }).length, 6, 'トラックのないクリップは鳴らさない');
+   equal([ticksToSeconds(TICKS_PER_BAR, 120), secondsToTicks(0.5, 120)], [2, PPQ]);
+});
+
+// .mid のバイト列を、チャンクごとに読み戻す(テスト用の簡易パーサー)
+function parseMidi(bytes) {
+   const text = (at) => String.fromCharCode(...bytes.slice(at, at + 4));
+   const u32 = (at) => ((bytes[at] << 24) | (bytes[at + 1] << 16) | (bytes[at + 2] << 8) | bytes[at + 3]) >>> 0;
+   const chunks = [];
+   for (let at = 0; at < bytes.length;) {
+      const length = u32(at + 4);
+      chunks.push({ type: text(at), body: [...bytes.slice(at + 8, at + 8 + length)] });
+      at += 8 + length;
+   }
+   return chunks;
+}
+
+test('varLen: 7ビットずつ、続きがあれば最上位ビットを立てる', () => {
+   equal([varLen(0), varLen(0x7f), varLen(0x80), varLen(0x3fff), varLen(0x200000)],
+      [[0], [0x7f], [0x81, 0x00], [0xff, 0x7f], [0x81, 0x80, 0x80, 0x00]]);
+});
+
+test('buildMidiFile: フォーマット1。テンポのトラックと、トラックごとに名前・音色・音量・パン・ノート', () => {
+   const { synth, a } = arrangementFixture();
+   const track = updateTrackSound(synth, { program: 81, volume: 90, pan: 32 });
+   const clip = setClipNotes(placeClip([a], a.id, { startBar: 3 }), [note(60, 0, 0x80)]);
+   const chunks = parseMidi(buildMidiFile({ title: 'Song', bpm: 120, tracks: [track], clips: [clip] }));
+   equal(chunks.map((c) => c.type), ['MThd', 'MTrk', 'MTrk']);
+   equal(chunks[0].body, [0, 1, 0, 2, 0x01, 0xe0], 'フォーマット1、2トラック、480 tick');
+   equal(chunks[1].body, [
+      0, 0xff, 0x03, 4, ...[...'Song'].map((c) => c.charCodeAt(0)),
+      0, 0xff, 0x51, 0x03, 0x07, 0xa1, 0x20, // 500000 マイクロ秒 = 120 BPM
+      0, 0xff, 0x58, 0x04, 4, 2, 24, 8,
+      0, 0xff, 0x2f, 0x00,
+   ]);
+   const name = [...new TextEncoder().encode('シンセ')];
+   equal(chunks[2].body, [
+      0, 0xff, 0x03, name.length, ...name,
+      0, 0xc0, 81, 0, 0xb0, 7, 90, 0, 0xb0, 10, 32,
+      ...varLen(2 * TICKS_PER_BAR), 0x90, 60, 100, // 3小節目から
+      0x81, 0x00, 0x80, 60, 0,
+      0, 0xff, 0x2f, 0x00,
+   ]);
+   const single = parseMidi(buildMidiFile({ bpm: 120, tracks: [track], clips: [clip], offsetBar: 3 }));
+   equal(single[2].body.slice(name.length + 15, name.length + 19), [0, 0x90, 60, 100], 'offsetBar の小節を頭にする');
+});
+
+test('midiFileName: 使えない文字とコロンを除く', () => {
+   equal(midiFileName('曲: A', 'Lead/1'), '曲_ A - Lead_1.mid');
+   equal(midiFileName('', ''), 'clip.mid');
+});
+
+test('migrate: v7 のデータは、BPM 120・ピアノ・ノートなしとして読み込む', () => {
+   const data = migrate({
+      schemaVersion: 7,
+      projects: [{ id: 'p', isTemplate: false }, { id: 't', isTemplate: true }],
+      tracks: [{ id: 'tr', projectId: 'p' }],
+      clips: [{ id: 'c', projectId: 'p', trackId: 'tr', startBar: 1, bars: 1 }],
+   });
+   equal(data.projects, [{ id: 'p', isTemplate: false, bpm: 120 }, { id: 't', isTemplate: true }]);
+   equal(data.tracks, [{ id: 'tr', projectId: 'p', program: 0, volume: 100, pan: 64, drum: false }]);
+   equal(data.clips[0].notes, []);
 });
 
 // ---- stats ----

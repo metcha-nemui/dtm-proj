@@ -5,9 +5,16 @@
 // プロジェクトだけの画面で、テンプレートにはない。
 //
 // 位置と幅は CSS 変数(--start は1始まりの小節、--len は小節数、--bar は1小節の幅)で決め、計算は CSS に任せる。
+//
+// クリップは MIDI クリップでもある。ダブルクリックで下にピアノロールを開き、ツールバーから OS の MIDI 音源で全体を再生する。
+// ピアノロールのパネルは再描画で作り直さない(編集中の状態を持っているため)。作り直すのは view の中だけ。
 
 import * as actions from '../actions.js';
 import { arrangementBars, canPlace, clipEnd, clipSection, markerSpans, UNTITLED_CLIP } from '../domain/arrangement.js';
+import {
+   audibleNotes, clipTicks, GM_PROGRAMS, MAX_BPM, MIN_BPM, noteEvents, projectBpm, setupMessages, soundLabel,
+   TICKS_PER_BAR, trackChannels, trackSound,
+} from '../domain/midi.js';
 import { sortByOrder } from '../domain/order.js';
 import { sectionColors } from '../domain/project.js';
 import { repo, subscribe } from '../state.js';
@@ -17,14 +24,19 @@ import { openMenu } from './components/menu.js';
 import { createSortable, domIndex } from './components/sortable.js';
 import { reportError, showToast } from './components/toast.js';
 import { barRange, createClipDrawer } from './clipDrawer.js';
+import { arrangementMidi, clipMidi, downloadMidi, setMidiDrag } from './midiExport.js';
+import * as midiOut from './midiOut.js';
+import { createPianoRoll } from './pianoRoll.js';
 import { projectTabs } from './projectTabs.js';
 
 const DRAG_THRESHOLD = 4; // これより動かなければクリック(詳細を開く・メニューを出す)として扱う(px)
+const SVG_NS = 'http://www.w3.org/2000/svg';
 
 const clamp = (n, min, max) => Math.max(min, Math.min(n, max));
 
 export function mount(container, { id: projectId }) {
    const root = h('div', { class: 'arr-page' });
+   const view = h('div', { class: 'arr-view' });
    container.append(root);
 
    let alive = true;
@@ -42,11 +54,100 @@ export function mount(container, { id: projectId }) {
       render();
    });
 
-   function markSelected(clipId) {
+   // 選んでいるクリップ(詳細かピアノロールで開いているもの)に印を付ける
+   function markSelected() {
+      const clipId = drawer.clipId ?? pianoRoll.clipId;
       for (const el of root.querySelectorAll('.clip.is-selected')) el.classList.remove('is-selected');
       if (clipId) root.querySelector(`.clip[data-clip-id="${CSS.escape(clipId)}"]`)?.classList.add('is-selected');
    }
-   const drawer = createClipDrawer(projectId, { onSelectionChange: markSelected });
+   const drawer = createClipDrawer(projectId, {
+      onSelectionChange: () => markSelected(),
+      onOpenPianoRoll: (clipId) => openPianoRoll(clipId),
+   });
+   const pianoRoll = createPianoRoll({
+      projectId,
+      onSelectionChange: () => markSelected(),
+      onPlayClip: (clip) => run(startPlayback((clip.startBar - 1) * TICKS_PER_BAR)),
+      onOpenDetail: (clipId) => drawer.open(clipId),
+   });
+   root.append(view, pianoRoll.el);
+
+   // クリップを開く。ピアノロールを開いている間は、そちらに切り替える(詳細はピアノロールの見出しから開ける)
+   function openClip(clipId) {
+      if (pianoRoll.clipId) pianoRoll.open(clipId);
+      else drawer.open(clipId);
+   }
+
+   function openPianoRoll(clipId) {
+      drawer.close();
+      pianoRoll.open(clipId);
+   }
+
+   // ---- 再生 ----
+   // 再生を始める位置(小節)は、ルーラーを押して決める。止めても動かない
+
+   let startBar = 1;
+   let playSignature = null; // 再生中の中身。読み直して変わっていたら、いまの位置から鳴らし直す
+   let frame = null;
+
+   function playbackInput() {
+      const channels = trackChannels(data.tracks);
+      return {
+         bpm: projectBpm(data.project),
+         setup: data.tracks.flatMap((t) => setupMessages(t, channels.get(t.id))),
+         events: noteEvents({ tracks: data.tracks, clips: data.clips }),
+      };
+   }
+
+   async function startPlayback(fromTick) {
+      const input = playbackInput();
+      playSignature = JSON.stringify(input);
+      await midiOut.play({ ...input, fromTick: Math.max(0, fromTick) });
+      follow();
+   }
+
+   function togglePlayback() {
+      if (midiOut.isPlaying()) midiOut.stop();
+      else run(startPlayback((startBar - 1) * TICKS_PER_BAR));
+   }
+
+   // 再生位置の線を動かし、画面の外へ出そうなら横にスクロールして追いかける
+   function follow() {
+      cancelAnimationFrame(frame);
+      const tick = midiOut.playbackTick();
+      const line = root.querySelector('.arr-playhead');
+      pianoRoll.setPlayhead(tick);
+      if (line) {
+         line.hidden = tick == null;
+         if (tick != null) {
+            const bar = 1 + tick / TICKS_PER_BAR;
+            line.style.setProperty('--start', String(bar));
+            const scroller = root.querySelector('.arr');
+            const x = line.offsetLeft;
+            const head = root.querySelector('.arr-corner')?.offsetWidth ?? 0;
+            if (x > scroller.scrollLeft + scroller.clientWidth - 40 || x < scroller.scrollLeft + head) {
+               scroller.scrollLeft = x - head - 40;
+            }
+         }
+      }
+      if (tick != null) frame = requestAnimationFrame(follow);
+   }
+
+   const unwatchMidi = midiOut.onMidiChange(() => {
+      if (data) render();
+      if (!midiOut.isPlaying()) follow();
+   });
+   run(midiOut.restoreMidiAccess());
+
+   // スペースキーで再生・停止(入力欄やボタン、クリップの上では、そちらの操作を優先する)
+   const onKeydown = (e) => {
+      if (e.code !== 'Space' || e.repeat || e.defaultPrevented) return;
+      if (e.target.closest?.('input, textarea, select, button, [contenteditable], .clip')) return;
+      if (document.querySelector('dialog[open]') || !data?.project || data.project.isTemplate) return;
+      e.preventDefault();
+      togglePlayback();
+   };
+   document.addEventListener('keydown', onKeydown);
 
    const sections = () => data.lanes.filter((l) => l.type === 'section');
    // 置けるか(同じトラックのクリップと重ならず、セクションマーカーの範囲に入っている)
@@ -173,7 +274,7 @@ export function mount(container, { id: projectId }) {
             ghost.remove();
             clipEl.classList.remove('is-moving');
             if (!moved) {
-               if (mode === 'move') drawer.open(clip.id);
+               if (mode === 'move') openClip(clip.id);
                return;
             }
             const same = place && place.trackId === clip.trackId && place.startBar === clip.startBar && place.bars === clip.bars;
@@ -232,6 +333,32 @@ export function mount(container, { id: projectId }) {
       if (values) await actions.renameTrack(projectId, track.id, values.name);
    }
 
+   async function trackSoundDialog(track) {
+      const sound = trackSound(track);
+      const values = await formDialog({
+         title: `「${track.name}」の音`,
+         message: 'OS の MIDI 音源(General MIDI)の音色で鳴らします。',
+         fields: [
+            {
+               name: 'program', label: '音色', type: 'select', value: String(sound.program),
+               options: GM_PROGRAMS.map((name, i) => ({ value: String(i), label: `${i + 1}. ${name}` })),
+            },
+            { name: 'drum', label: 'ドラム(10ch で鳴らす。音色は使わない)', type: 'checkbox', value: sound.drum },
+            { name: 'volume', label: '音量(0〜127)', type: 'number', value: String(sound.volume) },
+            { name: 'pan', label: 'パン(0 = 左、64 = 中央、127 = 右)', type: 'number', value: String(sound.pan) },
+         ],
+      });
+      if (!values) return;
+      // 空欄は元のまま
+      const number = (value, fallback) => (String(value).trim() === '' ? fallback : Number(value));
+      await actions.updateTrackSound(projectId, track.id, {
+         program: Number(values.program),
+         drum: values.drum,
+         volume: number(values.volume, sound.volume),
+         pan: number(values.pan, sound.pan),
+      });
+   }
+
    async function deleteTrackDialog(track) {
       const clipIds = new Set(data.clips.filter((c) => c.trackId === track.id).map((c) => c.id));
       // ボードに出ている連動タスクの数(範囲の外のクリップのものは、ボードに出ていないので数えない)
@@ -277,22 +404,105 @@ export function mount(container, { id: projectId }) {
 
    // ---- 描画 ----
 
+   // 再生・停止、BPM、出力先、全体の書き出し
+   function transport() {
+      const { project } = data;
+      const supported = midiOut.midiSupported();
+      const playing = midiOut.isPlaying();
+      const outputs = midiOut.midiOutputs();
+      const current = midiOut.currentOutput();
+      return h('div', { class: 'arr-transport' },
+         h('button', {
+            type: 'button',
+            class: `btn btn-icon arr-play${playing ? ' is-playing' : ''}`,
+            disabled: !supported,
+            title: supported
+               ? `${playing ? '停止' : `${startBar}小節目から再生`}(スペースキー)`
+               : 'このブラウザでは再生できません(Web MIDI に対応した Chrome か Edge で開いてください)',
+            'aria-label': playing ? '停止' : '再生',
+            dataset: { focusKey: 'transport-play' },
+            onclick: () => togglePlayback(),
+         }, icon(playing ? 'square' : 'play')),
+         h('label', { class: 'arr-bpm muted' }, 'BPM', h('input', {
+            class: 'input',
+            type: 'number',
+            min: String(MIN_BPM),
+            max: String(MAX_BPM),
+            step: '1',
+            value: String(projectBpm(project)),
+            dataset: { focusKey: 'bpm' },
+            onchange: (e) => run(actions.updateProject(projectId, { bpm: e.target.value })),
+         })),
+         outputs.length > 1 && h('select', {
+            class: 'select arr-output',
+            'aria-label': 'MIDI の出力先',
+            title: 'MIDI の出力先',
+            dataset: { focusKey: 'midi-output' },
+            onchange: (e) => midiOut.selectOutput(e.target.value),
+         }, outputs.map((o) => h('option', { value: o.id, selected: o.id === current?.id }, o.name))),
+         outputs.length === 1 && h('span', { class: 'arr-output-name muted', title: 'MIDI の出力先' }, current.name),
+         h('button', {
+            type: 'button',
+            class: 'btn btn-icon',
+            title: 'アレンジ全体を .mid で書き出す',
+            'aria-label': 'アレンジ全体を .mid で書き出す',
+            onclick: () => downloadMidi(arrangementMidi(project, data.tracks, data.clips)),
+         }, icon('download')));
+   }
+
    function toolbar() {
       const { project } = data;
       return h('div', { class: 'board-toolbar' },
          h('a', { class: 'btn btn-icon', href: '#/', 'aria-label': 'プロジェクト一覧へ', title: 'プロジェクト一覧へ' }, icon('arrow-left')),
          h('h1', { class: 'board-title', title: project.memo || null }, project.title),
          projectTabs(projectId, 'arrange'),
+         transport(),
          h('span', { class: 'muted board-summary' }, `トラック${data.tracks.length}・クリップ${data.clips.length}`));
    }
 
+   // ルーラー。押した小節が、再生を始める位置になる(再生中なら、そこから鳴らし直す)
    function rulerRow() {
-      return h('div', { class: 'arr-row arr-ruler-row' },
-         h('div', { class: 'arr-corner' }),
-         h('div', { class: 'arr-ruler', 'aria-hidden': 'true' }, Array.from({ length: data.bars }, (_, i) => h('span', {
-            // 4小節ごとに強調する(4/4 で16小節や8小節のまとまりを数えやすくする)
-            class: `arr-bar-num${i % 4 === 0 ? ' is-strong' : ''}`,
-         }, String(i + 1)))));
+      const ruler = h('div', {
+         class: 'arr-ruler',
+         title: '押した小節から再生します',
+         onclick: (e) => {
+            startBar = barAt(ruler, e.clientX);
+            if (midiOut.isPlaying()) run(startPlayback((startBar - 1) * TICKS_PER_BAR));
+            render();
+         },
+      },
+      Array.from({ length: data.bars }, (_, i) => h('span', {
+         // 4小節ごとに強調する(4/4 で16小節や8小節のまとまりを数えやすくする)
+         class: `arr-bar-num${i % 4 === 0 ? ' is-strong' : ''}`,
+         'aria-hidden': 'true',
+      }, String(i + 1))),
+      h('span', { class: 'arr-cursor', style: { '--start': String(startBar) }, 'aria-hidden': 'true' }));
+      return h('div', { class: 'arr-row arr-ruler-row' }, h('div', { class: 'arr-corner' }), ruler);
+   }
+
+   // クリップの中に、ノートの並びを小さく出す(高さは、クリップの中のいちばん低い音〜高い音に合わせる)
+   function notePreview(clip) {
+      const notes = audibleNotes(clip);
+      if (!notes.length) return null;
+      const pitches = notes.map((n) => n.pitch);
+      const low = Math.min(...pitches);
+      const high = Math.max(...pitches);
+      const span = Math.max(12, high - low + 1);
+      const top = high + Math.floor((span - (high - low + 1)) / 2);
+      const svg = document.createElementNS(SVG_NS, 'svg');
+      svg.setAttribute('class', 'clip-notes');
+      svg.setAttribute('viewBox', `0 0 ${clipTicks(clip)} ${span}`);
+      svg.setAttribute('preserveAspectRatio', 'none');
+      svg.setAttribute('aria-hidden', 'true');
+      for (const n of notes) {
+         const rect = document.createElementNS(SVG_NS, 'rect');
+         rect.setAttribute('x', String(n.start));
+         rect.setAttribute('y', String(top - n.pitch + 0.1));
+         rect.setAttribute('width', String(n.length));
+         rect.setAttribute('height', '0.8');
+         svg.append(rect);
+      }
+      return svg;
    }
 
    // マーカーの段。下には小節ごとの透明なボタン(押すとその小節にマーカーを置く)を敷き、
@@ -331,9 +541,10 @@ export function mount(container, { id: projectId }) {
          h('div', { class: 'arr-markers' }, slots, bands, flags));
    }
 
-   function clipElement(clip) {
+   function clipElement(clip, track) {
       // マーカーを動かしたり消したりして、どのセクションにも入らなくなったクリップ。ボードには出ていない
       const outside = clipSection(clip, data.markers) === null;
+      const preview = notePreview(clip);
       return h('div', {
          class: `clip${clip.name ? '' : ' is-untitled'}${outside ? ' is-outside' : ''}`,
          style: { '--start': String(clip.startBar), '--len': String(clip.bars) },
@@ -345,12 +556,20 @@ export function mount(container, { id: projectId }) {
          onkeydown: (e) => {
             if (e.key !== 'Enter' && e.key !== ' ') return;
             e.preventDefault();
-            drawer.open(clip.id);
+            openClip(clip.id);
          },
       },
+      preview,
       h('span', { class: 'clip-edge is-start', dataset: { edge: 'start' }, title: 'ドラッグで長さを変える' }),
       h('span', { class: 'clip-name' }, clip.name || UNTITLED_CLIP),
       clip.memo && icon('notebook-text', 12),
+      // ノートがあれば、ここを掴んで FL Studio などへ .mid として渡せる(クリップの移動とは別の、ブラウザのドラッグ)
+      preview && h('span', {
+         class: 'clip-midi',
+         draggable: 'true',
+         title: 'ドラッグして FL Studio などへ落とすと、.mid として渡せます',
+         ondragstart: (e) => setMidiDrag(e.dataTransfer, clipMidi(data.project, track, clip)),
+      }, icon('file-music', 12)),
       h('span', { class: 'clip-edge is-end', dataset: { edge: 'end' }, title: 'ドラッグで長さを変える' }));
    }
 
@@ -362,6 +581,7 @@ export function mount(container, { id: projectId }) {
          dataset: { focusKey: `track-menu:${track.id}` },
          onclick: () => openMenu(menuButton, [
             { label: '名前を変更', onSelect: () => run(renameTrackDialog(track)) },
+            { label: '音色・音量・パン', onSelect: () => run(trackSoundDialog(track)) },
             { label: '削除', danger: true, onSelect: () => run(deleteTrackDialog(track)) },
          ]),
       }, icon('ellipsis-vertical'));
@@ -371,6 +591,8 @@ export function mount(container, { id: projectId }) {
          class: 'arr-lane',
          dataset: { trackId: track.id },
          onpointerdown: (e) => {
+            // .mid のドラッグはブラウザに任せる(ポインタを捕まえると始まらない)
+            if (e.target.closest('.clip-midi')) return;
             const clipEl = e.target.closest('.clip');
             if (!clipEl) {
                dragCreate(e, track);
@@ -379,9 +601,15 @@ export function mount(container, { id: projectId }) {
             const clip = data.clips.find((c) => c.id === clipEl.dataset.clipId);
             if (clip) dragClip(e, clip, e.target.closest('.clip-edge')?.dataset.edge ?? 'move');
          },
-         // 空いているところのダブルクリックで、1小節のクリップを作る
+         // クリップのダブルクリックでピアノロールを開く。空いているところなら、1小節のクリップを作る
          ondblclick: (e) => {
-            if (e.target.closest('.clip')) return;
+            // ポインタを捕まえていたので、イベントの対象はレーンになる。押した位置の要素で見分ける
+            const under = document.elementFromPoint(e.clientX, e.clientY);
+            const clipEl = under?.closest('.clip');
+            if (clipEl) {
+               if (!under.closest('.clip-edge, .clip-midi')) openPianoRoll(clipEl.dataset.clipId);
+               return;
+            }
             if (needMarker()) return;
             const place = { trackId: track.id, startBar: barAt(lane, e.clientX), bars: 1 };
             if (placeable(place)) createClip(track, place);
@@ -389,12 +617,20 @@ export function mount(container, { id: projectId }) {
       },
       // セクションの境目の線(押せない)
       boundaries.map((bar) => h('div', { class: 'arr-boundary', style: { '--start': String(bar) } })),
-      clips.map(clipElement));
+      clips.map((clip) => clipElement(clip, track)));
 
       return h('div', { class: 'arr-row arr-track', dataset: { trackId: track.id } },
          h('div', { class: 'arr-head', title: 'ドラッグで並べ替え' },
             icon('grip-vertical', 14),
-            h('span', { class: 'arr-head-name', title: track.name }, track.name),
+            h('span', { class: 'arr-head-text' },
+               h('span', { class: 'arr-head-name', title: track.name }, track.name),
+               h('button', {
+                  type: 'button',
+                  class: 'arr-head-sound',
+                  title: `${soundLabel(track)}(押すと音色・音量・パンを変える)`,
+                  dataset: { focusKey: `track-sound:${track.id}` },
+                  onclick: () => run(trackSoundDialog(track)),
+               }, soundLabel(track))),
             menuButton),
          lane);
    }
@@ -427,7 +663,7 @@ export function mount(container, { id: projectId }) {
 
    function render() {
       if (!data.project || data.project.isTemplate) {
-         root.replaceChildren(h('div', { class: 'empty' },
+         view.replaceChildren(h('div', { class: 'empty' },
             h('p', null, data.project ? 'テンプレートにはアレンジはありません。' : 'プロジェクトが見つかりません。'),
             h('p', null, h('a', { href: '#/' }, 'プロジェクト一覧へ'))));
          return;
@@ -442,10 +678,12 @@ export function mount(container, { id: projectId }) {
       const boundaries = spans.map((s) => s.from).filter((bar) => bar > 1);
       const scroll = captureScroll();
 
-      keepFocus(root, () => root.replaceChildren(
+      keepFocus(view, () => view.replaceChildren(
          toolbar(),
          h('div', { class: 'arr' },
             h('div', { class: 'arr-inner', style: { '--bars': String(data.bars) } },
+               // 再生位置の線。トラック名の列より下に重ねるため、先に置く(follow で動かす)
+               h('div', { class: 'arr-playhead', hidden: true, 'aria-hidden': 'true' }),
                rulerRow(),
                markerRow(spans, colors),
                h('div', { class: 'arr-tracks' }, data.tracks.map((track) => trackRow(track, boundaries))),
@@ -460,8 +698,9 @@ export function mount(container, { id: projectId }) {
                      !data.markers.length && 'クリップは、セクションマーカーの範囲に置きます。先に上の「セクション」の段を押して、マーカーを置いてください。',
                      !data.tracks.length && 'トラックを足したら、空いているところをドラッグ(またはダブルクリック)してクリップを作ります。'))))));
       restoreScroll(scroll);
-      markSelected(drawer.clipId);
+      markSelected();
       setupSortable();
+      if (midiOut.isPlaying()) follow();
    }
 
    async function refresh() {
@@ -477,6 +716,12 @@ export function mount(container, { id: projectId }) {
       // tasks はトラックの削除の確認に、連動タスクの数を出すためだけに使う
       data = { project, lanes: sortByOrder(lanes), tracks: sortByOrder(tracks), clips, markers, tasks };
       render();
+      if (!project || project.isTemplate) return;
+      pianoRoll.update(data);
+      // 再生中にノートや音色、BPM が変わったら、いまの位置から鳴らし直す
+      if (midiOut.isPlaying() && JSON.stringify(playbackInput()) !== playSignature) {
+         await startPlayback(midiOut.playbackTick() ?? 0);
+      }
    }
 
    const unsubscribe = subscribe(() => run(refresh()));
@@ -484,7 +729,12 @@ export function mount(container, { id: projectId }) {
    return () => {
       alive = false;
       unsubscribe();
+      unwatchMidi();
+      midiOut.stop();
+      cancelAnimationFrame(frame);
+      document.removeEventListener('keydown', onKeydown);
       drawer.destroy();
+      pianoRoll.close();
       sortable?.destroy();
    };
 }
