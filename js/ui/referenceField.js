@@ -5,7 +5,7 @@
 import { canonicalizeReference, suggestReferences } from '../domain/reference.js';
 import { h, icon } from './components/dom.js';
 
-const SUGGESTION_LIMIT = 8; // 候補を一度に出す数
+const SUGGESTION_LIMIT = 8; // 打っている間に候補を一度に出す数(空のときは全部出す)
 
 /**
  * @param {object} options
@@ -33,6 +33,8 @@ export function createReferenceField({ getReferences, onChange, onBlur }) {
       'aria-controls': 'ref-suggestions',
       'aria-expanded': 'false',
       oninput: () => updateSuggestions(),
+      // 押したら候補を出す(空なら登録済みのすべて)。打ちかけがあれば、それに合うものだけ
+      onclick: () => updateSuggestions({ force: true }),
       onkeydown: onKeydown,
       onblur: () => {
          closeSuggestions();
@@ -77,11 +79,12 @@ export function createReferenceField({ getReferences, onChange, onBlur }) {
       list.hidden = !references.length;
    }
 
-   // 入力に合う候補を出す。force なら入力が空でも(↓キーで)出す
+   // 入力に合う候補を出す。force なら入力が空でも(欄を押したときや↓キーで)出す。
+   // 空のときは、登録済みの曲名を探せるように数で切らずにすべて出す(一覧の中でスクロールする)
    function updateSuggestions({ force = false } = {}) {
-      suggestions = input.value.trim() || force
-         ? suggestReferences(input.value, known, getReferences()).slice(0, SUGGESTION_LIMIT)
-         : [];
+      const query = input.value.trim();
+      const matched = query || force ? suggestReferences(input.value, known, getReferences()) : [];
+      suggestions = query ? matched.slice(0, SUGGESTION_LIMIT) : matched;
       active = -1;
       renderSuggestions();
    }
