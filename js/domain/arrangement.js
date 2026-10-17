@@ -96,6 +96,23 @@ export function addClip(track, clips, { startBar, bars = 1, name = '' }, markers
    return newRecord({ projectId: track.projectId, ...place, name: String(name ?? '').trim(), memo: '', notes: [] });
 }
 
+/**
+ * クリップを複製する(フォーク)。名前・詳細・ノートをコピーした、別のクリップを作る。元とのつながりは残さない。
+ * 長さは元と同じで、置き場所(トラックと先頭の小節)だけを受け取る。ノートは先頭からの相対なので、そのまま写せばよい。
+ * @param {object[]|null} [markers] 渡すと、セクションマーカーの区間の外には作らせない
+ */
+export function duplicateClip(source, clips, { trackId, startBar }, markers = null) {
+   const place = { trackId, startBar, bars: source.bars };
+   assertPlaceable(clips, place, null, markers);
+   return newRecord({
+      projectId: source.projectId,
+      ...place,
+      name: source.name,
+      memo: source.memo ?? '',
+      notes: normalizeNotes(source.notes ?? []),
+   });
+}
+
 /** クリップのノートを置き換える(ピアノロールでの編集)。位置はクリップの先頭からの相対(tick)。 */
 export function setClipNotes(clip, notes) {
    return touch(clip, { notes: normalizeNotes(notes) });

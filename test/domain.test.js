@@ -2,7 +2,7 @@
 // Node でも動く: node -e "import('./test/domain.test.js').then(m => m.report()).then(ok => process.exit(ok ? 0 : 1))"
 
 import {
-   addClip, addMarker, addTrack, arrangementBars, canPlace, clipEnd, clipSection, markerSpans, moveTrack, placeClip,
+   addClip, addMarker, addTrack, arrangementBars, canPlace, clipEnd, clipSection, duplicateClip, markerSpans, moveTrack, placeClip,
    renameTrack, setClipNotes, syncClipTasks, updateClip, updateMarker, updateTrackMix, updateTrackSound,
 } from '../js/domain/arrangement.js';
 import {
@@ -926,6 +926,22 @@ test('placeClip: 移動ではノートが付いていき、左端の伸縮では
    const grown = placeClip(apply(all, [shrunk]), b.id, { startBar: 8, bars: 3 });
    equal(grown.notes.map((n) => n.start), [TICKS_PER_BAR, 2 * TICKS_PER_BAR], '左端を伸ばす');
    equal(a.notes, [], '他のクリップは変えない');
+});
+
+test('duplicateClip: 名前・詳細・ノートをコピーした別のクリップを作る。重なる・区間の外には作れない', () => {
+   const { project, lane, synth, drums, clips, b } = arrangementFixture();
+   const source = { ...setClipNotes(b, [note(60, 0), note(62, TICKS_PER_BAR)]), name: 'フィル', memo: 'メモ' };
+   const all = apply(clips, [source]);
+   const copy = duplicateClip(source, all, { trackId: drums.id, startBar: 3 });
+   assert(copy.id !== source.id, '別の id');
+   equal([copy.trackId, copy.startBar, copy.bars, copy.name, copy.memo, copy.notes],
+      [drums.id, 3, source.bars, 'フィル', 'メモ', source.notes], '長さは元のまま');
+   assert(copy.notes !== source.notes, 'ノートは別の配列(元とつながらない)');
+   equal(duplicateClip(source, all, { trackId: synth.id, startBar: 11 }).startBar, 11, '同じトラックの隙間');
+   throws(() => duplicateClip(source, all, { trackId: synth.id, startBar: 10 }), '元と重なる');
+   const markers = [addMarker(project.id, [], lane('Aメロ'), 9)];
+   throws(() => duplicateClip(source, all, { trackId: drums.id, startBar: 1 }, markers), '区間の外');
+   equal(duplicateClip(source, all, { trackId: drums.id, startBar: 9 }, markers).startBar, 9);
 });
 
 test('noteEvents: 曲の頭からの位置で並べ、同じ位置ではノートオフを先に置く', () => {

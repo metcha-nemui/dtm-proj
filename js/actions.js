@@ -324,6 +324,20 @@ export const addClip = serial(async (projectId, trackId, { startBar, bars, name 
    return clip;
 });
 
+/** クリップを複製する(名前・詳細・ノートをコピーした別のクリップ)。place は { trackId, startBar } */
+export const duplicateClip = serial(async (projectId, clipId, { trackId, startBar }) => {
+   const [tracks, clips, markers] = await Promise.all([
+      repo().getTracks(projectId), repo().getClips(projectId), repo().getMarkers(projectId),
+   ]);
+   find(tracks, trackId, 'トラック');
+   const clip = arrangementDomain.duplicateClip(find(clips, clipId, 'クリップ'), clips, { trackId, startBar }, markers);
+   await repo().saveClip(clip);
+   // 連動タスクは、新しいクリップのものとして未着手で作られる(元のステータスは引き継がない)
+   await syncArrangement(projectId);
+   await changed(projectId);
+   return clip;
+});
+
 export const updateClip = serial(async (projectId, clipId, patch) => {
    const clips = await repo().getClips(projectId);
    await repo().saveClip(arrangementDomain.updateClip(find(clips, clipId, 'クリップ'), patch));

@@ -16,9 +16,11 @@ export function barRange(clip) {
 
 /**
  * @param {string} projectId
- * @param {{ onSelectionChange?: (clipId: string|null) => void, onOpenPianoRoll?: (clipId: string) => void }} [options]
+ * @param {{ onSelectionChange?: (clipId: string|null) => void, onOpenPianoRoll?: (clipId: string) => void,
+ *   onDuplicate?: (clipId: string) => void }} [options]
+ *   onDuplicate は「クリップを複製」を押したとき(置き場所はアレンジ画面で選ぶ)
  */
-export function createClipDrawer(projectId, { onSelectionChange, onOpenPianoRoll } = {}) {
+export function createClipDrawer(projectId, { onSelectionChange, onOpenPianoRoll, onDuplicate } = {}) {
    let clip = null; // 表示中のクリップ(最後に読み込んだ、または保存した状態)
    let context = null; // clip と一緒に読み込んだもの(.mid を作るのに、プロジェクトの BPM とトラックが要る)
    let el = null; // ドロワーのDOM。閉じている間は null
@@ -98,7 +100,15 @@ export function createClipDrawer(projectId, { onSelectionChange, onOpenPianoRoll
             section,
             midiRow,
             field('詳細', memo),
-            h('div', { class: 'drawer-foot' },
+            h('div', { class: 'drawer-foot clip-foot' },
+               h('button', {
+                  type: 'button',
+                  class: 'btn',
+                  onclick: () => {
+                     const id = clip?.id;
+                     if (id) onDuplicate?.(id);
+                  },
+               }, icon('copy', 14), 'クリップを複製'),
                h('button', { type: 'button', class: 'btn btn-danger', onclick: remove }, 'クリップを削除'))));
       const backdrop = h('div', { class: 'drawer-backdrop', onclick: () => close() });
 

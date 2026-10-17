@@ -64,6 +64,7 @@ export function mount(container, { id: projectId }) {
    const drawer = createClipDrawer(projectId, {
       onSelectionChange: () => markSelected(),
       onOpenPianoRoll: (clipId) => openPianoRoll(clipId),
+      onDuplicate: (clipId) => startDuplicate(clipId),
    });
    const pianoRoll = createPianoRoll({
       projectId,
@@ -227,6 +228,11 @@ export function mount(container, { id: projectId }) {
    // ただしミュート・ソロのボタンは、押したあとにフォーカスが残っていても再生・停止にする(DAW と同じく、
    // 切り替えてすぐスペースで聞き直すため。ボタンの切り替えは Enter でできる)
    const onKeydown = (e) => {
+      if (e.key === 'Escape' && placing && !document.querySelector('dialog[open], .menu')) {
+         e.preventDefault();
+         stopDuplicate();
+         return;
+      }
       if (e.code !== 'Space' || e.repeat || e.defaultPrevented) return;
       if (!e.target.closest?.('.arr-mix-toggle')
          && e.target.closest?.('input, textarea, select, button, [contenteditable], .clip')) return;
@@ -326,6 +332,80 @@ export function mount(container, { id: projectId }) {
 
    function createClip(track, place) {
       run(actions.addClip(projectId, track.id, place).then((clip) => drawer.open(clip.id, { focusName: true })));
+   }
+
+   // ---- 複製の置き場所を選ぶ ----
+   // 「クリップを複製」を押すと、同じ長さの置き先がポインタに付いて動く(トラックをまたげる)。
+   // 押したところに置く。置けない位置(重なる・セクションの外)では赤くなり、押しても置かない。
+   // Esc か右クリック、案内の「取り消し」でやめる。押す操作は捕まえて、作成やドラッグには渡さない
+
+   let placing = null; // { clip, ghost, place }
+
+   function startDuplicate(clipId) {
+      const clip = data.clips.find((c) => c.id === clipId);
+      if (!clip) return;
+      drawer.close();
+      placing = { clip, ghost: h('div', { class: 'clip-ghost' }), place: null };
+      render();
+   }
+
+   function stopDuplicate() {
+      if (!placing) return;
+      placing.ghost.remove();
+      placing = null;
+      render();
+   }
+
+   // ポインタの下のトラックに、置き先を出す(トラックの外なら隠す)
+   function trackPlacing(e) {
+      const laneEl = document.elementFromPoint(e.clientX, e.clientY)?.closest('.arr-lane');
+      if (!laneEl) {
+         placing.ghost.remove();
+         placing.place = null;
+         return;
+      }
+      const { clip } = placing;
+      const startBar = clamp(barAt(laneEl, e.clientX), 1, Math.max(1, data.bars - clip.bars + 1));
+      placing.place = { trackId: laneEl.dataset.trackId, startBar, bars: clip.bars };
+      showGhost(placing.ghost, laneEl, placing.place, placeable(placing.place));
+   }
+
+   const onPlacingMove = (e) => {
+      if (placing) trackPlacing(e);
+   };
+   const onPlacingDown = (e) => {
+      if (!placing || !e.target.closest?.('.arr')) return;
+      e.preventDefault();
+      e.stopPropagation();
+      if (e.button === 2) {
+         stopDuplicate();
+         return;
+      }
+      if (e.button !== 0) return;
+      trackPlacing(e);
+      const { clip, place } = placing;
+      if (!place || !placeable(place)) return;
+      placing.ghost.remove();
+      placing = null;
+      render();
+      run(actions.duplicateClip(projectId, clip.id, place).then((copy) => drawer.open(copy.id)));
+   };
+   // 置いたあとに続く click・dblclick・右クリックのメニューも、下の要素に渡さない
+   const onPlacingSwallow = (e) => {
+      if (!placing || !e.target.closest?.('.arr')) return;
+      e.preventDefault();
+      e.stopPropagation();
+   };
+   root.addEventListener('pointermove', onPlacingMove);
+   root.addEventListener('pointerdown', onPlacingDown, true);
+   root.addEventListener('contextmenu', onPlacingSwallow, true);
+   root.addEventListener('dblclick', onPlacingSwallow, true);
+
+   function placingBar() {
+      return h('div', { class: 'arr-placing', role: 'status' },
+         icon('copy', 14),
+         h('span', null, `「${placing.clip.name || UNTITLED_CLIP}」の複製を置く場所を押してください(Esc か右クリックで取り消し)`),
+         h('button', { type: 'button', class: 'btn', onclick: () => stopDuplicate() }, '取り消し'));
    }
 
    /**
@@ -866,8 +946,10 @@ export function mount(container, { id: projectId }) {
       const audible = audibleTrackIds(data.tracks);
       const scroll = captureScroll();
 
+      root.classList.toggle('is-placing', Boolean(placing));
       keepFocus(view, () => view.replaceChildren(
          toolbar(),
+         placing && placingBar(),
          h('div', { class: 'arr' },
             h('div', { class: 'arr-inner', style: { '--bars': String(data.bars) } },
                // 再生位置の線。トラック名の列より下に重ねるため、先に置く(follow で動かす)

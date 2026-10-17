@@ -402,6 +402,28 @@ button.project-tab {
    background: color-mix(in srgb, var(--danger) 15%, transparent);
 }
 
+/* 複製の置き場所を選んでいる間の案内。置き先はポインタに付いて動くので、トラックの上は十字にする */
+.arr-placing {
+   display: flex;
+   flex: none;
+   align-items: center;
+   gap: var(--space-2);
+   padding: var(--space-1) var(--space-4);
+   border-bottom: 1px solid var(--border);
+   background: var(--accent-soft);
+   color: var(--text);
+   font-size: 13px;
+}
+
+.arr-placing .btn {
+   margin-left: auto;
+}
+
+.arr-page.is-placing .arr-lane,
+.arr-page.is-placing .clip {
+   cursor: copy;
+}
+
 /* トラックの追加 */
 .arr-foot {
    align-items: center;
@@ -643,6 +665,13 @@ button.project-tab {
 
 .clip-name {
    position: relative;
+}
+
+/* クリップ詳細の下端。複製を左、削除を右に */
+.clip-foot {
+   display: flex;
+   justify-content: space-between;
+   gap: var(--space-2);
 }
 
 .drawer-midi {
