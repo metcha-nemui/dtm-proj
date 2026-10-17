@@ -68,12 +68,15 @@ let clipboard = [];
  * @param {object} options
  * @param {string} options.projectId
  * @param {(clipId: string|null) => void} [options.onSelectionChange] 開いているクリップが変わったとき
- * @param {(clip: object) => void} [options.onPlayClip] 「このクリップから再生」
+ * @param {(clip: object) => void} [options.onPlayClip] 「このクリップだけをループ再生」(ループ中なら止める)
+ * @param {(clipId: string) => boolean} [options.isLooping] そのクリップをループで鳴らしているか(再生ボタンを停止の形にする)
  * @param {(clipId: string) => void} [options.onOpenDetail] クリップ詳細を開く
  * @param {(tick: number) => void} [options.onSeek] ルーラーを押して、再生を始める位置(曲の頭からの tick)を変えたとき
  * @param {() => boolean} [options.isPlaying] 再生中か(再生中は貼り付けさせない)
  */
-export function createPianoRoll({ projectId, onSelectionChange, onPlayClip, onOpenDetail, onSeek, isPlaying = () => false }) {
+export function createPianoRoll({
+   projectId, onSelectionChange, onPlayClip, isLooping = () => false, onOpenDetail, onSeek, isPlaying = () => false,
+}) {
    let data = null; // アレンジ画面が読み込んだもの(project / tracks / clips)
    let clipId = null;
    let notes = []; // 編集中のノート(クリップの先頭からの相対)
@@ -147,6 +150,21 @@ export function createPianoRoll({ projectId, onSelectionChange, onPlayClip, onOp
       'aria-label': 'オニオンスキンに出すトラック',
       onclick: () => openOnionMenu(),
    }, icon('list-checks'));
+   // このクリップだけを頭からループで鳴らす。ループ中は停止のボタンになる(updatePlayState で切り替える)
+   const playButton = h('button', {
+      type: 'button',
+      class: 'btn btn-icon',
+      onclick: () => { const c = clip(); if (c) onPlayClip?.(c); },
+   });
+   function updatePlayState() {
+      const looping = Boolean(clipId && isLooping(clipId));
+      const label = looping ? 'ループ再生を止める' : 'このクリップだけをループ再生(ミュート・ソロに関わらず、このトラックだけを鳴らす)';
+      playButton.title = label;
+      playButton.setAttribute('aria-label', looping ? 'ループ再生を止める' : 'このクリップだけをループ再生');
+      playButton.classList.toggle('is-playing', looping);
+      playButton.replaceChildren(icon(looping ? 'square' : 'play'));
+   }
+   updatePlayState();
    const inner = h('div', { class: 'pr-inner' }, h('div', { class: 'pr-corner' }), ruler, keys, grid);
    const scroller = h('div', { class: 'pr-scroll', tabIndex: -1, onkeydown: (e) => onKeydown(e) }, inner);
 
@@ -159,10 +177,7 @@ export function createPianoRoll({ projectId, onSelectionChange, onPlayClip, onOp
          scaleText,
          h('span', { class: 'pr-onion-tools' }, onionToggle, onionTracks),
          h('span', { class: 'pr-spacer' }),
-         h('button', {
-            type: 'button', class: 'btn btn-icon', title: 'このクリップの頭から再生', 'aria-label': 'このクリップの頭から再生',
-            onclick: () => { const c = clip(); if (c) onPlayClip?.(c); },
-         }, icon('play')),
+         playButton,
          h('button', {
             type: 'button', class: 'btn btn-icon', title: '.mid を書き出す', 'aria-label': '.mid を書き出す',
             onclick: () => downloadMidi(currentMidi()),
@@ -672,6 +687,7 @@ export function createPianoRoll({ projectId, onSelectionChange, onPlayClip, onOp
          scroller.scrollLeft = 0;
       }
       scroller.focus({ preventScroll: true });
+      updatePlayState();
       onSelectionChange?.(clipId);
    }
 
@@ -691,6 +707,8 @@ export function createPianoRoll({ projectId, onSelectionChange, onPlayClip, onOp
       get clipId() {
          return clipId;
       },
+      /** 再生の開始・停止のたびに呼ぶ(再生ボタンの形を変える)。 */
+      updatePlayState,
       /** アレンジ画面が読み直すたびに呼ぶ。 */
       update(next) {
          data = next;

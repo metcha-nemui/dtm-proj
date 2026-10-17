@@ -7,6 +7,7 @@
 //
 // 再生は「少し先までを時刻付きで予約する」方式。25ms ごとに、150ms 先までのイベントを AudioContext の時刻付きで送る。
 // タイマーの揺れが音のタイミングに出ず、停止したときに先の音まで予約してしまうこともない。
+// ループ再生(ピアノロールのクリップの再生)では、1周分のイベントを周回ごとに長さぶんずらして予約し続ける。
 
 import { secondsToTicks, ticksToSeconds } from '../domain/midi.js';
 import { loadSoundFont, removeSoundFont, saveSoundFont } from '../store/soundFontStore.js';
@@ -164,8 +165,10 @@ export const isPlaying = () => playing !== null;
  * @param {number} options.fromTick ここから鳴らす(曲の頭が 0)
  * @param {number} [options.endTick] ここまでは、鳴らす音がなくても止めない(全トラックをミュートしても再生位置を進める)
  * @param {() => void} [options.onEnd] 最後まで鳴らし終えたとき
+ * @param {{ fromTick: number, toTick: number }} [options.loop] この範囲をくり返す(止めるまで終わらない)。
+ *    events は範囲の中の1周分(範囲の終わりちょうどのノートオフを含めてよい)。fromTick は範囲の中にする
  */
-export async function play({ bpm, setup, events, fromTick, endTick = 0, onEnd }) {
+export async function play({ bpm, setup, events, fromTick, endTick = 0, onEnd, loop = null }) {
    stop();
    const s = await ready();
    for (const data of setup) s.sendMessage(data);
@@ -175,9 +178,12 @@ export async function play({ bpm, setup, events, fromTick, endTick = 0, onEnd })
       bpm,
       fromTick,
       startAt,
-      // 再生位置より前で始まる音は鳴らさない(途中から鳴らしたときに、頭の切れた音を出さない)
-      events: events.filter((e) => ((e.data[0] & 0xf0) === 0x90 ? e.tick >= fromTick : e.tick > fromTick)),
+      // 再生位置より前で始まる音は鳴らさない(途中から鳴らしたときに、頭の切れた音を出さない)。
+      // ループでは2周目から全部を鳴らすので、1周目だけ pump で飛ばす
+      events: loop ? events : events.filter((e) => afterStart(e, fromTick)),
       index: 0,
+      loop,
+      cycle: 0, // ループの何周目か(0 始まり)
       sounding: new Map(), // 鳴らした(予約した)まま止めていない音。'チャンネル:高さ' → [チャンネル, 高さ, 鳴らす時刻]
       lastSentAt: startAt,
       sentUntil: -Infinity, // この時刻までのイベントは送った(予約した)
@@ -192,16 +198,30 @@ export async function play({ bpm, setup, events, fromTick, endTick = 0, onEnd })
 }
 
 const timeOf = (state, tick) => state.startAt + ticksToSeconds(tick - state.fromTick, state.bpm);
+const afterStart = (e, fromTick) => ((e.data[0] & 0xf0) === 0x90 ? e.tick >= fromTick : e.tick > fromTick);
+const loopLength = (loop) => loop.toTick - loop.fromTick;
+// イベントを鳴らす位置(ループでは周回のぶんずらす)
+const tickOf = (state, event) => event.tick + (state.loop ? state.cycle * loopLength(state.loop) : 0);
 
 function pump(state) {
    if (playing !== state) return;
    const now = ctx.currentTime;
    const horizon = now + LOOKAHEAD;
-   const { events, sounding } = state;
-   while (state.index < events.length) {
-      const event = events[state.index];
-      const at = timeOf(state, event.tick);
+   const { sounding } = state;
+   for (;;) {
+      if (state.index >= state.events.length) {
+         // ループは、頭に戻って次の周回へ(1周分が空なら、何も予約しない)
+         if (!state.loop || !state.events.length) break;
+         state.cycle++;
+         state.index = 0;
+      }
+      const event = state.events[state.index];
+      const at = timeOf(state, tickOf(state, event));
       if (at > horizon) break;
+      if (state.loop && state.cycle === 0 && !afterStart(event, state.fromTick)) {
+         state.index++;
+         continue; // ループの1周目の、再生位置より前の音
+      }
       const kind = event.data[0] & 0xf0;
       const key = `${event.data[0] & 0x0f}:${event.data[1]}`;
       if (kind === 0x80 && !sounding.has(key)) {
@@ -216,7 +236,7 @@ function pump(state) {
    }
    state.sentUntil = horizon;
    const endAt = Math.max(state.lastSentAt, timeOf(state, state.endTick));
-   if (state.index >= events.length && now > endAt + 0.1) {
+   if (!state.loop && state.index >= state.events.length && now > endAt + 0.1) {
       const { onEnd } = state;
       stop();
       onEnd?.();
@@ -240,12 +260,27 @@ export function updatePlayback({ messages = [], events, endTick }) {
    if (endTick != null) state.endTick = endTick;
    if (!events) return;
    const key = (e) => `${e.data[0] & 0x0f}:${e.data[1]}`;
-   state.events = events.filter((e) => timeOf(state, e.tick) > state.sentUntil);
-   state.index = 0;
+   let upcoming;
+   if (state.loop) {
+      // ループでは1周分を全部持ち、送り済みの位置が何周目のどこかを求めて、その先から鳴らす
+      const length = loopLength(state.loop);
+      const sentTick = Math.max(state.fromTick, state.fromTick + secondsToTicks(state.sentUntil - state.startAt, state.bpm));
+      state.cycle = Math.floor((sentTick - state.loop.fromTick) / length);
+      const position = sentTick - state.cycle * length;
+      state.events = events;
+      state.index = events.findIndex((e) => e.tick > position);
+      if (state.index < 0) state.index = events.length;
+      // この先に来るものは、今の周回の残りと、次の周回の頭
+      upcoming = [...events.slice(state.index), ...events.slice(0, state.index)];
+   } else {
+      state.events = events.filter((e) => timeOf(state, e.tick) > state.sentUntil);
+      state.index = 0;
+      upcoming = state.events;
+   }
    // その高さで次に来るのがノートオフなら、鳴っている音の終わりがまだある(次がノートオンなら、別の音の終わり)
    const ending = new Set();
    const seen = new Set();
-   for (const e of state.events) {
+   for (const e of upcoming) {
       const k = key(e);
       if (seen.has(k)) continue;
       seen.add(k);
@@ -259,12 +294,21 @@ export function updatePlayback({ messages = [], events, endTick }) {
    }
 }
 
-/** いまの再生位置(tick)。止まっていれば null。音が実際に出るまでの遅れ(outputLatency)を差し引く。 */
+/**
+ * いまの再生位置(tick)。止まっていれば null。音が実際に出るまでの遅れ(outputLatency)を差し引く。
+ * ループ再生では、範囲の中に折り返した位置。
+ */
 export function playbackTick() {
    if (!playing) return null;
    const elapsed = Math.max(0, ctx.currentTime - (ctx.outputLatency || 0) - playing.startAt);
-   return playing.fromTick + secondsToTicks(elapsed, playing.bpm);
+   const tick = playing.fromTick + secondsToTicks(elapsed, playing.bpm);
+   const { loop } = playing;
+   if (!loop) return tick;
+   return loop.fromTick + ((tick - loop.fromTick) % loopLength(loop));
 }
+
+/** ループ再生中なら、その範囲。それ以外は null。 */
+export const playingLoop = () => playing?.loop ?? null;
 
 export function stop() {
    const state = playing;

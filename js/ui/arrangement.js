@@ -90,9 +90,13 @@ export function mount(container, { id: projectId }) {
    const pianoRoll = createPianoRoll({
       projectId,
       onSelectionChange: () => markSelected(),
-      // 編集中のクリップのトラックは、ミュートしていても(ほかのトラックがソロでも)鳴らす
-      onPlayClip: (clip) => startPlayback((clip.startBar - 1) * TICKS_PER_BAR, clip.trackId).catch(reportPlayError),
-      onSeek: (tick) => seek(tick, alwaysTrackId),
+      // そのクリップだけを、頭からループで鳴らす(ループ中にもう一度押すと止める)
+      onPlayClip: (clip) => {
+         if (isLooping(clip.id)) sound.stop();
+         else startPlayback(clipRange(clip).fromTick, clip.id).catch(reportPlayError);
+      },
+      isLooping: (clipId) => isLooping(clipId),
+      onSeek: (tick) => seek(tick, { keepLoop: true }),
       onOpenDetail: (clipId) => drawer.open(clipId),
       isPlaying: () => sound.isPlaying(),
    });
@@ -115,12 +119,29 @@ export function mount(container, { id: projectId }) {
 
    let startTick = 0;
    let played = null; // 再生中の中身(playbackInput)。変わったら syncPlayback で差し替える
-   let alwaysTrackId = null; // ミュート・ソロに関わらず鳴らすトラック(ピアノロールから再生したとき)
+   // ループで鳴らしているクリップ(ピアノロールの再生ボタン)。そのクリップのノートだけを、トラックのミュート・ソロに関わらず、
+   // 止めるまでくり返す(FL Studio のパターン再生のように、編集しながら聞く)。全体を再生しているときは null
+   let loopClipId = null;
    let frame = null;
 
+   const clipRange = (clip) => ({ fromTick: (clip.startBar - 1) * TICKS_PER_BAR, toTick: clipEnd(clip) * TICKS_PER_BAR });
+   const isLooping = (clipId) => sound.isPlaying() && loopClipId != null && loopClipId === clipId;
+
+   // 鳴らす中身。ループのクリップが消えていたら null
    function playbackInput() {
       const channels = trackChannels(data.tracks);
-      const audible = audibleTrackIds(data.tracks, alwaysTrackId);
+      if (loopClipId) {
+         const clip = data.clips.find((c) => c.id === loopClipId);
+         const track = clip && data.tracks.find((t) => t.id === clip.trackId);
+         if (!track) return null;
+         return {
+            bpm: projectBpm(data.project),
+            setup: setupMessages(track, channels.get(track.id)),
+            events: noteEvents({ tracks: data.tracks, clips: [clip] }),
+            loop: clipRange(clip),
+         };
+      }
+      const audible = audibleTrackIds(data.tracks);
       // ミュートしたトラックの音も、終わりの位置には数える(全部ミュートしても、曲の終わりまで再生位置を進める)
       const all = noteEvents({ tracks: data.tracks, clips: data.clips });
       return {
@@ -131,21 +152,39 @@ export function mount(container, { id: projectId }) {
       };
    }
 
-   async function startPlayback(fromTick, alwaysId = null) {
-      alwaysTrackId = alwaysId;
+   // clipId を渡すと、そのクリップだけをループで鳴らす(fromTick はクリップの範囲に収める)
+   async function startPlayback(fromTick, clipId = null) {
+      loopClipId = clipId;
       const input = playbackInput();
+      if (!input) {
+         sound.stop();
+         return;
+      }
       played = input;
-      await sound.play({ ...input, fromTick: Math.max(0, fromTick) });
+      const { loop } = input;
+      const from = loop ? (fromTick >= loop.fromTick && fromTick < loop.toTick ? fromTick : loop.fromTick) : Math.max(0, fromTick);
+      await sound.play({ ...input, fromTick: from });
       follow();
    }
 
    // 再生中に中身(ミュート・ソロ、音色・音量・パン、ノート)が変わったら、止めずに差し替える(伸びている音を途切れさせない)。
-   // BPM が変わったときだけは、時刻の計算が変わるので、いまの位置から鳴らし直す
+   // BPM が変わったときだけは、時刻の計算が変わるので、いまの位置から鳴らし直す。
+   // ループのクリップを動かしたり伸縮したりしたときも、範囲が変わるので、クリップの中の同じ位置から鳴らし直す。消えたら止める
    async function syncPlayback() {
       if (!sound.isPlaying() || !played) return;
       const input = playbackInput();
+      if (!input) {
+         sound.stop();
+         return;
+      }
+      const tick = sound.playbackTick() ?? 0;
+      if (input.loop && JSON.stringify(input.loop) !== JSON.stringify(played.loop)) {
+         const length = input.loop.toTick - input.loop.fromTick;
+         await startPlayback(input.loop.fromTick + ((tick - played.loop.fromTick) % length), loopClipId);
+         return;
+      }
       if (input.bpm !== played.bpm) {
-         await startPlayback(sound.playbackTick() ?? 0, alwaysTrackId);
+         await startPlayback(tick, loopClipId);
          return;
       }
       const sent = new Set(played.setup.map((m) => JSON.stringify(m)));
@@ -191,10 +230,11 @@ export function mount(container, { id: projectId }) {
    }
 
    // 再生を始める位置を変える(再生中なら、そこから鳴らし直す)。
-   // alwaysId はピアノロールのルーラーから変えたとき、ピアノロールから再生中なら、編集中のトラックを鳴らし続けるため
-   function seek(tick, alwaysId = null) {
+   // keepLoop はピアノロールのルーラーから変えたとき。クリップをループで鳴らしていれば、ループのまま、その位置から鳴らし直す
+   // (アレンジのルーラーからなら、全体の再生に戻す)
+   function seek(tick, { keepLoop = false } = {}) {
       startTick = Math.max(0, tick);
-      if (sound.isPlaying()) startPlayback(startTick, alwaysId).catch(reportPlayError);
+      if (sound.isPlaying()) startPlayback(startTick, keepLoop ? loopClipId : null).catch(reportPlayError);
       pianoRoll.setStart(startTick);
       render();
    }
@@ -240,6 +280,7 @@ export function mount(container, { id: projectId }) {
    const unwatchSynth = sound.onSynthChange(() => {
       if (data) render();
       if (!sound.isPlaying()) follow();
+      pianoRoll.updatePlayState();
    });
    // 音源の読み込み(数MB〜数十MB)には時間が掛かるので、画面を開いたときに裏で始めておく。
    // 選ばれていなければ、再生を押したときに知らせる
