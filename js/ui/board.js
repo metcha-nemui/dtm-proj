@@ -164,15 +164,13 @@ export function mount(container, { id: projectId }) {
    }
 
    async function refresh() {
-      const [project, lanes, tasks, clips] = await Promise.all([
+      const [project, lanes, tasks] = await Promise.all([
          repo().getProject(projectId),
          repo().getLanes(projectId),
          repo().getTasks(projectId),
-         repo().getClips(projectId),
       ]);
       if (!alive) return;
-      // clips は連動タスクの小節の範囲を出すためだけに使う
-      data = { project, lanes: sortByOrder(lanes), tasks: sortByOrder(tasks), clips: new Map(clips.map((c) => [c.id, c])) };
+      data = { project, lanes: sortByOrder(lanes), tasks: sortByOrder(tasks) };
       render();
    }
 
@@ -315,7 +313,6 @@ export function mount(container, { id: projectId }) {
                color: colors.get(lane.id) ?? null,
                stats: summarize(laneTasks),
                pendingStatus,
-               clips: data.clips,
                handlers,
             });
          }));

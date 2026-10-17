@@ -495,7 +495,7 @@ test('日付のヘルパー: 月や年をまたいで数える', () => {
    equal(daysBetween('2026-01-01', '2027-01-01'), 365);
 });
 
-test('ganttRows: 着手済みで開始日のあるタスクを、開始日の早い順に出す', () => {
+test('ganttRows: 着手済みで開始日のあるタスクを、作業中を先に、開始日の早い順に出す', () => {
    const { tasks, lanes, lane, inLane } = fixture();
    const today = '2026-10-13';
    const day = (d) => new Date(2026, 9, d, 12);
@@ -513,13 +513,13 @@ test('ganttRows: 着手済みで開始日のあるタスクを、開始日の早
    ]);
    const rows = ganttRows(all, lanes, today);
    equal(rows.map((r) => [r.task.title, r.start, r.end, r.ongoing]), [
-      ['コード確定', '2026-10-05', '2026-10-08', false],
       ['テンポ・キー決定', '2026-10-05', today, true],
+      ['メロ確定', '2026-10-10', today, true],
+      ['コード確定', '2026-10-05', '2026-10-08', false],
       ['仮タイトル', '2026-10-07', '2026-10-09', false],
       ['コード確定', '2026-10-10', '2026-10-10', false],
-      ['メロ確定', '2026-10-10', today, true],
    ]);
-   equal([rows[0].lane.id, rows[3].lane.id], [lane('サビ').id, lane('Aメロ').id], 'レーンも返す');
+   equal([rows[2].lane.id, rows[4].lane.id], [lane('サビ').id, lane('Aメロ').id], 'レーンも返す');
    equal(ganttRows(tasks, lanes, today), [], '着手したタスクがなければ空');
 
    // 開始日も終了日も同じなら、ボードでの並び順(「全体」→ セクションの順 → レーン内の順)

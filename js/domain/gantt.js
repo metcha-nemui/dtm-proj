@@ -8,7 +8,8 @@ const RANGE_MARGIN = 3; // 表示範囲の前後に足す日数
 
 /**
  * チャートの行。着手済み(作業中・完了)で、開始日のあるタスクだけを出す。
- * 並びは、セクションをまたいで開始日の早い順。同じなら終わりの早い順、その次はボードでの並び順。
+ * 並びは、作業中のものが先(いま手を付けているものを上で見られるように)。その中で、セクションをまたいで開始日の早い順。
+ * 同じなら終わりの早い順、その次はボードでの並び順。
  * @param {object[]} tasks プロジェクトの全タスク
  * @param {object[]} lanes プロジェクトの全レーン
  * @param {string} today 今日(YYYY-MM-DD)
@@ -35,7 +36,7 @@ export function ganttRows(tasks, lanes, today) {
       };
    });
 
-   const key = (row) => [row.start, row.end, ...laneRank(row.lane), row.task.order];
+   const key = (row) => [row.ongoing ? 0 : 1, row.start, row.end, ...laneRank(row.lane), row.task.order];
    return rows.sort((a, b) => {
       const [ka, kb] = [key(a), key(b)];
       const i = ka.findIndex((v, n) => v !== kb[n]);

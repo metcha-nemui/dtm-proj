@@ -530,8 +530,11 @@
 }
 
 .task-meta {
+   overflow: hidden;
    color: var(--text-muted);
    font-size: 11px;
+   white-space: nowrap;
+   text-overflow: ellipsis;
 }
 
 /* アレンジのクリップから来たタスク(連動タスク)の印 */
