@@ -12,7 +12,7 @@ export function closeMenu() {
 
 /**
  * @param {HTMLElement} anchor
- * @param {Array<{ label: string, onSelect: () => void, danger?: boolean, disabled?: boolean }|null|false>} items
+ * @param {Array<{ label: string, onSelect: () => void, danger?: boolean }|null|false>} items
  */
 export function openMenu(anchor, items) {
    // 開いているメニューのボタンをもう一度押したら閉じるだけ
@@ -27,7 +27,6 @@ export function openMenu(anchor, items) {
          type: 'button',
          role: 'menuitem',
          class: `menu-item${item.danger ? ' is-danger' : ''}`,
-         disabled: item.disabled,
          onclick: () => {
             closeMenu();
             item.onSelect();
@@ -57,5 +56,5 @@ export function openMenu(anchor, items) {
    window.addEventListener('hashchange', closeMenu, options);
 
    current = { anchor, menu, abort };
-   menu.querySelector('button:not(:disabled)')?.focus();
+   menu.querySelector('button')?.focus();
 }
