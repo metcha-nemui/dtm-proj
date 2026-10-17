@@ -1,6 +1,6 @@
 // ボタンの下に出すポップアップメニュー。外側のクリック・Esc・スクロールで閉じる。
 
-import { h } from './dom.js';
+import { h, icon } from './dom.js';
 
 let current = null;
 
@@ -12,7 +12,9 @@ export function closeMenu() {
 
 /**
  * @param {HTMLElement} anchor
- * @param {Array<{ label: string, onSelect: () => void, danger?: boolean }|null|false>} items
+ * @param {Array<{ label: string, onSelect: () => (void|boolean), danger?: boolean, checked?: boolean }|null|false>} items
+ *   checked を持つ項目はチェックの付く項目になり、押してもメニューを閉じない(続けていくつも切り替えられる)。
+ *   そのときの onSelect は、切り替えたあとの状態(true / false)を返す
  */
 export function openMenu(anchor, items) {
    // 開いているメニューのボタンをもう一度押したら閉じるだけ
@@ -23,15 +25,28 @@ export function openMenu(anchor, items) {
    closeMenu();
 
    const menu = h('div', { class: 'menu', role: 'menu' },
-      items.filter(Boolean).map((item) => h('button', {
-         type: 'button',
-         role: 'menuitem',
-         class: `menu-item${item.danger ? ' is-danger' : ''}`,
-         onclick: () => {
-            closeMenu();
-            item.onSelect();
-         },
-      }, item.label)));
+      items.filter(Boolean).map((item) => {
+         if (item.checked == null) {
+            return h('button', {
+               type: 'button',
+               role: 'menuitem',
+               class: `menu-item${item.danger ? ' is-danger' : ''}`,
+               onclick: () => {
+                  closeMenu();
+                  item.onSelect();
+               },
+            }, item.label);
+         }
+         const mark = h('span', { class: 'menu-check' }, icon('check', 14));
+         const button = h('button', {
+            type: 'button',
+            role: 'menuitemcheckbox',
+            class: 'menu-item is-check',
+            'aria-checked': String(item.checked),
+            onclick: () => button.setAttribute('aria-checked', String(Boolean(item.onSelect()))),
+         }, mark, item.label);
+         return button;
+      }));
    document.getElementById('overlay-root').append(menu);
 
    const rect = anchor.getBoundingClientRect();

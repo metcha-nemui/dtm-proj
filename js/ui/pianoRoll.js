@@ -7,19 +7,22 @@
 // スケールはアレンジ画面の「スケール」の段で決め、クリップの途中で転調していれば、転調の位置から塗り分けを変える。
 // ノートはクリップの範囲(左端〜右端)からはみ出すようには動かせない。
 // 同じ高さ・同じ位置で始まるノートが重なっていたら赤くする(気付いて片方を消せるように)。
+// オニオンスキン:ほかのトラックの、同じ時間に鳴るノートを薄く重ねて出せる(表示だけ。押せない)。
+// 全体の ON / OFF と、トラックごとの ON / OFF がある。覚えておかず、閉じた状態から開くたびに「全体 OFF・各トラック ON」に戻す。
 //
 // 編集は手元の notes に反映してから、操作の区切り(ポインタを離したとき)ごとにクリップのノートを丸ごと保存する。
 // 表示の単位は px、ノートの単位は tick(midi.js)。
 
 import * as actions from '../actions.js';
 import {
-   BEATS_PER_BAR, clipTicks, inScale, isBlackKey, normalizeNotes, pitchName, PPQ, projectScales, scaleLabel, scaleSpans,
+   audibleNotes, BEATS_PER_BAR, clipTicks, inScale, isBlackKey, normalizeNotes, pitchName, PPQ, projectScales, scaleLabel, scaleSpans,
    setupMessages, TICKS_PER_BAR, trackChannels,
 } from '../domain/midi.js';
 import { sortByOrder } from '../domain/order.js';
 import { UNTITLED_CLIP } from '../domain/arrangement.js';
 import { barRange } from './clipDrawer.js';
 import { h, icon } from './components/dom.js';
+import { openMenu } from './components/menu.js';
 import { reportError, showToast } from './components/toast.js';
 import { clipMidi, downloadMidi } from './midiExport.js';
 import { previewNote } from './synth.js';
@@ -79,6 +82,8 @@ export function createPianoRoll({ projectId, onSelectionChange, onPlayClip, onOp
    let snap = loadSnap();
    let dragging = false;
    let pending = 0; // 保存を待っている数。その間は、読み直した(古いかもしれない)ノートで上書きしない
+   let onion = false; // オニオンスキンを出すか
+   let onionOff = new Set(); // オニオンスキンに出さないトラックの id
 
    const title = h('span', { class: 'pr-title' });
    const range = h('span', { class: 'pr-range muted' });
@@ -116,12 +121,32 @@ export function createPianoRoll({ projectId, onSelectionChange, onPlayClip, onOp
    });
    const rows = h('div', { class: 'pr-rows', 'aria-hidden': 'true' });
    const layer = h('div', { class: 'pr-notes' });
+   // オニオンスキンは編集するノートの下に敷く(押せない)
+   const onionLayer = h('div', { class: 'pr-onion', 'aria-hidden': 'true' });
    const playhead = h('div', { class: 'pr-playhead', hidden: true });
    const grid = h('div', {
       class: 'pr-grid',
       onpointerdown: (e) => onGridDown(e),
       oncontextmenu: (e) => e.preventDefault(),
-   }, rows, layer, playhead);
+   }, rows, onionLayer, layer, playhead);
+   const onionToggle = h('button', {
+      type: 'button',
+      class: 'btn btn-icon pr-onion-toggle',
+      title: 'オニオンスキン(ほかのトラックのノートを薄く出す)',
+      'aria-label': 'オニオンスキン',
+      'aria-pressed': 'false',
+      onclick: () => {
+         onion = !onion;
+         renderOnion();
+      },
+   }, icon('layers'));
+   const onionTracks = h('button', {
+      type: 'button',
+      class: 'btn btn-icon',
+      title: 'オニオンスキンに出すトラック',
+      'aria-label': 'オニオンスキンに出すトラック',
+      onclick: () => openOnionMenu(),
+   }, icon('list-checks'));
    const inner = h('div', { class: 'pr-inner' }, h('div', { class: 'pr-corner' }), ruler, keys, grid);
    const scroller = h('div', { class: 'pr-scroll', tabIndex: -1, onkeydown: (e) => onKeydown(e) }, inner);
 
@@ -132,6 +157,7 @@ export function createPianoRoll({ projectId, onSelectionChange, onPlayClip, onOp
          range,
          h('label', { class: 'pr-snap-label muted' }, 'グリッド', snapSelect),
          scaleText,
+         h('span', { class: 'pr-onion-tools' }, onionToggle, onionTracks),
          h('span', { class: 'pr-spacer' }),
          h('button', {
             type: 'button', class: 'btn btn-icon', title: 'このクリップの頭から再生', 'aria-label': 'このクリップの頭から再生',
@@ -246,6 +272,54 @@ export function createPianoRoll({ projectId, onSelectionChange, onPlayClip, onOp
          },
          dataset: { index: String(i) },
          title: dup(n) ? `${pitchName(n.pitch)}(同じ位置に重なっているノートがあります)` : pitchName(n.pitch),
+      })));
+   }
+
+   // ---- オニオンスキン ----
+
+   // 編集中のトラック以外のトラック(並び順)
+   const otherTracks = () => sortByOrder(data?.tracks ?? []).filter((t) => t.id !== clip()?.trackId);
+
+   function openOnionMenu() {
+      const tracks = otherTracks();
+      openMenu(onionTracks, tracks.length
+         ? tracks.map((t) => ({
+            label: t.name,
+            checked: !onionOff.has(t.id),
+            onSelect: () => {
+               if (onionOff.has(t.id)) onionOff.delete(t.id);
+               else onionOff.add(t.id);
+               renderOnion();
+               return !onionOff.has(t.id);
+            },
+         }))
+         : [{ label: 'ほかのトラックがありません', onSelect: () => {} }]);
+   }
+
+   // ほかのトラックのクリップのうち、編集中のクリップと時間が重なる部分の、鳴るノートを出す。
+   // 位置は編集中のクリップの先頭からの相対に直す
+   function renderOnion() {
+      onionToggle.setAttribute('aria-pressed', String(onion));
+      const c = clip();
+      if (!onion || !c) {
+         onionLayer.replaceChildren();
+         return;
+      }
+      const end = clipTicks(c);
+      const shown = new Set(otherTracks().filter((t) => !onionOff.has(t.id)).map((t) => t.id));
+      const ghosts = data.clips.filter((other) => shown.has(other.trackId)).flatMap((other) => {
+         const offset = (other.startBar - c.startBar) * TICKS_PER_BAR;
+         return audibleNotes(other)
+            .map((n) => ({ ...n, start: n.start + offset }))
+            .filter((n) => n.start < end && n.start + n.length > 0);
+      });
+      onionLayer.replaceChildren(...ghosts.map((n) => h('div', {
+         class: 'pr-onion-note',
+         style: {
+            left: `${Math.max(0, n.start) * PX}px`,
+            top: `${(127 - n.pitch) * ROW}px`,
+            width: `${Math.max(3, (Math.min(end, n.start + n.length) - Math.max(0, n.start)) * PX)}px`,
+         },
       })));
    }
 
@@ -564,6 +638,7 @@ export function createPianoRoll({ projectId, onSelectionChange, onPlayClip, onOp
          return;
       }
       renderHead();
+      renderOnion();
       if (!force && (dragging || pending > 0 || sameNotes(c.notes, notes))) {
          renderNotes();
          return;
@@ -576,6 +651,11 @@ export function createPianoRoll({ projectId, onSelectionChange, onPlayClip, onOp
 
    function open(id) {
       const opening = id !== clipId;
+      // 閉じた状態から開くときは、オニオンスキンを初めの状態(全体 OFF・各トラック ON)に戻す
+      if (!clipId) {
+         onion = false;
+         onionOff = new Set();
+      }
       clipId = id;
       if (opening) {
          scaleSignature = '';

@@ -1074,6 +1074,31 @@ button.project-tab {
    background-size: var(--pr-bar) 100%, var(--pr-beat) 100%, var(--pr-snap) 100%;
 }
 
+/* オニオンスキン(ほかのトラックのノート)。編集するノートの下に薄く敷く。押せない */
+.pr-onion {
+   position: absolute;
+   inset: 0;
+   pointer-events: none;
+}
+
+.pr-onion-note {
+   position: absolute;
+   height: calc(var(--pr-row) - 1px);
+   border: 1px solid color-mix(in srgb, var(--text-muted) 70%, transparent);
+   border-radius: 2px;
+   background: color-mix(in srgb, var(--text-muted) 30%, transparent);
+}
+
+.pr-onion-tools {
+   display: inline-flex;
+   gap: 2px;
+}
+
+.pr-head .pr-onion-toggle[aria-pressed="true"] {
+   background: var(--accent);
+   color: var(--accent-contrast);
+}
+
 .pr-note {
    position: absolute;
    height: calc(var(--pr-row) - 1px);

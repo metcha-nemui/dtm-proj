@@ -374,6 +374,24 @@ textarea {
    color: var(--danger);
 }
 
+/* チェックの付く項目。外れているときもチェックの幅を空けて、名前の位置を揃える */
+.menu-item.is-check {
+   display: flex;
+   align-items: center;
+   gap: var(--space-2);
+}
+
+.menu-check {
+   display: inline-flex;
+   flex: none;
+   width: 14px;
+   color: var(--accent);
+}
+
+.menu-item[aria-checked="false"] .menu-check {
+   visibility: hidden;
+}
+
 /* ---- トースト ---- */
 
 #toast-root {
