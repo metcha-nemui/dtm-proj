@@ -24,6 +24,7 @@
   ```
 
 - `js/domain/` を変えたら `test/domain.test.js` にテストを足す。画面の変更は、実際にブラウザで操作して確かめる(この環境には Chrome と Edge がある)。
+- ヘッドレス Chrome の `--user-data-dir` は短いパスにする(例: `%TEMP%\dtmcs`。終わったら消す)。深い場所(作業用の一時フォルダの奥など)だと、Cache Storage の中のパスが Windows の上限(260文字)を超えてキャッシュに書けず、Service Worker まわりが本来と違う動きになる。
 - ヘッドレス Chrome などで確かめたあとは、確認のために起動したプロセスだけを終了する(コマンドラインの `--remote-debugging-port` や `--user-data-dir`、`http.server` のポートで見分ける)。`taskkill /IM chrome.exe` のようにプロセス名でまとめて終了すると、ユーザーが普段使っているブラウザまで閉じてしまうので、しない。
 
 ## コーディング規約

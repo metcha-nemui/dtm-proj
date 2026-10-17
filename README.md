@@ -30,7 +30,7 @@ PWA に対応している。Chrome / Edge ならアドレスバーのインス�
 - 一度開くと、画面のファイル(HTML・CSS・JS と CDN のライブラリ)が Service Worker(`sw.js`)にキャッシュされ、オフラインでも起動できる。
 - オフラインで使えるのは、ログインせずに(IndexedDB で)使っているときだけ。Supabase に保存しているときは、起動はできても読み書きできない。
 - 自前のファイルはネットワーク優先で読む。つながっていれば常に最新が使われるので、ファイルを変えたときにキャッシュの名前を変える必要はない。
-- Service Worker は `localhost` か HTTPS でしか動かない(GitHub Pages は HTTPS なので動く)。
+- キャッシュ(Cache Storage)が使えないとき(壊れている、容量の上限など)も、ネットワークから取れるものはそのまま返す。キャッシュの失敗で画面が開けなくなると、Service Worker を消すまで直らないため。以前の sw.js でこの状態になっていた端末も、一度開き直せば新しい sw.js に入れ替わって直る。- Service Worker は `localhost` か HTTPS でしか動かない(GitHub Pages は HTTPS なので動く)。
 
 ```
 node -e "import('./test/domain.test.js').then(m => m.report()).then(ok => process.exit(ok ? 0 : 1))"
