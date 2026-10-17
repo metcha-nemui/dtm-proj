@@ -57,7 +57,7 @@ async function networkFirst(request) {
    const cache = await caches.open(CACHE);
    try {
       const response = await fetch(request);
-      if (response.ok) await cache.put(request, response.clone());
+      if (response.ok) await store(cache, request, response);
       return response;
    } catch (error) {
       // ルーティングはハッシュ方式なので、クエリの違いは無視して同じページとみなす
@@ -73,6 +73,15 @@ async function cacheFirst(request) {
    if (cached) return cached;
    const response = await fetch(request);
    // <script> で読む CDN のファイルは中身の見えない応答(opaque)になるので、ok ではなく type で判断する
-   if (response.ok || response.type === 'opaque') await cache.put(request, response.clone());
+   if (response.ok || response.type === 'opaque') await store(cache, request, response);
    return response;
+}
+
+// キャッシュに入れる。入れられなくても(容量の上限など)、取れた応答はそのまま返したいので、失敗は無視する
+async function store(cache, request, response) {
+   try {
+      await cache.put(request, response.clone());
+   } catch {
+      // 次に使われたときに、また入れようとする
+   }
 }

@@ -16,7 +16,7 @@ import { barRange } from './clipDrawer.js';
 import { h, icon } from './components/dom.js';
 import { reportError } from './components/toast.js';
 import { clipMidi, downloadMidi, setMidiDrag } from './midiExport.js';
-import { previewNote } from './midiOut.js';
+import { previewNote } from './synth.js';
 
 const ROW = 12; // 1音の高さ(px)
 const BEAT = 64; // 1拍の幅(px)

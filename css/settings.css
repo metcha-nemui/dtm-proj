@@ -29,3 +29,30 @@
 .settings-summary {
    font-size: 12px;
 }
+
+/* 音源 */
+.settings-sound-status {
+   margin-top: var(--space-3);
+   font-size: 13px;
+}
+
+.settings-sound-hint {
+   margin-top: var(--space-3);
+   font-size: 13px;
+}
+
+.settings-sound-path {
+   display: flex;
+   align-items: center;
+   gap: var(--space-1);
+   margin-top: var(--space-1);
+}
+
+.settings-sound-path code {
+   padding: 2px var(--space-2);
+   border-radius: var(--radius-sm);
+   background: var(--surface-2);
+   color: var(--text);
+   font-size: 12px;
+   overflow-wrap: anywhere;
+}

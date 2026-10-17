@@ -491,19 +491,25 @@ button.project-tab {
    font-variant-numeric: tabular-nums;
 }
 
-.arr-output {
-   width: auto;
-   max-width: 200px;
-   padding: 3px var(--space-1);
-   font-size: 12px;
-}
-
-.arr-output-name {
-   max-width: 200px;
+/* 再生に使う音源(設定画面で選ぶ) */
+.arr-source {
+   display: inline-flex;
+   align-items: center;
+   gap: var(--space-1);
+   max-width: 220px;
    overflow: hidden;
    font-size: 12px;
    text-overflow: ellipsis;
    white-space: nowrap;
+}
+
+.arr-source .icon {
+   flex: none;
+}
+
+.arr-source.is-missing {
+   color: var(--doing);
+   font-weight: 600;
 }
 
 /* ルーラーを押すと、そこが再生を始める位置になる */

@@ -25,7 +25,7 @@ import { createSortable, domIndex } from './components/sortable.js';
 import { reportError, showToast } from './components/toast.js';
 import { barRange, createClipDrawer } from './clipDrawer.js';
 import { arrangementMidi, clipMidi, downloadMidi, setMidiDrag } from './midiExport.js';
-import * as midiOut from './midiOut.js';
+import * as sound from './synth.js';
 import { createPianoRoll } from './pianoRoll.js';
 import { projectTabs } from './projectTabs.js';
 
@@ -67,7 +67,7 @@ export function mount(container, { id: projectId }) {
    const pianoRoll = createPianoRoll({
       projectId,
       onSelectionChange: () => markSelected(),
-      onPlayClip: (clip) => run(startPlayback((clip.startBar - 1) * TICKS_PER_BAR)),
+      onPlayClip: (clip) => startPlayback((clip.startBar - 1) * TICKS_PER_BAR).catch(reportPlayError),
       onOpenDetail: (clipId) => drawer.open(clipId),
    });
    root.append(view, pianoRoll.el);
@@ -102,19 +102,28 @@ export function mount(container, { id: projectId }) {
    async function startPlayback(fromTick) {
       const input = playbackInput();
       playSignature = JSON.stringify(input);
-      await midiOut.play({ ...input, fromTick: Math.max(0, fromTick) });
+      await sound.play({ ...input, fromTick: Math.max(0, fromTick) });
       follow();
    }
 
    function togglePlayback() {
-      if (midiOut.isPlaying()) midiOut.stop();
-      else run(startPlayback((startBar - 1) * TICKS_PER_BAR));
+      if (sound.isPlaying()) sound.stop();
+      else startPlayback((startBar - 1) * TICKS_PER_BAR).catch(reportPlayError);
+   }
+
+   // 再生の失敗を知らせる。音源が選ばれていなければ、設定画面へ行けるようにする
+   function reportPlayError(error) {
+      if (!(error instanceof sound.NoSoundFontError)) {
+         reportError(error);
+         return;
+      }
+      showToast(error.message, { actionLabel: '設定を開く', onAction: () => { location.hash = '#/settings'; } });
    }
 
    // 再生位置の線を動かし、画面の外へ出そうなら横にスクロールして追いかける
    function follow() {
       cancelAnimationFrame(frame);
-      const tick = midiOut.playbackTick();
+      const tick = sound.playbackTick();
       const line = root.querySelector('.arr-playhead');
       pianoRoll.setPlayhead(tick);
       if (line) {
@@ -133,11 +142,13 @@ export function mount(container, { id: projectId }) {
       if (tick != null) frame = requestAnimationFrame(follow);
    }
 
-   const unwatchMidi = midiOut.onMidiChange(() => {
+   const unwatchSynth = sound.onSynthChange(() => {
       if (data) render();
-      if (!midiOut.isPlaying()) follow();
+      if (!sound.isPlaying()) follow();
    });
-   run(midiOut.restoreMidiAccess());
+   // 音源の読み込み(数MB〜数十MB)には時間が掛かるので、画面を開いたときに裏で始めておく。
+   // 選ばれていなければ、再生を押したときに知らせる
+   sound.prepareSynth().catch(() => {});
 
    // スペースキーで再生・停止(入力欄やボタン、クリップの上では、そちらの操作を優先する)
    const onKeydown = (e) => {
@@ -404,21 +415,16 @@ export function mount(container, { id: projectId }) {
 
    // ---- 描画 ----
 
-   // 再生・停止、BPM、出力先、全体の書き出し
+   // 再生・停止、BPM、音源、全体の書き出し
    function transport() {
       const { project } = data;
-      const supported = midiOut.midiSupported();
-      const playing = midiOut.isPlaying();
-      const outputs = midiOut.midiOutputs();
-      const current = midiOut.currentOutput();
+      const playing = sound.isPlaying();
+      const source = sound.soundSource();
       return h('div', { class: 'arr-transport' },
          h('button', {
             type: 'button',
             class: `btn btn-icon arr-play${playing ? ' is-playing' : ''}`,
-            disabled: !supported,
-            title: supported
-               ? `${playing ? '停止' : `${startBar}小節目から再生`}(スペースキー)`
-               : 'このブラウザでは再生できません(Web MIDI に対応した Chrome か Edge で開いてください)',
+            title: `${playing ? '停止' : `${startBar}小節目から再生`}(スペースキー)`,
             'aria-label': playing ? '停止' : '再生',
             dataset: { focusKey: 'transport-play' },
             onclick: () => togglePlayback(),
@@ -433,14 +439,10 @@ export function mount(container, { id: projectId }) {
             dataset: { focusKey: 'bpm' },
             onchange: (e) => run(actions.updateProject(projectId, { bpm: e.target.value })),
          })),
-         outputs.length > 1 && h('select', {
-            class: 'select arr-output',
-            'aria-label': 'MIDI の出力先',
-            title: 'MIDI の出力先',
-            dataset: { focusKey: 'midi-output' },
-            onchange: (e) => midiOut.selectOutput(e.target.value),
-         }, outputs.map((o) => h('option', { value: o.id, selected: o.id === current?.id }, o.name))),
-         outputs.length === 1 && h('span', { class: 'arr-output-name muted', title: 'MIDI の出力先' }, current.name),
+         source === null
+            ? h('a', { class: 'arr-source is-missing', href: '#/settings', title: '再生に使う音源を設定画面で選ぶ' }, icon('triangle-alert', 14), '音源を設定')
+            : source && h('span', { class: 'arr-source muted', title: `音源: ${source.name}(設定画面で変更)` },
+               icon('audio-waveform', 14), source.name, sound.isSynthLoading() && '(読み込み中)'),
          h('button', {
             type: 'button',
             class: 'btn btn-icon',
@@ -467,7 +469,7 @@ export function mount(container, { id: projectId }) {
          title: '押した小節から再生します',
          onclick: (e) => {
             startBar = barAt(ruler, e.clientX);
-            if (midiOut.isPlaying()) run(startPlayback((startBar - 1) * TICKS_PER_BAR));
+            if (sound.isPlaying()) startPlayback((startBar - 1) * TICKS_PER_BAR).catch(reportPlayError);
             render();
          },
       },
@@ -700,7 +702,7 @@ export function mount(container, { id: projectId }) {
       restoreScroll(scroll);
       markSelected();
       setupSortable();
-      if (midiOut.isPlaying()) follow();
+      if (sound.isPlaying()) follow();
    }
 
    async function refresh() {
@@ -719,8 +721,8 @@ export function mount(container, { id: projectId }) {
       if (!project || project.isTemplate) return;
       pianoRoll.update(data);
       // 再生中にノートや音色、BPM が変わったら、いまの位置から鳴らし直す
-      if (midiOut.isPlaying() && JSON.stringify(playbackInput()) !== playSignature) {
-         await startPlayback(midiOut.playbackTick() ?? 0);
+      if (sound.isPlaying() && JSON.stringify(playbackInput()) !== playSignature) {
+         await startPlayback(sound.playbackTick() ?? 0);
       }
    }
 
@@ -729,8 +731,8 @@ export function mount(container, { id: projectId }) {
    return () => {
       alive = false;
       unsubscribe();
-      unwatchMidi();
-      midiOut.stop();
+      unwatchSynth();
+      sound.stop();
       cancelAnimationFrame(frame);
       document.removeEventListener('keydown', onKeydown);
       drawer.destroy();

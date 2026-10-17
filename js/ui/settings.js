@@ -1,4 +1,4 @@
-// 設定 #/settings — UIテーマ、保存先(ログイン状態)と、JSONのエクスポート/インポート。
+// 設定 #/settings — UIテーマ、音源(このブラウザだけ)、保存先(ログイン状態)と、JSONのエクスポート/インポート。
 
 import { clearSession, loadSession } from '../session.js';
 import { notify, repo } from '../state.js';
@@ -8,6 +8,9 @@ import { confirmDialog } from './components/dialog.js';
 import { h, icon } from './components/dom.js';
 import { watchSlow } from './components/slowNotice.js';
 import { reportError, showToast } from './components/toast.js';
+import {
+   clearSoundFont, isWindows, onSynthChange, refreshSoundSource, setSoundFont, soundSource, WINDOWS_GM_DLS,
+} from './synth.js';
 
 const dateFormat = new Intl.DateTimeFormat('ja-JP', { dateStyle: 'short', timeStyle: 'short' });
 
@@ -46,6 +49,65 @@ async function importData(file) {
    await watchSlow(repo().importAll(data));
    notify();
    showToast('インポートしました');
+}
+
+const megabytes = (bytes) => `${(bytes / 1024 / 1024).toFixed(1)}MB`;
+
+// 音源(アレンジの再生とピアノロールの試し弾きに使う)。このブラウザにだけ保存する
+function soundFontSection(run, section) {
+   const status = h('p', { class: 'settings-sound-status' });
+   const removeButton = h('button', {
+      type: 'button',
+      class: 'btn',
+      onclick: () => run(clearSoundFont().then(() => showToast('音源を削除しました'))),
+   }, icon('trash-2'), '削除');
+   const picker = h('input', {
+      type: 'file',
+      accept: '.sf2,.sf3,.dls',
+      hidden: true,
+      onchange: () => {
+         const [file] = picker.files;
+         picker.value = '';
+         if (!file) return;
+         status.textContent = `「${file.name}」を読み込んでいます…`;
+         run(setSoundFont(file).then(() => showToast(`「${file.name}」を音源にしました`)).finally(render));
+      },
+   });
+
+   // Windows には MSGS と同じ音色の gm.dls がある。ブラウザからは自動では読めないので、選び方を案内する
+   const windowsHint = isWindows() && h('div', { class: 'settings-sound-hint muted' },
+      h('p', null, 'Windows では、次のファイルを選ぶと Microsoft GS Wavetable Synth と同じ音で鳴ります。'
+         + 'ファイルを選ぶ画面の「ファイル名」欄にこのパスを貼り付けて開くと、すぐに選べます。'),
+      h('div', { class: 'settings-sound-path' },
+         h('code', null, WINDOWS_GM_DLS),
+         h('button', {
+            type: 'button',
+            class: 'btn btn-icon',
+            title: 'パスをコピー',
+            'aria-label': 'パスをコピー',
+            onclick: () => run(navigator.clipboard.writeText(WINDOWS_GM_DLS).then(() => showToast('パスをコピーしました'))),
+         }, icon('copy'))));
+
+   function render() {
+      const source = soundSource();
+      if (source === undefined) {
+         status.textContent = '読み込み中…';
+      } else {
+         status.textContent = source ? `いまの音源: ${source.name}(${megabytes(source.size)})` : '音源は選ばれていません。';
+      }
+      removeButton.hidden = !source;
+   }
+
+   const unsubscribe = onSynthChange(render);
+   run(refreshSoundSource());
+   render();
+   const el = section('音源',
+      '手持ちの SoundFont(.sf2 / .sf3)や DLS(.dls)を読み込んで、アレンジの再生とピアノロールの試し弾きに使います。このブラウザにだけ保存されます。',
+      h('button', { type: 'button', class: 'btn btn-primary', onclick: () => picker.click() }, icon('upload'), 'ファイルを選ぶ…'),
+      removeButton,
+      picker);
+   el.append(status, windowsHint || '');
+   return { el, unsubscribe };
 }
 
 export function mount(container) {
@@ -94,12 +156,14 @@ export function mount(container) {
       });
    }
    renderTheme();
+   const sound = soundFontSection(run, section);
 
    container.append(h('div', { class: 'page settings-page' },
       h('div', { class: 'page-head' }, h('h1', { class: 'page-title' }, '設定')),
       section('UIテーマ',
          '画面の明るさを選びます。「システム」では端末の設定(ライト / ダーク)に合わせます。このブラウザにだけ保存されます。',
          h('div', { class: 'project-tabs', role: 'radiogroup', 'aria-label': 'UIテーマ' }, themeButtons)),
+      sound.el,
       remote
          ? section('保存先: Supabase',
             `${session.url} に保存しています。ログアウトすると、このブラウザから Project URL と公開キーを消します。Supabase 上のデータは残ります。`,
@@ -123,5 +187,8 @@ export function mount(container) {
       if (alive) summary.textContent = `現在のデータ: ${describe(data)}`;
    }
    run(refresh());
-   return () => { alive = false; };
+   return () => {
+      alive = false;
+      sound.unsubscribe();
+   };
 }

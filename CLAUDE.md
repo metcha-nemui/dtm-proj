@@ -35,7 +35,8 @@
 
 ## 守ること
 
-- ビルドステップなしの素の HTML / CSS / JavaScript(ES Modules)。npm の依存は足さない。外部ライブラリは CDN から読む SortableJS と Lucide だけ。
+- ビルドステップなしの素の HTML / CSS / JavaScript(ES Modules)。npm の依存は足さない。外部ライブラリは CDN から読む SortableJS、Lucide、spessasynth_lib(SoundFont / DLS の再生)だけ。版は固定する。
+- SoundFont / DLS のファイルはリポジトリに入れない(端末ごとに設定画面で選び、ブラウザの IndexedDB に置く)。
 - `js/domain/` は DOM にも repository にも依存しない。受け取ったレコードは変更せず、保存すべき新しいレコードを返す。
 - UI は repository を直接書き換えない。書き込みは `js/actions.js` の操作を通す(読む→計算→保存→通知を直列に実行している)。
 - repository の実装は2つある(IndexedDB と Supabase)。メソッドを足す・変えるときは `js/store/repository.js` の定義と両方の実装を揃える。テーブルの列を変えたら `supabase/schema.sql` も直す。
