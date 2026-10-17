@@ -775,6 +775,29 @@ button.project-tab {
    color: var(--text);
 }
 
+/* 押した拍から再生する。印はアレンジのルーラーと同じ(sticky の .pr-ruler が位置の基準になる) */
+.pr-ruler {
+   cursor: pointer;
+}
+
+.pr-cursor {
+   position: absolute;
+   top: 0;
+   bottom: 0;
+   width: 0;
+   border-left: 2px solid var(--danger);
+   pointer-events: none;
+}
+
+.pr-cursor::before {
+   content: "";
+   position: absolute;
+   top: 0;
+   left: -6px;
+   border: 5px solid transparent;
+   border-top: 7px solid var(--danger);
+}
+
 /* 鍵盤。上が高い音 */
 .pr-keys {
    position: sticky;

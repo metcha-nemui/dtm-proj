@@ -63,8 +63,9 @@ const sameNotes = (a, b) => JSON.stringify(normalizeNotes(a)) === JSON.stringify
  * @param {(clipId: string|null) => void} [options.onSelectionChange] 開いているクリップが変わったとき
  * @param {(clip: object) => void} [options.onPlayClip] 「このクリップから再生」
  * @param {(clipId: string) => void} [options.onOpenDetail] クリップ詳細を開く
+ * @param {(tick: number) => void} [options.onSeek] ルーラーを押して、再生を始める位置(曲の頭からの tick)を変えたとき
  */
-export function createPianoRoll({ projectId, onSelectionChange, onPlayClip, onOpenDetail }) {
+export function createPianoRoll({ projectId, onSelectionChange, onPlayClip, onOpenDetail, onSeek }) {
    let data = null; // アレンジ画面が読み込んだもの(project / tracks / clips)
    let clipId = null;
    let notes = []; // 編集中のノート(クリップの先頭からの相対)
@@ -92,7 +93,20 @@ export function createPianoRoll({ projectId, onSelectionChange, onPlayClip, onOp
       },
    }, SNAPS.map((s) => h('option', { value: s.value, selected: Number(s.value) === snap }, s.label)));
    const keys = h('div', { class: 'pr-keys' });
-   const ruler = h('div', { class: 'pr-ruler' });
+   // ルーラーを押すと、押した拍が再生を始める位置になる(アレンジ画面のルーラーの赤い印と同じもの)
+   let startTick = 0; // 曲の頭からの tick
+   const cursor = h('span', { class: 'pr-cursor', hidden: true, 'aria-hidden': 'true' });
+   const ruler = h('div', {
+      class: 'pr-ruler',
+      title: '押した拍から再生します',
+      onclick: (e) => {
+         const c = clip();
+         if (!c) return;
+         const beats = c.bars * BEATS_PER_BAR;
+         const beat = Math.max(0, Math.min(beats - 1, Math.floor((e.clientX - ruler.getBoundingClientRect().left) / BEAT)));
+         onSeek?.((c.startBar - 1) * TICKS_PER_BAR + beat * PPQ);
+      },
+   });
    const rows = h('div', { class: 'pr-rows', 'aria-hidden': 'true' });
    const layer = h('div', { class: 'pr-notes' });
    const playhead = h('div', { class: 'pr-playhead', hidden: true });
@@ -169,7 +183,16 @@ export function createPianoRoll({ projectId, onSelectionChange, onPlayClip, onOp
       renderScale();
       ruler.replaceChildren(...Array.from({ length: c.bars * BEATS_PER_BAR }, (_, i) => h('span', {
          class: `pr-beat${i % BEATS_PER_BAR === 0 ? ' is-bar' : ''}`,
-      }, i % BEATS_PER_BAR === 0 ? String(c.startBar + i / BEATS_PER_BAR) : '')));
+      }, i % BEATS_PER_BAR === 0 ? String(c.startBar + i / BEATS_PER_BAR) : '')), cursor);
+      renderCursor();
+   }
+
+   // 再生を始める位置の印。クリップの範囲(頭〜終わり)にあるときだけ出す
+   function renderCursor() {
+      const c = clip();
+      const rel = c ? startTick - (c.startBar - 1) * TICKS_PER_BAR : -1;
+      cursor.hidden = !c || rel < 0 || rel > clipTicks(c);
+      if (!cursor.hidden) cursor.style.left = `${rel * PX}px`;
    }
 
    // スケールの外の音の行を暗く、主音の行を少し色付きにする(鍵盤は実際の白黒のまま)。
@@ -542,6 +565,11 @@ export function createPianoRoll({ projectId, onSelectionChange, onPlayClip, onOp
       update(next) {
          data = next;
          if (clipId) sync();
+      },
+      /** 再生を始める位置(曲の頭からの tick)。 */
+      setStart(tick) {
+         startTick = tick;
+         renderCursor();
       },
       /** 再生位置(曲の頭からの tick)。止まっていれば null。 */
       setPlayhead(tick) {

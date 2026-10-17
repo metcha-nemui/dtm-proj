@@ -12,7 +12,7 @@
 import * as actions from '../actions.js';
 import { arrangementBars, canPlace, clipEnd, clipSection, markerSpans, UNTITLED_CLIP } from '../domain/arrangement.js';
 import {
-   audibleNotes, audibleTrackIds, CENTER_PAN, clipTicks, DEFAULT_VOLUME, GM_PROGRAMS, KEY_NAMES, MAX_BPM, MIN_BPM, noteEvents,
+   audibleNotes, audibleTrackIds, CENTER_PAN, clipTicks, DEFAULT_VOLUME, GM_PROGRAMS, KEY_NAMES, MAX_BPM, MIN_BPM, noteEvents, PPQ,
    projectBpm, projectScales, scaleAt, scaleLabel, SCALE_MODES, setupMessages, soundLabel, TICKS_PER_BAR, trackChannels, trackMix,
    trackSound,
 } from '../domain/midi.js';
@@ -70,6 +70,7 @@ export function mount(container, { id: projectId }) {
       onSelectionChange: () => markSelected(),
       // 編集中のクリップのトラックは、ミュートしていても(ほかのトラックがソロでも)鳴らす
       onPlayClip: (clip) => startPlayback((clip.startBar - 1) * TICKS_PER_BAR, clip.trackId).catch(reportPlayError),
+      onSeek: (tick) => seek(tick, alwaysTrackId),
       onOpenDetail: (clipId) => drawer.open(clipId),
    });
    root.append(view, pianoRoll.el);
@@ -86,9 +87,10 @@ export function mount(container, { id: projectId }) {
    }
 
    // ---- 再生 ----
-   // 再生を始める位置(小節)は、ルーラーを押して決める。止めても動かない
+   // 再生を始める位置は、ルーラーを押して決める。止めても動かない。
+   // アレンジのルーラーは小節単位、ピアノロールのルーラーは拍単位で決めるので、曲の頭からの tick で持つ
 
-   let startBar = 1;
+   let startTick = 0;
    let played = null; // 再生中の中身(playbackInput)。変わったら syncPlayback で差し替える
    let alwaysTrackId = null; // ミュート・ソロに関わらず鳴らすトラック(ピアノロールから再生したとき)
    let frame = null;
@@ -162,7 +164,23 @@ export function mount(container, { id: projectId }) {
 
    function togglePlayback() {
       if (sound.isPlaying()) sound.stop();
-      else startPlayback((startBar - 1) * TICKS_PER_BAR).catch(reportPlayError);
+      else startPlayback(startTick).catch(reportPlayError);
+   }
+
+   // 再生を始める位置を変える(再生中なら、そこから鳴らし直す)。
+   // alwaysId はピアノロールのルーラーから変えたとき、ピアノロールから再生中なら、編集中のトラックを鳴らし続けるため
+   function seek(tick, alwaysId = null) {
+      startTick = Math.max(0, tick);
+      if (sound.isPlaying()) startPlayback(startTick, alwaysId).catch(reportPlayError);
+      pianoRoll.setStart(startTick);
+      render();
+   }
+
+   // 「3小節目」「3小節目の2拍目」
+   function startLabel() {
+      const bar = Math.floor(startTick / TICKS_PER_BAR) + 1;
+      const beat = Math.floor((startTick % TICKS_PER_BAR) / PPQ) + 1;
+      return beat === 1 ? `${bar}小節目` : `${bar}小節目の${beat}拍目`;
    }
 
    // 再生の失敗を知らせる。音源が選ばれていなければ、設定画面へ行けるようにする
@@ -542,7 +560,7 @@ export function mount(container, { id: projectId }) {
          h('button', {
             type: 'button',
             class: `btn btn-icon arr-play${playing ? ' is-playing' : ''}`,
-            title: `${playing ? '停止' : `${startBar}小節目から再生`}(スペースキー)`,
+            title: `${playing ? '停止' : `${startLabel()}から再生`}(スペースキー)`,
             'aria-label': playing ? '停止' : '再生',
             dataset: { focusKey: 'transport-play' },
             onclick: () => togglePlayback(),
@@ -585,18 +603,14 @@ export function mount(container, { id: projectId }) {
       const ruler = h('div', {
          class: 'arr-ruler',
          title: '押した小節から再生します',
-         onclick: (e) => {
-            startBar = barAt(ruler, e.clientX);
-            if (sound.isPlaying()) startPlayback((startBar - 1) * TICKS_PER_BAR).catch(reportPlayError);
-            render();
-         },
+         onclick: (e) => seek((barAt(ruler, e.clientX) - 1) * TICKS_PER_BAR),
       },
       Array.from({ length: data.bars }, (_, i) => h('span', {
          // 4小節ごとに強調する(4/4 で16小節や8小節のまとまりを数えやすくする)
          class: `arr-bar-num${i % 4 === 0 ? ' is-strong' : ''}`,
          'aria-hidden': 'true',
       }, String(i + 1))),
-      h('span', { class: 'arr-cursor', style: { '--start': String(startBar) }, 'aria-hidden': 'true' }));
+      h('span', { class: 'arr-cursor', style: { '--start': String(1 + startTick / TICKS_PER_BAR) }, 'aria-hidden': 'true' }));
       return h('div', { class: 'arr-row arr-ruler-row' }, h('div', { class: 'arr-corner' }), ruler);
    }
 
