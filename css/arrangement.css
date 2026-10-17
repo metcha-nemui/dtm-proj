@@ -785,36 +785,37 @@ button.project-tab {
    font-size: 12px;
 }
 
+/* 音色の一覧。見出しと音色を上から下へ流し、入り切らない分は隣の列へ折り返す(PC幅では横にスクロール) */
 .program-list {
-   max-height: min(46vh, 420px);
-   overflow-y: auto;
+   height: min(46vh, 420px);
+   overflow-x: auto;
+   overflow-y: hidden;
    padding: var(--space-1);
    border: 1px solid var(--border);
    border-radius: var(--radius-sm);
-}
-
-.program-group + .program-group {
-   margin-top: var(--space-2);
+   columns: 13em;
+   column-gap: var(--space-3);
+   column-fill: auto;
 }
 
 .program-family {
-   position: sticky;
-   top: calc(-1 * var(--space-1));
-   margin: 0 0 2px;
-   padding: 2px var(--space-1);
-   background: var(--surface);
+   margin: 0;
+   padding: var(--space-2) var(--space-1) 2px;
    color: var(--text-muted);
    font-size: 12px;
    font-weight: 600;
+   /* 見出しだけが列の下端に残らないようにする */
+   break-after: avoid;
+   break-inside: avoid;
 }
 
-.program-grid {
-   display: grid;
-   grid-template-columns: repeat(auto-fill, minmax(168px, 1fr));
-   gap: 2px;
+.program-family:first-child {
+   padding-top: 2px;
 }
 
 .program-option {
+   display: block;
+   width: 100%;
    overflow: hidden;
    padding: 3px var(--space-2);
    border: 1px solid transparent;
@@ -836,6 +837,27 @@ button.project-tab {
    border-color: var(--accent);
    background: var(--accent-soft);
    font-weight: 600;
+}
+
+/* スマホ幅では列に分けず、すべてを1列に縦に並べる(セレクトボックスの optgroup のように、見出しの下に字下げした音色) */
+@media (max-width: 720px) {
+   .program-list {
+      height: auto;
+      max-height: 46vh;
+      overflow-x: hidden;
+      overflow-y: auto;
+      columns: auto;
+   }
+
+   .program-family {
+      position: sticky;
+      top: calc(-1 * var(--space-1));
+      background: var(--surface);
+   }
+
+   .program-option {
+      padding-left: var(--space-4);
+   }
 }
 
 .program-empty {

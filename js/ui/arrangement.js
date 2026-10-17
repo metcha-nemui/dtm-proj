@@ -670,6 +670,13 @@ export function mount(container, { id: projectId }) {
       if (values) await actions.renameTrack(projectId, track.id, values.name);
    }
 
+   // 音色のダイアログで押した音色を、1音(C4)鳴らして聞かせる。トラックの音量・パンで、トラックのチャンネルを使う。
+   // ドラムのトラック(10ch)では音色が効かないので、1ch で鳴らす(鳴らす前に毎回音色を送るので、1ch のトラックの音は変わらない)
+   function previewProgram(track, program) {
+      const channel = trackSound(track).drum ? 0 : trackChannels(data.tracks).get(track.id) ?? 0;
+      sound.previewNote(setupMessages({ ...track, program, drum: false }, channel), channel, 60);
+   }
+
    async function trackSoundDialog(track) {
       const sound = trackSound(track);
       const values = await formDialog({
@@ -677,7 +684,7 @@ export function mount(container, { id: projectId }) {
          message: '音源(設定画面で選んだ SoundFont / DLS)の General MIDI の音色で鳴らします。',
          wide: true,
          fields: [
-            { name: 'program', label: '音色', type: 'custom', render: (id) => programPicker(id, sound.program) },
+            { name: 'program', label: '音色', type: 'custom', render: (id) => programPicker(id, sound.program, { onPreview: (program) => previewProgram(track, program) }) },
             { name: 'drum', label: 'ドラム(10ch で鳴らす。音色は使わない)', type: 'checkbox', value: sound.drum },
             {
                name: 'volume', label: '音量(0〜127)', type: 'range', value: String(sound.volume),
