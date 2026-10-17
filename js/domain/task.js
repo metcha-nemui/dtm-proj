@@ -21,15 +21,30 @@ function newTask(lane, fields) {
       startDate: null,
       endDate: null,
       references: [],
+      clipId: null, // アレンジのクリップから作った連動タスクなら、そのクリップのID
       ...fields,
    });
 }
+
+/**
+ * マーカーの削除・移動でセクションから外れた連動タスク(laneId がない)。
+ * ステータスと日付を残しておくために持っているだけで、ボードにも集計にも出さない。
+ */
+export const isUnassigned = (task) => Boolean(task.clipId) && !task.laneId;
 
 /** タスクをレーンの末尾に追加する。 */
 export function addTask(lane, laneTasks, title) {
    const trimmed = title.trim();
    if (!trimmed) throw new Error('タイトルを入力してください');
    return newTask(lane, { title: trimmed, order: orderAtEnd(laneTasks) });
+}
+
+/**
+ * アレンジのクリップから、連動タスクをレーンの末尾に作る。title と memo はクリップから写したもの。
+ * @param {object[]} laneTasks レーンのタスク
+ */
+export function addClipTask(lane, laneTasks, clipId, { title, memo }) {
+   return newTask(lane, { clipId, title, memo, order: orderAtEnd(laneTasks) });
 }
 
 /**
@@ -61,6 +76,8 @@ export function isValidPeriod(startDate, endDate) {
 export function updateTask(task, patch) {
    const next = {};
    if ('title' in patch) {
+      // 連動タスクのタイトルは「トラック名: クリップ名」から作る。名前はクリップの方で直す
+      if (task.clipId) throw new Error('アレンジのクリップから来たタスクの名前は、クリップの名前で変えてください');
       const title = patch.title.trim();
       if (!title) throw new Error('タイトルを入力してください');
       next.title = title;
@@ -106,6 +123,8 @@ export function cycleStatus(task) {
 export function moveTask(tasks, taskId, toLaneId, toIndex) {
    const task = tasks.find((t) => t.id === taskId);
    if (!task) return [];
+   // 連動タスクのセクションは、アレンジのマーカーとクリップの位置で決まる
+   if (task.clipId && toLaneId !== task.laneId) throw new Error('アレンジのクリップから来たタスクは、ほかのセクションへ動かせません');
    const siblings = tasks.filter((t) => t.laneId === toLaneId && t.id !== taskId);
    return placeAt(siblings, { ...task, laneId: toLaneId }, toIndex).map((t) => touch(t));
 }

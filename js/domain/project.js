@@ -85,6 +85,7 @@ export function assertSection(lane, action) {
 
 // レーンとタスクを、新しいIDで別のプロジェクトへコピーする。
 // ステータスは未着手に戻し、メモは引き継ぐ。開始日・終了日は引き継がない。折りたたみは解除する。
+// アレンジのクリップから来た連動タスクはコピーしない(アレンジはコピーしないので、元になるクリップがない)。
 // source がなければ、空の「全体」レーンだけを作る(「全体」レーンは必ず1本)。
 function copyBoard(projectId, source) {
    const lanes = [];
@@ -92,7 +93,7 @@ function copyBoard(projectId, source) {
    for (const lane of sortByOrder(source?.lanes ?? [])) {
       const copied = newLane(projectId, { type: lane.type, name: lane.name, order: lane.order });
       lanes.push(copied);
-      tasks.push(...source.tasks.filter((t) => t.laneId === lane.id).map((t) => copyTask(t, copied)));
+      tasks.push(...source.tasks.filter((t) => t.laneId === lane.id && !t.clipId).map((t) => copyTask(t, copied)));
    }
    if (!lanes.some((l) => l.type === 'global')) lanes.unshift(newGlobalLane(projectId));
    return { lanes, tasks };
@@ -181,8 +182,9 @@ export function duplicateLane(laneId, lanes, tasks) {
    return {
       lane,
       lanes: changed.map((l) => (l.id === lane.id ? l : touch(l))),
-      // 同じプロジェクトの中のコピーなので、リファレンスも引き継ぐ
-      tasks: tasks.filter((t) => t.laneId === laneId).map((t) => copyTask(t, lane, { keepReferences: true })),
+      // 同じプロジェクトの中のコピーなので、リファレンスも引き継ぐ。
+      // 連動タスクはコピーしない(マーカーは複製しないので、複製したセクションにはクリップが入らない)
+      tasks: tasks.filter((t) => t.laneId === laneId && !t.clipId).map((t) => copyTask(t, lane, { keepReferences: true })),
    };
 }
 

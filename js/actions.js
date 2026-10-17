@@ -31,6 +31,17 @@ function find(records, id, label) {
    return record;
 }
 
+// アレンジ(クリップ・トラック・マーカー)やセクションの変更を、ボードの連動タスクに反映する。
+// 揃え方は domain の syncClipTasks が決め、ここでは読んで保存するだけ
+async function syncArrangement(projectId) {
+   const [{ lanes, tasks }, tracks, clips, markers] = await Promise.all([
+      load(projectId), repo().getTracks(projectId), repo().getClips(projectId), repo().getMarkers(projectId),
+   ]);
+   const { save, remove } = arrangementDomain.syncClipTasks({ lanes, tracks, clips, markers, tasks });
+   if (save.length) await repo().saveTasks(save);
+   for (const id of remove) await repo().deleteTask(id);
+}
+
 // プロジェクトの最終更新を進めて、画面に変更を知らせる
 async function changed(projectId) {
    const project = await repo().getProject(projectId);
@@ -142,17 +153,26 @@ export const deleteLane = serial(async (projectId, laneId) => {
       markers: markers.filter((m) => m.laneId === laneId),
    };
    projectDomain.assertSection(snapshot.lane, '削除');
+   // 連動タスクも、レーンのタスクとして一緒に消える
    await repo().deleteLane(laneId);
+   // マーカーが消えて、クリップの属するセクションが変わることがある
+   await syncArrangement(projectId);
    await changed(projectId);
    return snapshot;
 });
 
 export const restoreLane = serial(async ({ lane, tasks, markers = [] }) => {
+   // 消している間に、同じクリップの連動タスクが別のセクションに作られていたら、消したときのもの(状態を持っている)を残す
+   const clipIds = new Set(tasks.map((t) => t.clipId).filter(Boolean));
+   for (const task of await repo().getTasks(lane.projectId)) {
+      if (clipIds.has(task.clipId)) await repo().deleteTask(task.id);
+   }
    await repo().saveLane(lane);
    await repo().saveTasks(tasks);
    // 消している間に同じ小節へ別のマーカーを置いていたら、そちらを残す
    const taken = new Set((await repo().getMarkers(lane.projectId)).map((m) => m.bar));
    await repo().saveMarkers(markers.filter((m) => !taken.has(m.bar)));
+   await syncArrangement(lane.projectId);
    await changed(lane.projectId);
 });
 
@@ -205,7 +225,8 @@ export const restoreTask = serial(async (task) => {
 });
 
 // ---- アレンジ(トラック・クリップ・マーカー) ----
-// プロジェクトだけが持つ。ボードのタスクとはつながっていない。
+// プロジェクトだけが持つ。クリップは、属するセクションのレーンに連動タスクとして出る。
+// クリップ・トラック・マーカーを変えたら、syncArrangement で連動タスクを揃える。
 
 export const addTrack = serial(async (projectId, name = '') => {
    const track = arrangementDomain.addTrack(projectId, await repo().getTracks(projectId), name);
@@ -217,6 +238,8 @@ export const addTrack = serial(async (projectId, name = '') => {
 export const renameTrack = serial(async (projectId, trackId, name) => {
    const tracks = await repo().getTracks(projectId);
    await repo().saveTrack(arrangementDomain.renameTrack(find(tracks, trackId, 'トラック'), name));
+   // 連動タスクのタイトルにトラック名が入っている
+   await syncArrangement(projectId);
    await changed(projectId);
 });
 
@@ -225,25 +248,37 @@ export const moveTrack = serial(async (projectId, trackId, toIndex) => {
    await changed(projectId);
 });
 
-/** @returns 削除したトラックとクリップ。restoreTrack に渡すと元に戻せる */
+/** @returns 削除したトラックとクリップ、クリップの連動タスク。restoreTrack に渡すと元に戻せる */
 export const deleteTrack = serial(async (projectId, trackId) => {
-   const [tracks, clips] = await Promise.all([repo().getTracks(projectId), repo().getClips(projectId)]);
-   const snapshot = { track: find(tracks, trackId, 'トラック'), clips: clips.filter((c) => c.trackId === trackId) };
+   const [tracks, clips, tasks] = await Promise.all([
+      repo().getTracks(projectId), repo().getClips(projectId), repo().getTasks(projectId),
+   ]);
+   const track = find(tracks, trackId, 'トラック');
+   const trackClips = clips.filter((c) => c.trackId === trackId);
+   const clipIds = new Set(trackClips.map((c) => c.id));
+   const snapshot = { track, clips: trackClips, tasks: tasks.filter((t) => clipIds.has(t.clipId)) };
+   // 子(連動タスク)を先に消す。途中で失敗しても、もう一度消せば揃う
+   for (const task of snapshot.tasks) await repo().deleteTask(task.id);
    await repo().deleteTrack(trackId);
    await changed(projectId);
    return snapshot;
 });
 
-export const restoreTrack = serial(async ({ track, clips }) => {
+export const restoreTrack = serial(async ({ track, clips, tasks = [] }) => {
    await repo().saveTrack(track);
    await repo().saveClips(clips);
+   await repo().saveTasks(tasks);
+   await syncArrangement(track.projectId);
    await changed(track.projectId);
 });
 
 export const addClip = serial(async (projectId, trackId, { startBar, bars, name }) => {
-   const [tracks, clips] = await Promise.all([repo().getTracks(projectId), repo().getClips(projectId)]);
-   const clip = arrangementDomain.addClip(find(tracks, trackId, 'トラック'), clips, { startBar, bars, name });
+   const [tracks, clips, markers] = await Promise.all([
+      repo().getTracks(projectId), repo().getClips(projectId), repo().getMarkers(projectId),
+   ]);
+   const clip = arrangementDomain.addClip(find(tracks, trackId, 'トラック'), clips, { startBar, bars, name }, markers);
    await repo().saveClip(clip);
+   await syncArrangement(projectId);
    await changed(projectId);
    return clip;
 });
@@ -251,30 +286,40 @@ export const addClip = serial(async (projectId, trackId, { startBar, bars, name 
 export const updateClip = serial(async (projectId, clipId, patch) => {
    const clips = await repo().getClips(projectId);
    await repo().saveClip(arrangementDomain.updateClip(find(clips, clipId, 'クリップ'), patch));
+   await syncArrangement(projectId);
    await changed(projectId);
 });
 
 /** クリップの移動・伸縮・トラック間の移動。patch は { trackId?, startBar?, bars? } */
 export const placeClip = serial(async (projectId, clipId, patch) => {
-   const [tracks, clips] = await Promise.all([repo().getTracks(projectId), repo().getClips(projectId)]);
+   const [tracks, clips, markers] = await Promise.all([
+      repo().getTracks(projectId), repo().getClips(projectId), repo().getMarkers(projectId),
+   ]);
    if (patch.trackId) find(tracks, patch.trackId, 'トラック');
-   await repo().saveClip(arrangementDomain.placeClip(clips, clipId, patch));
+   await repo().saveClip(arrangementDomain.placeClip(clips, clipId, patch, markers));
+   await syncArrangement(projectId);
    await changed(projectId);
 });
 
-/** @returns 削除したクリップ。restoreClip に渡すと元に戻せる */
+/** @returns 削除したクリップと、その連動タスク({ clip, task })。restoreClip に渡すと元に戻せる */
 export const deleteClip = serial(async (projectId, clipId) => {
-   const clip = find(await repo().getClips(projectId), clipId, 'クリップ');
+   const [clips, tasks] = await Promise.all([repo().getClips(projectId), repo().getTasks(projectId)]);
+   const clip = find(clips, clipId, 'クリップ');
+   const task = tasks.find((t) => t.clipId === clipId) ?? null;
+   if (task) await repo().deleteTask(task.id);
    await repo().deleteClip(clipId);
    await changed(projectId);
-   return clip;
+   return { clip, task };
 });
 
-export const restoreClip = serial(async (clip) => {
-   // 消している間に、同じ場所へ別のクリップを置いていたら戻せない
+export const restoreClip = serial(async ({ clip, task }) => {
+   // 消している間に、同じ場所へ別のクリップを置いていたら戻せない。
+   // セクションの外でも戻す(取り消しは、新しく置くことではないので)
    const clips = await repo().getClips(clip.projectId);
    if (!arrangementDomain.canPlace(clips, clip, clip.id)) throw new Error('同じ場所にほかのクリップがあるので、元に戻せません');
    await repo().saveClip(clip);
+   if (task) await repo().saveTask(task);
+   await syncArrangement(clip.projectId);
    await changed(clip.projectId);
 });
 
@@ -282,6 +327,7 @@ export const addMarker = serial(async (projectId, laneId, bar) => {
    const [{ lanes }, markers] = await Promise.all([load(projectId), repo().getMarkers(projectId)]);
    const marker = arrangementDomain.addMarker(projectId, markers, find(lanes, laneId, 'セクション'), bar);
    await repo().saveMarker(marker);
+   await syncArrangement(projectId);
    await changed(projectId);
    return marker;
 });
@@ -291,13 +337,19 @@ export const updateMarker = serial(async (projectId, markerId, { bar, laneId }) 
    const [{ lanes }, markers] = await Promise.all([load(projectId), repo().getMarkers(projectId)]);
    const lane = laneId ? find(lanes, laneId, 'セクション') : null;
    await repo().saveMarker(arrangementDomain.updateMarker(markers, markerId, { bar, lane }));
+   await syncArrangement(projectId);
    await changed(projectId);
 });
 
-/** @returns 削除したマーカー。restoreMarker に渡すと元に戻せる */
+/**
+ * マーカーを消す。区間にあったクリップは、ほかの区間に入らなければ無所属になる
+ * (連動タスクは消さずにボードから隠し、区間に戻ったら状態ごと戻る)。
+ * @returns 削除したマーカー。restoreMarker に渡すと元に戻せる
+ */
 export const deleteMarker = serial(async (projectId, markerId) => {
    const marker = find(await repo().getMarkers(projectId), markerId, 'マーカー');
    await repo().deleteMarker(markerId);
+   await syncArrangement(projectId);
    await changed(projectId);
    return marker;
 });
@@ -306,5 +358,6 @@ export const restoreMarker = serial(async (marker) => {
    const markers = await repo().getMarkers(marker.projectId);
    if (markers.some((m) => m.bar === marker.bar)) throw new Error(`${marker.bar}小節目にほかのマーカーがあるので、元に戻せません`);
    await repo().saveMarker(marker);
+   await syncArrangement(marker.projectId);
    await changed(marker.projectId);
 });

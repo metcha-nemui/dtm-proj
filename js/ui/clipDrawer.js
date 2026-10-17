@@ -23,10 +23,18 @@ export function createClipDrawer(projectId, { onSelectionChange } = {}) {
    const run = (promise) => promise.catch(reportError);
 
    async function loadContext(clipId) {
-      const [clips, tracks] = await Promise.all([repo().getClips(projectId), repo().getTracks(projectId)]);
+      const [clips, tracks, tasks, lanes] = await Promise.all([
+         repo().getClips(projectId), repo().getTracks(projectId), repo().getTasks(projectId), repo().getLanes(projectId),
+      ]);
       const found = clips.find((c) => c.id === clipId);
       if (!found) return null;
-      return { clip: found, track: tracks.find((t) => t.id === found.trackId) ?? null };
+      // ボードのどのセクションにタスクとして出ているか
+      const linked = tasks.find((t) => t.clipId === clipId);
+      return {
+         clip: found,
+         track: tracks.find((t) => t.id === found.trackId) ?? null,
+         lane: lanes.find((l) => l.id === linked?.laneId) ?? null,
+      };
    }
 
    // 入力欄の内容に変更があれば保存する。名前は空でもよい
@@ -58,6 +66,7 @@ export function createClipDrawer(projectId, { onSelectionChange } = {}) {
       });
       const memo = h('textarea', { class: 'textarea drawer-memo', 'aria-label': '詳細', placeholder: '詳細', onchange: commit });
       const where = h('span', { class: 'drawer-lane muted' });
+      const section = h('p', { class: 'drawer-linked-note' });
 
       const panel = h('aside', { class: 'drawer', role: 'dialog', 'aria-label': 'クリップ詳細', tabIndex: -1 },
          h('header', { class: 'drawer-head' },
@@ -65,6 +74,7 @@ export function createClipDrawer(projectId, { onSelectionChange } = {}) {
             h('button', { type: 'button', class: 'btn btn-icon', 'aria-label': '閉じる', onclick: () => close() }, icon('x'))),
          h('div', { class: 'drawer-body' },
             name,
+            section,
             field('詳細', memo),
             h('div', { class: 'drawer-foot' },
                h('button', { type: 'button', class: 'btn btn-danger', onclick: remove }, 'クリップを削除'))));
@@ -72,7 +82,7 @@ export function createClipDrawer(projectId, { onSelectionChange } = {}) {
 
       document.getElementById('overlay-root').append(backdrop, panel);
       document.body.classList.add('drawer-open');
-      el = { panel, backdrop, name, memo, where };
+      el = { panel, backdrop, name, memo, where, section };
    }
 
    // 読み込んだ内容を表示に反映する。編集中(フォーカス中)の欄は上書きしない
@@ -84,6 +94,9 @@ export function createClipDrawer(projectId, { onSelectionChange } = {}) {
       set(el.name, clip.name);
       set(el.memo, clip.memo);
       el.where.textContent = `${context.track?.name ?? ''}・${barRange(clip)}`;
+      el.section.textContent = context.lane
+         ? `ボードの「${context.lane.name}」にタスクとして出ています。`
+         : 'セクションマーカーの範囲の外にあるので、ボードには出ていません。';
    }
 
    async function open(clipId, { focusName = false } = {}) {

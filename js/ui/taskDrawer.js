@@ -1,13 +1,16 @@
 // タスク詳細。PCでは右ドロワー、スマホではボトムシートとして出す(見た目の切り替えはCSS)。
 // 入力は欄を離れたとき(change)と閉じるときに保存する。
 // リファレンス(曲名)は、Enter か候補の選択で1件ずつ足す。候補は同じプロジェクトのタスクに付いている曲名から出す。
+// アレンジのクリップから来たタスク(連動タスク)では、名前と詳細はクリップのものを直す(タイトルの「トラック名:」は直せない)。
 
 import * as actions from '../actions.js';
+import { UNTITLED_CLIP } from '../domain/arrangement.js';
 import { canonicalizeReference, collectReferences, suggestReferences } from '../domain/reference.js';
 import { STATUSES, STATUS_LABELS, isValidPeriod } from '../domain/task.js';
 import { repo, subscribe } from '../state.js';
 import { h, icon } from './components/dom.js';
 import { reportError, showToast } from './components/toast.js';
+import { barRange } from './clipDrawer.js';
 
 const SUGGESTION_LIMIT = 8; // リファレンスの候補を一度に出す数
 
@@ -17,6 +20,7 @@ const SUGGESTION_LIMIT = 8; // リファレンスの候補を一度に出す数
  */
 export function createTaskDrawer(projectId, { onSelectionChange } = {}) {
    let task = null; // 表示中のタスク(最後に読み込んだ、または保存した状態)
+   let clip = null; // 連動タスクなら、元のクリップ(最後に読み込んだ、または保存した状態)
    let knownReferences = []; // プロジェクトのタスクに付いている曲名(候補の元)
    let suggestions = []; // 表示中の候補
    let activeSuggestion = -1; // キーボードで選んでいる候補。-1 なら選んでいない
@@ -25,15 +29,20 @@ export function createTaskDrawer(projectId, { onSelectionChange } = {}) {
    const run = (promise) => promise.catch(reportError);
 
    async function loadContext(taskId) {
-      const [tasks, lanes, project] = await Promise.all([
+      const [tasks, lanes, project, clips, tracks] = await Promise.all([
          repo().getTasks(projectId),
          repo().getLanes(projectId),
          repo().getProject(projectId),
+         repo().getClips(projectId),
+         repo().getTracks(projectId),
       ]);
       const found = tasks.find((t) => t.id === taskId);
       if (!found) return null;
+      const linkedClip = found.clipId ? clips.find((c) => c.id === found.clipId) ?? null : null;
       return {
          task: found,
+         clip: linkedClip,
+         track: linkedClip ? tracks.find((t) => t.id === linkedClip.trackId) ?? null : null,
          lane: lanes.find((l) => l.id === found.laneId) ?? null,
          isTemplate: Boolean(project?.isTemplate),
          knownReferences: collectReferences(tasks),
@@ -47,9 +56,17 @@ export function createTaskDrawer(projectId, { onSelectionChange } = {}) {
       if (el.referenceInput.value.trim()) addReference(el.referenceInput.value);
       const patch = {};
       const title = el.title.value.trim();
-      if (!title) el.title.value = task.title;
-      else if (title !== task.title) patch.title = title;
-      if (el.memo.value !== task.memo) patch.memo = el.memo.value;
+      if (clip) {
+         // 連動タスクの名前と詳細はクリップのもの。クリップ名は空でもよい
+         const clipPatch = {};
+         if (title !== clip.name) clipPatch.name = title;
+         if (el.memo.value !== clip.memo) clipPatch.memo = el.memo.value;
+         if (Object.keys(clipPatch).length) saveClip(clipPatch);
+      } else {
+         if (!title) el.title.value = task.title;
+         else if (title !== task.title) patch.title = title;
+         if (el.memo.value !== task.memo) patch.memo = el.memo.value;
+      }
       // 日付を持つ前に作ったタスクには項目がないので、null として比べる
       const period = { startDate: task.startDate ?? null, endDate: task.endDate ?? null };
       const startDate = el.startDate.value || null;
@@ -81,6 +98,12 @@ export function createTaskDrawer(projectId, { onSelectionChange } = {}) {
          }
          throw error;
       }));
+   }
+
+   // 連動タスクの名前と詳細を、クリップに保存する(同じ変更を二度保存しないように、手元に先に反映する)
+   function saveClip(patch) {
+      clip = { ...clip, ...patch };
+      run(actions.updateClip(projectId, clip.id, patch));
    }
 
    // ---- リファレンス ----
@@ -179,17 +202,29 @@ export function createTaskDrawer(projectId, { onSelectionChange } = {}) {
 
    function remove() {
       const { id, title } = task;
+      const clipId = clip?.id;
       task = null; // 削除するタスクを閉じるときに保存し直さない
+      clip = null;
       close();
-      run(actions.deleteTask(projectId, id).then((deleted) => showToast(`「${title}」を削除しました`, {
+      // 連動タスクは、アレンジのクリップごと消す(クリップが残っていると、また作られる)
+      const deleting = clipId
+         ? actions.deleteClip(projectId, clipId).then((deleted) => ({ deleted, restore: actions.restoreClip }))
+         : actions.deleteTask(projectId, id).then((deleted) => ({ deleted, restore: actions.restoreTask }));
+      run(deleting.then(({ deleted, restore }) => showToast(`「${title}」を削除しました`, {
          actionLabel: '元に戻す',
-         onAction: () => run(actions.restoreTask(deleted)),
+         onAction: () => run(restore(deleted)),
       })));
    }
 
    function build() {
       const field = (label, control) => h('div', { class: 'field' }, h('span', { class: 'field-label' }, label), control);
       const title = h('input', { class: 'input drawer-title', 'aria-label': 'タイトル', autocomplete: 'off', onchange: commit });
+      const trackName = h('span', { class: 'drawer-track' });
+      const linkedNote = h('p', { class: 'drawer-linked-note' },
+         icon('audio-lines', 14),
+         'アレンジのクリップから来たタスクです。セクションはアレンジのマーカーで決まります。',
+         h('a', { href: `#/p/${projectId}/arrange` }, 'アレンジで見る'));
+      const deleteButton = h('button', { type: 'button', class: 'btn btn-danger', onclick: remove }, 'タスクを削除');
       const memo = h('textarea', { class: 'textarea drawer-memo', 'aria-label': 'メモ', placeholder: 'メモ', onchange: commit });
       const statusButtons = STATUSES.map((status) => h('button', {
          type: 'button',
@@ -230,19 +265,20 @@ export function createTaskDrawer(projectId, { onSelectionChange } = {}) {
             laneName,
             h('button', { type: 'button', class: 'btn btn-icon', 'aria-label': '閉じる', onclick: () => close() }, icon('x'))),
          h('div', { class: 'drawer-body' },
-            title,
+            h('div', { class: 'drawer-title-row' }, trackName, title),
+            linkedNote,
             statusField,
             h('div', { class: 'drawer-period' }, startField, endField),
             referenceField,
             field('メモ', memo),
-            h('div', { class: 'drawer-foot' },
-               h('button', { type: 'button', class: 'btn btn-danger', onclick: remove }, 'タスクを削除'))));
+            h('div', { class: 'drawer-foot' }, deleteButton)));
       const backdrop = h('div', { class: 'drawer-backdrop', onclick: () => close() });
 
       document.getElementById('overlay-root').append(backdrop, panel);
       document.body.classList.add('drawer-open');
       el = {
-         panel, backdrop, title, memo, statusButtons, statusField, startDate, endDate, startField, endField, laneName,
+         panel, backdrop, title, trackName, linkedNote, deleteButton,
+         memo, statusButtons, statusField, startDate, endDate, startField, endField, laneName,
          referenceField, referenceList, referenceInput, suggestionList,
       };
    }
@@ -250,11 +286,19 @@ export function createTaskDrawer(projectId, { onSelectionChange } = {}) {
    // 読み込んだ内容を表示に反映する。編集中(フォーカス中)の欄は上書きしない
    function apply(context, { force = false } = {}) {
       task = context.task;
+      clip = context.clip;
       const set = (input, value) => {
          if (force || document.activeElement !== input) input.value = value;
       };
-      set(el.title, task.title);
-      set(el.memo, task.memo);
+      // 連動タスクは、トラック名を固定で出し、その後ろのクリップ名だけを直せるようにする
+      set(el.title, clip ? clip.name : task.title);
+      set(el.memo, clip ? clip.memo : task.memo);
+      el.title.placeholder = clip ? UNTITLED_CLIP : '';
+      el.title.setAttribute('aria-label', clip ? 'クリップ名' : 'タイトル');
+      el.trackName.hidden = !clip;
+      el.trackName.textContent = clip ? `${context.track?.name ?? ''}:` : '';
+      el.linkedNote.hidden = !clip;
+      el.deleteButton.textContent = clip ? 'クリップごと削除' : 'タスクを削除';
       set(el.startDate, task.startDate ?? '');
       set(el.endDate, task.endDate ?? '');
       for (const button of el.statusButtons) {
@@ -266,7 +310,7 @@ export function createTaskDrawer(projectId, { onSelectionChange } = {}) {
       // 着手していれば開始日を、完了していれば終了日も直せる
       el.startField.hidden = context.isTemplate || task.status === 'todo';
       el.endField.hidden = context.isTemplate || task.status !== 'done';
-      el.laneName.textContent = context.lane?.name ?? '';
+      el.laneName.textContent = [context.lane?.name, clip && barRange(clip)].filter(Boolean).join('・');
       // リファレンスは曲ごとのもので、テンプレートには持たせない
       el.referenceField.hidden = context.isTemplate;
       knownReferences = context.knownReferences;
@@ -295,6 +339,7 @@ export function createTaskDrawer(projectId, { onSelectionChange } = {}) {
       document.body.classList.remove('drawer-open');
       el = null;
       task = null;
+      clip = null;
       requested = null;
       onSelectionChange?.(null);
       if (closedId) document.querySelector(`[data-focus-key="task:${CSS.escape(closedId)}"]`)?.focus();

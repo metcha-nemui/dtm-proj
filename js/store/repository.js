@@ -4,11 +4,15 @@
 // repository はその上に createRepository で1回だけ組み立てる。連鎖削除やスキーマの変換を二重に持たないため。
 // すべて非同期(Promise)で、実装を差し替えてもシグネチャは変えない。
 
+import { syncClipTasks } from '../domain/arrangement.js';
+
 // v4: テンプレートをプロジェクトと同じ形(isTemplate の付いたプロジェクト)で持つようにし、
 // セクション種別と定番タスクをやめた。それより前のデータは形が違い、変換を用意していないので読み込めない。
 // v5: タスクに開始日と終了日(startDate / endDate)を足した。v4 のデータは、日付なしとして読み込む。
 // v6: アレンジ(トラック・クリップ・マーカー)を足した。v4・v5 のデータは、アレンジなしとして読み込む。
-export const SCHEMA_VERSION = 6;
+// v7: クリップをボードのタスク(連動タスク。clipId を持つ)として出すようにした。
+// v6 以前のデータは、セクションに入っているクリップに連動タスクを作って読み込む。
+export const SCHEMA_VERSION = 7;
 const OLDEST_READABLE_VERSION = 4;
 // 保存先に schemaVersion を記録し始めたときのバージョン。記録がない保存先は、このバージョンのデータとみなす
 const UNTRACKED_VERSION = 6;
@@ -43,9 +47,10 @@ const UNTRACKED_VERSION = 6;
  * @typedef {Object} Task
  * @property {string} id
  * @property {string} projectId
- * @property {string} laneId
- * @property {string} title
- * @property {string} memo
+ * @property {string|null} laneId null になるのは、セクションから外れた連動タスクだけ(ボードにも集計にも出さない)
+ * @property {string} title 連動タスクでは「トラック名: クリップ名」(クリップから写す)
+ * @property {string} memo 連動タスクでは、クリップの詳細を写したもの
+ * @property {string|null} clipId アレンジのクリップから作った連動タスクなら、そのクリップのID。ふつうのタスクは null
  * @property {'todo'|'doing'|'done'} status テンプレートでは使わない(常に 'todo')
  * @property {number} order
  * @property {string|null} doneAt
@@ -69,7 +74,7 @@ const UNTRACKED_VERSION = 6;
 
 /**
  * トラックに置くクリップ。startBar 小節目から bars 小節ぶんを占める。同じトラックのクリップどうしは重ならない。
- * ボードのタスクとはつながっていない。
+ * 属するセクション(マーカーの区間と重なる小節がいちばん多いもの)のレーンに、連動タスクとして出る。
  * @typedef {Object} Clip
  * @property {string} id
  * @property {string} projectId
@@ -283,7 +288,10 @@ function notNewer(version) {
  */
 export async function upgradeStorage(repository) {
    const recorded = await repository.getMeta('schemaVersion');
-   const version = notNewer(recorded ?? UNTRACKED_VERSION);
+   // 初期データも入っていない保存先(初めて使う)は空なので、変換せずに現在のバージョンを記録するだけにする。
+   // 変換(importAll)を通すと「初期データ投入済み」の印が付き、初期データが入らなくなるため
+   const fresh = recorded == null && !(await repository.getMeta('seeded'));
+   const version = fresh ? SCHEMA_VERSION : notNewer(recorded ?? UNTRACKED_VERSION);
    if (version < SCHEMA_VERSION) {
       // exportAll は現在のバージョンを名乗るので、保存先の実際のバージョンに付け替える
       const snapshot = { ...(await repository.exportAll()), schemaVersion: version };
@@ -327,6 +335,18 @@ export function migrate(json) {
       result[name] = records;
    }
    // v4 → v5: タスクに開始日と終了日を足した。項目の有無が混ざると Supabase の一括保存が失敗するので、ここで揃える
-   result.tasks = result.tasks.map((t) => ({ ...t, startDate: t.startDate ?? null, endDate: t.endDate ?? null }));
+   // v6 → v7: 連動タスクの clipId を足した。ふつうのタスクは null
+   result.tasks = result.tasks.map((t) => ({ ...t, startDate: t.startDate ?? null, endDate: t.endDate ?? null, clipId: t.clipId ?? null }));
+   // v6 → v7: 置いてあるクリップに連動タスクを作る(セクションに入っていないクリップには作らない)
+   if (data.schemaVersion < 7) {
+      for (const project of result.projects) {
+         const of = (records) => records.filter((r) => r.projectId === project.id);
+         if (!of(result.clips).length) continue;
+         const { save } = syncClipTasks({
+            lanes: of(result.lanes), tracks: of(result.tracks), clips: of(result.clips), markers: of(result.markers), tasks: of(result.tasks),
+         });
+         result.tasks.push(...save);
+      }
+   }
    return result;
 }

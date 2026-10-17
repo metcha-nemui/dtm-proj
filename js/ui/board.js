@@ -155,10 +155,14 @@ export function mount(container, { id: projectId }) {
    }
 
    async function deleteLaneDialog(lane) {
-      const count = data.tasks.filter((t) => t.laneId === lane.id).length;
+      const laneTasks = data.tasks.filter((t) => t.laneId === lane.id);
+      const linked = laneTasks.filter((t) => t.clipId).length;
       // アレンジのマーカーはレーンを指しているので、レーンと一緒に消える
       const markers = (await repo().getMarkers(projectId)).filter((m) => m.laneId === lane.id).length;
-      const parts = [count && `タスク${count}件`, markers && `アレンジのマーカー${markers}件`].filter(Boolean);
+      const parts = [
+         laneTasks.length && `タスク${laneTasks.length}件${linked ? `(アレンジのクリップから来たもの${linked}件を含む)` : ''}`,
+         markers && `アレンジのマーカー${markers}件`,
+      ].filter(Boolean);
       const ok = await confirmDialog({
          title: `「${lane.name}」を削除`,
          message: parts.length ? `このレーンの${parts.join('と、')}も一緒に削除します。` : 'このレーンを削除します。',
@@ -182,7 +186,9 @@ export function mount(container, { id: projectId }) {
          sortables.push(createSortable(list, {
             group: 'tasks',
             draggable: '.task',
-            onEnd: ({ item, from, to, oldIndex, newIndex }) => {
+            // 連動タスクのセクションはアレンジで決まるので、レーンの中の並べ替えだけにする
+            onMove: ({ dragged, from, to }) => !(dragged.dataset.clipId && from !== to),
+            onEnd:({ item, from, to, oldIndex, newIndex }) => {
                if (from === to && oldIndex === newIndex) return;
                // 「未完了のみ」で隠れているタスクも含めたDOM上の位置を使う
                runPlaced(actions.moveTask(projectId, item.dataset.taskId, to.dataset.laneId, domIndex(item, '.task')));
@@ -206,13 +212,15 @@ export function mount(container, { id: projectId }) {
    }
 
    async function refresh() {
-      const [project, lanes, tasks] = await Promise.all([
+      const [project, lanes, tasks, clips] = await Promise.all([
          repo().getProject(projectId),
          repo().getLanes(projectId),
          repo().getTasks(projectId),
+         repo().getClips(projectId),
       ]);
       if (!alive) return;
-      data = { project, lanes: sortByOrder(lanes), tasks: sortByOrder(tasks) };
+      // clips は連動タスクの小節の範囲を出すためだけに使う
+      data = { project, lanes: sortByOrder(lanes), tasks: sortByOrder(tasks), clips: new Map(clips.map((c) => [c.id, c])) };
       render();
    }
 
@@ -374,6 +382,7 @@ export function mount(container, { id: projectId }) {
                stats: summarize(laneTasks),
                isTemplate: Boolean(data.project.isTemplate),
                pendingStatus,
+               clips: data.clips,
                handlers,
             });
          }));

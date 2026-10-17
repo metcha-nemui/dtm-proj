@@ -1,13 +1,20 @@
 // レーン1本分の表示(ヘッダー、タスク一覧、クイック入力)。操作は handlers 経由でボードに渡す。
 
 import { STATUSES, STATUS_LABELS } from '../domain/task.js';
+import { barRange } from './clipDrawer.js';
 import { h, icon, progressBar } from './components/dom.js';
 
-function taskItem(task, handlers, pending, isTemplate) {
+function taskItem(task, handlers, pending, isTemplate, clip) {
    const next = STATUSES[(STATUSES.indexOf(task.status) + 1) % STATUSES.length];
+   // アレンジのクリップから来たタスク(連動タスク)は、印と小節の範囲を出す。
+   // 同じセクションをマーカーで何度か使うと、同じタイトルが並ぶことがあるので、その見分けにもなる
+   const meta = [clip && barRange(clip), task.memo && 'メモあり'].filter(Boolean).join('・');
 
    // テンプレートはステータスを使わないので、丸を出さない
-   return h('li', { class: `task is-${task.status}${isTemplate ? ' is-plain' : ''}`, dataset: { taskId: task.id } },
+   return h('li', {
+      class: `task is-${task.status}${isTemplate ? ' is-plain' : ''}${task.clipId ? ' is-linked' : ''}`,
+      dataset: task.clipId ? { taskId: task.id, clipId: task.clipId } : { taskId: task.id },
+   },
       !isTemplate && h('button', {
          type: 'button',
          // 変更を送っている間は、丸を回して待ち時間を伝える
@@ -24,8 +31,10 @@ function taskItem(task, handlers, pending, isTemplate) {
          dataset: { focusKey: `task:${task.id}` },
          onclick: () => handlers.onOpenTask?.(task),
       },
-      h('span', { class: 'task-title' }, task.title),
-      task.memo && h('span', { class: 'task-meta' }, 'メモあり')));
+      h('span', { class: 'task-title' },
+         task.clipId && h('span', { class: 'task-linked', title: 'アレンジのクリップ' }, icon('audio-lines', 12)),
+         task.title),
+      meta && h('span', { class: 'task-meta' }, meta)));
 }
 
 /**
@@ -36,11 +45,12 @@ function taskItem(task, handlers, pending, isTemplate) {
  * @param {object} props.stats summarize() の結果
  * @param {boolean} [props.isTemplate] テンプレートの編集中。ステータスと進捗を出さない
  * @param {{ has: (taskId: string) => boolean }} props.pendingStatus ステータスの変更を送っている途中のタスク
+ * @param {Map<string, object>} [props.clips] クリップID → クリップ(連動タスクの小節の範囲を出すため)
  * @param {object} props.handlers onCycleStatus(task) / onOpenTask(task) / onAddTask(lane, title) /
  *   onToggleCollapse(lane) / onMenu(lane, anchor) / onInsertBefore(lane)。
  *   メニューと「前に追加」はセクションにだけ出す(「全体」レーンは名前変更・複製・削除ができない)
  */
-export function renderLane({ lane, tasks, color, stats, isTemplate = false, pendingStatus, handlers }) {
+export function renderLane({ lane, tasks, color, stats, isTemplate = false, pendingStatus, clips = new Map(), handlers }) {
    const input = h('input', {
       class: 'input quick-add-input',
       placeholder: '+ タスクを追加',
@@ -98,6 +108,6 @@ export function renderLane({ lane, tasks, color, stats, isTemplate = false, pend
       lane.type === 'section' && menuButton,
       !isTemplate && h('div', { class: 'lane-sub' }, progressBar(stats.ratio))),
    h('ul', { class: 'task-list', dataset: { laneId: lane.id } },
-      tasks.map((task) => taskItem(task, handlers, pendingStatus.has(task.id), isTemplate))),
+      tasks.map((task) => taskItem(task, handlers, pendingStatus.has(task.id), isTemplate, clips.get(task.clipId)))),
    quickAdd);
 }

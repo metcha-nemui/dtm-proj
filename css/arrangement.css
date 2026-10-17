@@ -335,6 +335,14 @@ button.project-tab {
    font-weight: normal;
 }
 
+/* セクションマーカーの範囲の外(ボードに出ていない)。点線と薄い地で見分ける */
+.clip.is-outside {
+   border-style: dashed;
+   border-color: var(--text-muted);
+   background: transparent;
+   color: var(--text-muted);
+}
+
 .clip .icon {
    flex: none;
    color: var(--text-muted);

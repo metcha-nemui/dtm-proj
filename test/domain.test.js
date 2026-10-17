@@ -2,8 +2,8 @@
 // Node でも動く: node -e "import('./test/domain.test.js').then(m => m.report()).then(ok => process.exit(ok ? 0 : 1))"
 
 import {
-   addClip, addMarker, addTrack, arrangementBars, canPlace, clipEnd, markerSpans, moveTrack, placeClip, renameTrack,
-   updateClip, updateMarker,
+   addClip, addMarker, addTrack, arrangementBars, canPlace, clipEnd, clipSection, markerSpans, moveTrack, placeClip,
+   renameTrack, syncClipTasks, updateClip, updateMarker,
 } from '../js/domain/arrangement.js';
 import { addDays, daysBetween, toDateString, weekendDaysBetween } from '../js/domain/date.js';
 import { deadlineRange, deadlineRows } from '../js/domain/deadline.js';
@@ -713,6 +713,137 @@ test('arrangementBars: 中身の後ろに余白を取り、4小節単位で伸�
    equal(arrangementBars([], [{ bar: 41 }]), 52, 'マーカーも数える');
 });
 
+// ---- アレンジとボードの連動タスク ----
+
+test('clipSection: 重なる小節がいちばん多いセクション。同じセクションは合計し、同数なら先のもの', () => {
+   const { project, lanes, lane } = arrangementFixture();
+   const markers = [
+      addMarker(project.id, [], lane('イントロ'), 1),
+      addMarker(project.id, [], lane('Aメロ'), 9),
+      addMarker(project.id, [], lane('サビ'), 17),
+      addMarker(project.id, [], lane('Aメロ'), 25),
+   ];
+   const at = (startBar, bars) => clipSection({ startBar, bars }, markers);
+   const name = (laneId) => lanes.find((l) => l.id === laneId)?.name ?? null;
+   equal(name(at(1, 4)), 'イントロ', '1つの区間に収まる');
+   equal(name(at(6, 7)), 'Aメロ', 'イントロ3小節、Aメロ4小節');
+   equal(name(at(5, 8)), 'イントロ', '4小節ずつなら先の区間');
+   equal(name(at(15, 16)), 'Aメロ', 'Aメロ 2+6 とサビ 8 は同数で、先に出てくる Aメロ');
+   equal(name(at(40, 4)), 'Aメロ', '最後のマーカーは終わりなく続く');
+   const late = [addMarker(project.id, [], lane('Bメロ'), 5)];
+   equal(clipSection({ startBar: 1, bars: 4 }, late), null, 'マーカーより前は無所属');
+   equal(name(clipSection({ startBar: 3, bars: 4 }, late)), 'Bメロ', '一部がはみ出していても、重なっていれば所属');
+   equal(clipSection({ startBar: 1, bars: 4 }, []), null, 'マーカーがなければ無所属');
+});
+
+test('canPlace / addClip / placeClip: マーカーを渡すと、セクションの区間の外には置けない', () => {
+   const { project, synth, lane, clips, a } = arrangementFixture();
+   const markers = [addMarker(project.id, [], lane('Aメロ'), 9)];
+   const place = (startBar, bars) => ({ trackId: synth.id, startBar, bars });
+   equal(canPlace([], place(1, 4), null, markers), false, '区間の外');
+   equal(canPlace([], place(6, 4), null, markers), true, '一部がはみ出すのはよい');
+   equal(canPlace([], place(1, 4)), true, 'マーカーを渡さなければ、区間は見ない');
+   throws(() => addClip(synth, [], { startBar: 1, bars: 2 }, markers), '区間の外には作れない');
+   throws(() => addClip(synth, [], { startBar: 20, bars: 2 }, []), 'マーカーがなければ作れない');
+   equal(addClip(synth, [], { startBar: 20, bars: 2 }, markers).startBar, 20);
+   throws(() => placeClip(clips, a.id, { startBar: 2 }, markers), '区間の外へは動かせない');
+   equal(placeClip(clips, a.id, { startBar: 11 }, markers).startBar, 11, '区間の中へは動かせる');
+});
+
+function linkedFixture() {
+   const { project, lanes, tasks } = createProject({ title: 'x' }, template('vocal'));
+   const lane = (name) => lanes.find((l) => l.name === name);
+   const synth = addTrack(project.id, [], 'シンセ');
+   const drums = addTrack(project.id, [synth], 'ドラム');
+   const intro = addMarker(project.id, [], lane('イントロ'), 1);
+   const verse = addMarker(project.id, [intro], lane('Aメロ'), 9);
+   const a = addClip(synth, [], { startBar: 1, bars: 4, name: 'イントロ' });
+   const c = addClip(drums, [], { startBar: 9, bars: 4, name: 'フィル' });
+   const b = addClip(synth, [a], { startBar: 9, bars: 2 });
+   const state = { lanes, tracks: [synth, drums], clips: [a, c, b], markers: [intro, verse], tasks };
+   // 同期して、保存したあとの状態を返す
+   const sync = (s) => {
+      const { save, remove } = syncClipTasks(s);
+      const added = save.filter((t) => !s.tasks.some((x) => x.id === t.id));
+      return { ...s, tasks: [...apply(s.tasks, save), ...added].filter((t) => !remove.includes(t.id)) };
+   };
+   const linkedTo = (s, clip) => s.tasks.find((t) => t.clipId === clip.id);
+   return { project, lane, synth, drums, intro, verse, a, b, c, state, sync, linkedTo };
+}
+
+test('syncClipTasks: セクションのレーンの末尾に「トラック名: クリップ名」で作る。何度呼んでも同じ', () => {
+   const { lane, a, b, c, state, sync, linkedTo } = linkedFixture();
+   const synced = sync(state);
+   equal([linkedTo(synced, a).title, linkedTo(synced, b).title, linkedTo(synced, c).title],
+      ['シンセ: イントロ', 'シンセ: (無題)', 'ドラム: フィル']);
+   equal([linkedTo(synced, a).laneId, linkedTo(synced, b).laneId], [lane('イントロ').id, lane('Aメロ').id]);
+   equal([linkedTo(synced, a).status, linkedTo(synced, a).clipId], ['todo', a.id]);
+   const verseTitles = titles(synced.tasks.filter((t) => t.laneId === lane('Aメロ').id));
+   equal(verseTitles.slice(-2), ['シンセ: (無題)', 'ドラム: フィル'], 'ふつうのタスクの後ろに、トラックの順で並ぶ');
+   equal(syncClipTasks(synced), { save: [], remove: [] }, '揃っていれば何もしない');
+});
+
+test('syncClipTasks: 名前・詳細・所属の変更を反映し、ステータスは残す', () => {
+   const { project, lane, synth, a, b, verse, state, sync, linkedTo } = linkedFixture();
+   let s = sync(state);
+   s = { ...s, tasks: apply(s.tasks, [setStatus(linkedTo(s, b), 'doing')]) };
+
+   s = sync({ ...s, tracks: [renameTrack(synth, 'Lead'), s.tracks[1]], clips: apply(s.clips, [updateClip(a, { name: '', memo: 'm' })]) });
+   equal([linkedTo(s, a).title, linkedTo(s, a).memo], ['Lead: (無題)', 'm'], 'トラック名・クリップ名・詳細');
+
+   // Aメロのマーカーを後ろへずらすと、9〜10小節目のクリップはイントロに入る(9〜12小節目のフィルも、2小節ずつで先のイントロへ)
+   s = sync({ ...s, markers: apply(s.markers, [updateMarker(s.markers, verse.id, { bar: 11 })]) });
+   const moved = linkedTo(s, b);
+   equal([moved.laneId, moved.status], [lane('イントロ').id, 'doing'], '別のセクションへ移っても状態は残る');
+   equal(titles(s.tasks.filter((t) => t.laneId === lane('イントロ').id)).slice(-2), [moved.title, 'ドラム: フィル'], '移った先の末尾');
+
+   // マーカーを全部消すと無所属。ボードにも集計にも出ない
+   s = sync({ ...s, markers: [] });
+   equal(s.tasks.filter((t) => t.clipId).map((t) => t.laneId), [null, null, null]);
+   equal(summarize(s.tasks).total, s.tasks.filter((t) => !t.clipId).length, '無所属は数えない');
+   equal(ganttRows(s.tasks, s.lanes, toDateString(new Date())), [], '無所属はガントチャートにも出ない');
+
+   // マーカーを置き直すと、元の状態で戻る
+   s = sync({ ...s, markers: [addMarker(project.id, [], lane('サビ'), 1)] });
+   equal([linkedTo(s, b).laneId, linkedTo(s, b).status], [lane('サビ').id, 'doing']);
+});
+
+test('syncClipTasks: クリップがなくなれば消す。同じクリップに2つあれば古い方を残す', () => {
+   const { a, b, state, sync, linkedTo } = linkedFixture();
+   const s = sync(state);
+   const task = linkedTo(s, a);
+   equal(syncClipTasks({ ...s, clips: s.clips.filter((c) => c.id !== a.id) }).remove, [task.id]);
+   const twin = { ...linkedTo(s, b), id: 'twin', createdAt: '9999-01-01T00:00:00.000Z' };
+   equal(syncClipTasks({ ...s, tasks: [...s.tasks, twin] }).remove, ['twin']);
+});
+
+test('連動タスク: 別のレーンへは動かせず、名前はクリップで変える。テンプレートと複製にはコピーしない', () => {
+   const { lane, a, state, sync, linkedTo } = linkedFixture();
+   const s = sync(state);
+   const task = linkedTo(s, a);
+   throws(() => moveTask(s.tasks, task.id, lane('サビ').id, 0), '別のセクションへ');
+   equal(moveTask(s.tasks, task.id, task.laneId, 0)[0].laneId, task.laneId, 'レーンの中では並べ替えられる');
+   throws(() => updateTask(task, { title: 'x' }), 'タイトルは変えられない');
+   equal(updateTask(task, { references: ['Lemon'] }).references, ['Lemon']);
+   const copied = createTemplate({ name: '型' }, { lanes: s.lanes, tasks: s.tasks }).tasks;
+   equal([copied.length, copied.some((t) => t.clipId)], [s.tasks.filter((t) => !t.clipId).length, false], 'テンプレートとして保存');
+   equal(duplicateLane(lane('イントロ').id, s.lanes, s.tasks).tasks.some((t) => t.title.startsWith('シンセ')), false, 'セクションの複製');
+});
+
+test('migrate: v6 のデータは、セクションに入っているクリップに連動タスクを作る', () => {
+   const { project, lane, a, state } = linkedFixture();
+   const outside = { ...a, id: 'outside', startBar: 1, bars: 1, trackId: state.tracks[1].id };
+   const markers = state.markers.filter((m) => m.laneId === lane('Aメロ').id); // イントロのマーカーなし
+   const data = migrate({
+      schemaVersion: 6, projects: [project], lanes: state.lanes, tasks: state.tasks,
+      tracks: state.tracks, clips: [...state.clips, outside], markers,
+   });
+   const linked = data.tasks.filter((t) => t.clipId);
+   equal(linked.map((t) => t.title).sort(), ['シンセ: (無題)', 'ドラム: フィル'], '区間の外のクリップには作らない');
+   equal(data.tasks.filter((t) => !t.clipId).every((t) => t.clipId === null), true, 'ふつうのタスクは clipId: null');
+   equal(migrate(data).tasks.length, data.tasks.length, 'v7 のデータには足さない');
+});
+
 // ---- stats ----
 
 test('summarize: 完了数と進捗率', () => {
@@ -742,7 +873,10 @@ test('migrate: 検証して形を揃える', () => {
 test('migrate: 開始日と終了日を持つ前のデータ(v4)は、日付なしとして読み込む', () => {
    const data = migrate({ schemaVersion: 4, tasks: [{ id: 'a' }, { id: 'b', startDate: '2026-10-20', endDate: null }] });
    equal(data.schemaVersion, SCHEMA_VERSION);
-   equal(data.tasks, [{ id: 'a', startDate: null, endDate: null }, { id: 'b', startDate: '2026-10-20', endDate: null }]);
+   equal(data.tasks, [
+      { id: 'a', startDate: null, endDate: null, clipId: null },
+      { id: 'b', startDate: '2026-10-20', endDate: null, clipId: null },
+   ]);
 });
 
 test('migrate: アレンジを持つ前のデータ(v5)は、アレンジなしとして読み込む', () => {
@@ -954,12 +1088,21 @@ test('supabase: エクスポートとインポート(全部置き換える)', as
    await rejects(b.importAll('{"x":1}'), 'エクスポートデータではありません');
 });
 
-test('upgradeStorage: 記録がなければ現在のバージョンを記録する。同じなら何もしない', async () => {
+test('upgradeStorage: 初めて使う保存先は、変換せずに現在のバージョンを記録する。同じなら何もしない', async () => {
    const { repository } = fakeSupabase();
    equal(await upgradeStorage(repository), false);
    equal(await repository.getMeta('schemaVersion'), SCHEMA_VERSION);
    equal(await upgradeStorage(repository), false);
    equal(await checkSchema(repository), SCHEMA_VERSION);
+   equal(await ensureSeeded(repository), true, '初期データはこのあと入る');
+});
+
+test('upgradeStorage: 記録がなく、初期データの入っている保存先は v6 とみなして変換する', async () => {
+   const { repository } = fakeSupabase();
+   await ensureSeeded(repository);
+   equal(await upgradeStorage(repository), true);
+   equal(await repository.getMeta('schemaVersion'), SCHEMA_VERSION);
+   equal((await repository.getTemplates()).length, 2, '初期データは残る');
 });
 
 test('upgradeStorage: 古ければ、変換前のデータを残してから変換して保存し直す', async () => {

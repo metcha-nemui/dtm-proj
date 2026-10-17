@@ -1,12 +1,16 @@
 // 進捗の集計。
 
+import { isUnassigned } from './task.js';
+
 /**
  * タスクの集まり(レーン単位でもプロジェクト全体でも)を集計する。
+ * セクションから外れた連動タスクは、ボードに出ていないので数えない。
  * @returns {{ total: number, done: number, doing: number, ratio: number }}
  */
 export function summarize(tasks) {
-   const stats = { total: tasks.length, done: 0, doing: 0, ratio: 0 };
-   for (const task of tasks) {
+   const counted = tasks.filter((t) => !isUnassigned(t));
+   const stats = { total: counted.length, done: 0, doing: 0, ratio: 0 };
+   for (const task of counted) {
       if (task.status === 'done') stats.done++;
       else if (task.status === 'doing') stats.doing++;
    }

@@ -553,6 +553,50 @@
    font-size: 11px;
 }
 
+/* アレンジのクリップから来たタスク(連動タスク)の印 */
+.task-linked {
+   display: inline-flex;
+   margin-right: 4px;
+   color: var(--text-muted);
+   vertical-align: -1px;
+}
+
+/* タスク詳細で、連動タスクの名前の前に出すトラック名 */
+.drawer-title-row {
+   display: flex;
+   align-items: center;
+   gap: var(--space-2);
+}
+
+.drawer-title-row .drawer-title {
+   flex: 1;
+   min-width: 0;
+}
+
+.drawer-track {
+   flex: none;
+   max-width: 40%;
+   overflow: hidden;
+   color: var(--text-muted);
+   text-overflow: ellipsis;
+   white-space: nowrap;
+}
+
+.drawer-linked-note {
+   color: var(--text-muted);
+   font-size: 12px;
+}
+
+.drawer-linked-note .icon {
+   margin-right: 4px;
+   vertical-align: -2px;
+}
+
+.drawer-linked-note a {
+   margin-left: var(--space-1);
+   white-space: nowrap;
+}
+
 /* 作業中のタスクは強調する */
 .task.is-doing {
    border-color: var(--doing);

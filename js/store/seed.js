@@ -64,6 +64,7 @@ export function buildSeed(now = new Date().toISOString()) {
             startDate: null,
             endDate: null,
             references: [],
+            clipId: null,
             ...stamp,
          }));
       };

@@ -1,11 +1,13 @@
 // アレンジ画面(#/p/:id/arrange)。DAW のアレンジ画面のように、トラックを縦に並べ、クリップを小節単位で置く。
 // 上端のルーラーの下にセクションマーカーの段がある。マーカーはボードのセクションを指し、名前と色はそちらに従う。
-// クリップはボードのタスクとはつながっていない。プロジェクトだけの画面で、テンプレートにはない。
+// クリップは、属するセクションのレーンにタスク(連動タスク)として出る。だから、セクションマーカーの範囲の外には
+// 新しく置けない(作る・動かす・伸ばす)。マーカーを動かしたり消したりして範囲の外になったクリップは、そのまま残す。
+// プロジェクトだけの画面で、テンプレートにはない。
 //
 // 位置と幅は CSS 変数(--start は1始まりの小節、--len は小節数、--bar は1小節の幅)で決め、計算は CSS に任せる。
 
 import * as actions from '../actions.js';
-import { arrangementBars, canPlace, clipEnd, markerSpans } from '../domain/arrangement.js';
+import { arrangementBars, canPlace, clipEnd, clipSection, markerSpans, UNTITLED_CLIP } from '../domain/arrangement.js';
 import { sortByOrder } from '../domain/order.js';
 import { sectionColors } from '../domain/project.js';
 import { repo, subscribe } from '../state.js';
@@ -47,6 +49,14 @@ export function mount(container, { id: projectId }) {
    const drawer = createClipDrawer(projectId, { onSelectionChange: markSelected });
 
    const sections = () => data.lanes.filter((l) => l.type === 'section');
+   // 置けるか(同じトラックのクリップと重ならず、セクションマーカーの範囲に入っている)
+   const placeable = (place, ignoreId = null) => canPlace(data.clips, place, ignoreId, data.markers);
+   // マーカーがないと、どこにもクリップを置けない。黙って何も起きないと分からないので知らせる
+   const needMarker = () => {
+      if (data.markers.length) return false;
+      showToast('先にセクションマーカーを置いてください(上の「セクション」の段を押す)');
+      return true;
+   };
 
    // ---- ドラッグ ----
 
@@ -115,11 +125,12 @@ export function mount(container, { id: projectId }) {
          onMove: (e) => {
             const to = barAt(laneEl, e.clientX);
             place = { trackId: track.id, startBar: Math.min(from, to), bars: Math.abs(to - from) + 1 };
-            showGhost(ghost, laneEl, place, canPlace(data.clips, place));
+            showGhost(ghost, laneEl, place, placeable(place));
          },
          onEnd: (moved) => {
             ghost.remove();
-            if (!moved || !place || !canPlace(data.clips, place)) return;
+            if (moved && needMarker()) return;
+            if (!moved || !place || !placeable(place)) return;
             createClip(track, place);
          },
       });
@@ -156,7 +167,7 @@ export function mount(container, { id: projectId }) {
                place = { trackId: clip.trackId, startBar, bars: clipEnd(clip) - startBar + 1 };
             }
             clipEl.classList.add('is-moving');
-            showGhost(ghost, laneEl, place, canPlace(data.clips, place, clip.id));
+            showGhost(ghost, laneEl, place, placeable(place, clip.id));
          },
          onEnd: (moved) => {
             ghost.remove();
@@ -166,8 +177,8 @@ export function mount(container, { id: projectId }) {
                return;
             }
             const same = place && place.trackId === clip.trackId && place.startBar === clip.startBar && place.bars === clip.bars;
-            // 重なる位置で離したら、何もせず元の位置に残す
-            if (!place || same || !canPlace(data.clips, place, clip.id)) return;
+            // 重なる位置や、セクションマーカーの範囲の外で離したら、何もせず元の位置に残す
+            if (!place || same || !placeable(place, clip.id)) return;
             // 保存を待たずに、置いた位置へ動かしておく
             setPlace(clipEl, place);
             if (laneEl !== fromLane) laneEl.append(clipEl);
@@ -222,10 +233,13 @@ export function mount(container, { id: projectId }) {
    }
 
    async function deleteTrackDialog(track) {
-      const count = data.clips.filter((c) => c.trackId === track.id).length;
+      const clipIds = new Set(data.clips.filter((c) => c.trackId === track.id).map((c) => c.id));
+      // ボードに出ている連動タスクの数(範囲の外のクリップのものは、ボードに出ていないので数えない)
+      const tasks = data.tasks.filter((t) => clipIds.has(t.clipId) && t.laneId).length;
+      const parts = [clipIds.size && `クリップ${clipIds.size}件`, tasks && `ボードのタスク${tasks}件`].filter(Boolean);
       const ok = await confirmDialog({
          title: `「${track.name}」を削除`,
-         message: count ? `このトラックのクリップ${count}件も一緒に削除します。` : 'このトラックを削除します。',
+         message: parts.length ? `このトラックの${parts.join('と、')}も一緒に削除します。` : 'このトラックを削除します。',
          okLabel: '削除',
          danger: true,
       });
@@ -318,14 +332,16 @@ export function mount(container, { id: projectId }) {
    }
 
    function clipElement(clip) {
+      // マーカーを動かしたり消したりして、どのセクションにも入らなくなったクリップ。ボードには出ていない
+      const outside = clipSection(clip, data.markers) === null;
       return h('div', {
-         class: `clip${clip.name ? '' : ' is-untitled'}`,
+         class: `clip${clip.name ? '' : ' is-untitled'}${outside ? ' is-outside' : ''}`,
          style: { '--start': String(clip.startBar), '--len': String(clip.bars) },
          dataset: { clipId: clip.id, focusKey: `clip:${clip.id}` },
          tabIndex: 0,
          role: 'button',
-         title: `${clip.name || '(無題)'} ${barRange(clip)}${clip.memo ? `\n${clip.memo}` : ''}`,
-         'aria-label': `${clip.name || '(無題)'} ${barRange(clip)}`,
+         title: `${clip.name || UNTITLED_CLIP} ${barRange(clip)}${outside ? '(セクションの外。ボードには出ません)' : ''}${clip.memo ? `\n${clip.memo}` : ''}`,
+         'aria-label': `${clip.name || UNTITLED_CLIP} ${barRange(clip)}${outside ? '(セクションの外)' : ''}`,
          onkeydown: (e) => {
             if (e.key !== 'Enter' && e.key !== ' ') return;
             e.preventDefault();
@@ -333,7 +349,7 @@ export function mount(container, { id: projectId }) {
          },
       },
       h('span', { class: 'clip-edge is-start', dataset: { edge: 'start' }, title: 'ドラッグで長さを変える' }),
-      h('span', { class: 'clip-name' }, clip.name || '(無題)'),
+      h('span', { class: 'clip-name' }, clip.name || UNTITLED_CLIP),
       clip.memo && icon('notebook-text', 12),
       h('span', { class: 'clip-edge is-end', dataset: { edge: 'end' }, title: 'ドラッグで長さを変える' }));
    }
@@ -366,8 +382,9 @@ export function mount(container, { id: projectId }) {
          // 空いているところのダブルクリックで、1小節のクリップを作る
          ondblclick: (e) => {
             if (e.target.closest('.clip')) return;
+            if (needMarker()) return;
             const place = { trackId: track.id, startBar: barAt(lane, e.clientX), bars: 1 };
-            if (canPlace(data.clips, place)) createClip(track, place);
+            if (placeable(place)) createClip(track, place);
          },
       },
       // セクションの境目の線(押せない)
@@ -439,23 +456,26 @@ export function mount(container, { id: projectId }) {
                      dataset: { focusKey: 'track-add' },
                      onclick: () => run(addTrackDialog()),
                   }, icon('plus'), 'トラックを追加'),
-                  !data.tracks.length && h('p', { class: 'arr-hint muted' },
-                     'トラックを足したら、空いているところをドラッグ(またはダブルクリック)してクリップを作ります。'))))));
+                  (!data.tracks.length || !data.markers.length) && h('p', { class: 'arr-hint muted' },
+                     !data.markers.length && 'クリップは、セクションマーカーの範囲に置きます。先に上の「セクション」の段を押して、マーカーを置いてください。',
+                     !data.tracks.length && 'トラックを足したら、空いているところをドラッグ(またはダブルクリック)してクリップを作ります。'))))));
       restoreScroll(scroll);
       markSelected(drawer.clipId);
       setupSortable();
    }
 
    async function refresh() {
-      const [project, lanes, tracks, clips, markers] = await Promise.all([
+      const [project, lanes, tracks, clips, markers, tasks] = await Promise.all([
          repo().getProject(projectId),
          repo().getLanes(projectId),
          repo().getTracks(projectId),
          repo().getClips(projectId),
          repo().getMarkers(projectId),
+         repo().getTasks(projectId),
       ]);
       if (!alive) return;
-      data = { project, lanes: sortByOrder(lanes), tracks: sortByOrder(tracks), clips, markers };
+      // tasks はトラックの削除の確認に、連動タスクの数を出すためだけに使う
+      data = { project, lanes: sortByOrder(lanes), tracks: sortByOrder(tracks), clips, markers, tasks };
       render();
    }
 

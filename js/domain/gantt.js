@@ -2,6 +2,7 @@
 // 日付は実績(着手した日・終わった日)なので、チャートは「これまでの作業の記録」になる。
 
 import { addDays, daysBetween, toDateString } from './date.js';
+import { isUnassigned } from './task.js';
 
 const RANGE_MARGIN = 3; // 表示範囲の前後に足す日数
 
@@ -19,7 +20,8 @@ export function ganttRows(tasks, lanes, today) {
    // ボードでの並び順。「全体」レーンが先で、あとはセクションの並び順
    const laneRank = (lane) => (lane ? [lane.type === 'global' ? 0 : 1, lane.order] : [2, 0]);
 
-   const rows = tasks.filter((t) => t.status !== 'todo' && t.startDate).map((task) => {
+   // セクションから外れた連動タスクは、ボードに出ていないので出さない
+   const rows = tasks.filter((t) => t.status !== 'todo' && t.startDate && !isUnassigned(t)).map((task) => {
       const start = task.startDate;
       // 終了日を空にしてある完了タスクは、完了した日で止める
       const fallback = task.status === 'done' && task.doneAt ? toDateString(new Date(task.doneAt)) : today;
