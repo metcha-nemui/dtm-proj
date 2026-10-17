@@ -258,13 +258,30 @@ button.project-tab {
    cursor: grab;
 }
 
-/* トラック番号(上から順に振る。保存はしない) */
-.arr-head-num {
+/* トラック番号(上から順に振る。保存はしない)。ホバーしたら、同じ場所で並べ替えのつまみのアイコンに変わる。
+   幅は固定にして、切り替えても名前の位置が動かないようにする */
+.arr-head-grip {
+   display: grid;
    flex: none;
-   min-width: 2ch;
+   place-items: center;
+   width: 3ch;
    font-size: 12px;
    font-variant-numeric: tabular-nums;
-   text-align: right;
+}
+
+.arr-head-grip > * {
+   grid-area: 1 / 1;
+}
+
+.arr-head-grip > .icon,
+.arr-head:hover .arr-head-num,
+.arr-track.is-dragging .arr-head-num {
+   visibility: hidden;
+}
+
+.arr-head:hover .arr-head-grip > .icon,
+.arr-track.is-dragging .arr-head-grip > .icon {
+   visibility: visible;
 }
 
 .arr-head-name {
@@ -519,11 +536,6 @@ button.project-tab {
 
    /* 狭いので、件数は出さず、タブは2行目へ回す余地を残す */
    .arr-page .board-summary {
-      display: none;
-   }
-
-   /* トラック名を少しでも長く見せる(並べ替えは見出しのどこを掴んでもできる) */
-   .arr-head > .icon:first-child {
       display: none;
    }
 

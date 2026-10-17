@@ -1069,8 +1069,10 @@ export function mount(container, { id: projectId }) {
       const { mute, solo } = trackMix(track);
       return h('div', { class: `arr-row arr-track${audible.has(track.id) ? '' : ' is-silent'}`, dataset: { trackId: track.id } },
          h('div', { class: 'arr-head', title: 'ドラッグで並べ替え' },
-            icon('grip-vertical', 14),
-            h('span', { class: 'arr-head-num', title: `${index + 1}番目のトラック` }, String(index + 1)),
+            // 番号とつまみのアイコンは同じ場所に重ね、ホバーしたらアイコンに切り替える(CSS)
+            h('span', { class: 'arr-head-grip', title: `${index + 1}番目のトラック` },
+               h('span', { class: 'arr-head-num' }, String(index + 1)),
+               icon('grip-vertical', 14)),
             h('span', { class: 'arr-head-text' },
                h('span', { class: 'arr-head-top' },
                   h('span', { class: 'arr-head-name', title: track.name }, track.name),
