@@ -3,13 +3,16 @@
 // ノートを掴むと移動、右端を掴むと長さを変える。右クリックで消す(押したままなぞると続けて消す)。
 // ノートを置く長さは、最後に触ったノートの長さ。Ctrl+ドラッグで囲んだノートを選ぶ(Shift も押すと選択に足す)。
 // 行の塗り分けは鍵盤の白黒ではなく、プロジェクトのスケール(キーとメジャー / マイナー)に合わせる。
+// スケールはアレンジ画面の「スケール」の段で決め、クリップの途中で転調していれば、転調の位置から塗り分けを変える。
+// ノートはクリップの範囲(左端〜右端)からはみ出すようには動かせない。
+// 同じ高さ・同じ位置で始まるノートが重なっていたら赤くする(気付いて片方を消せるように)。
 //
 // 編集は手元の notes に反映してから、操作の区切り(ポインタを離したとき)ごとにクリップのノートを丸ごと保存する。
 // 表示の単位は px、ノートの単位は tick(midi.js)。
 
 import * as actions from '../actions.js';
 import {
-   BEATS_PER_BAR, clipTicks, inScale, isBlackKey, KEY_NAMES, normalizeNotes, pitchName, PPQ, projectScale, SCALE_MODES,
+   BEATS_PER_BAR, clipTicks, inScale, isBlackKey, normalizeNotes, pitchName, PPQ, projectScales, scaleLabel, scaleSpans,
    setupMessages, TICKS_PER_BAR, trackChannels,
 } from '../domain/midi.js';
 import { sortByOrder } from '../domain/order.js';
@@ -25,12 +28,16 @@ const BEAT = 64; // 1拍の幅(px)
 const PX = BEAT / PPQ; // 1 tick の幅(px)
 const EDGE = 6; // ノートの右端の、掴むと長さを変えられる幅(px)
 const DRAG_THRESHOLD = 3;
+// 3連は、元の音符の 2/3 の長さ(1/8 3連 = 4分音符を3つに分けた長さ)
 const SNAPS = [
    { value: String(PPQ), label: '1/4' },
+   { value: String((PPQ * 2) / 3), label: '1/4 3連' },
    { value: String(PPQ / 2), label: '1/8' },
-   { value: String(PPQ / 4), label: '1/16' },
-   { value: String(PPQ / 8), label: '1/32' },
    { value: String(PPQ / 3), label: '1/8 3連' },
+   { value: String(PPQ / 4), label: '1/16' },
+   { value: String(PPQ / 6), label: '1/16 3連' },
+   { value: String(PPQ / 8), label: '1/32' },
+   { value: String(PPQ / 12), label: '1/32 3連' },
    { value: '1', label: 'なし' },
 ];
 const SNAP_KEY = 'dtm-proj:piano-roll-snap';
@@ -46,6 +53,8 @@ function loadSnap() {
 }
 
 const noteKey = (n) => `${n.pitch}:${n.start}:${n.length}`;
+// 重なりの判定に使う(長さは見ない。同じ高さ・同じ位置で始まるなら、長さが違っても重なっている)
+const onsetKey = (n) => `${n.pitch}:${n.start}`;
 const sameNotes = (a, b) => JSON.stringify(normalizeNotes(a)) === JSON.stringify(normalizeNotes(b));
 
 /**
@@ -67,12 +76,14 @@ export function createPianoRoll({ projectId, onSelectionChange, onPlayClip, onOp
 
    const title = h('span', { class: 'pr-title' });
    const range = h('span', { class: 'pr-range muted' });
+   const scaleText = h('span', { class: 'pr-range muted', title: 'スケール(アレンジ画面の「スケール」の段で変える)' });
    const snapSelect = h('select', {
       class: 'select pr-snap',
       'aria-label': 'グリッド',
       title: 'グリッド(ノートを置く・動かすときに合わせる細かさ。Alt を押しながらだと合わせない)',
       onchange: () => {
          snap = Number(snapSelect.value);
+         renderGridLines();
          try {
             localStorage.setItem(SNAP_KEY, snapSelect.value);
          } catch {
@@ -80,16 +91,6 @@ export function createPianoRoll({ projectId, onSelectionChange, onPlayClip, onOp
          }
       },
    }, SNAPS.map((s) => h('option', { value: s.value, selected: Number(s.value) === snap }, s.label)));
-   // スケールはプロジェクトに1つ(曲のキー)。変えるとすぐ塗り直し、保存の結果は update で戻ってくる
-   const changeScale = () => {
-      const scale = { root: Number(keySelect.value), mode: modeSelect.value };
-      renderScale(scale);
-      actions.updateProject(projectId, { scale }).catch(reportError);
-   };
-   const keySelect = h('select', { class: 'select pr-snap', 'aria-label': 'キー', onchange: changeScale },
-      KEY_NAMES.map((name, i) => h('option', { value: String(i) }, name)));
-   const modeSelect = h('select', { class: 'select pr-snap', 'aria-label': 'メジャー / マイナー', onchange: changeScale },
-      SCALE_MODES.map((m) => h('option', { value: m.value }, m.label)));
    const keys = h('div', { class: 'pr-keys' });
    const ruler = h('div', { class: 'pr-ruler' });
    const rows = h('div', { class: 'pr-rows', 'aria-hidden': 'true' });
@@ -109,8 +110,7 @@ export function createPianoRoll({ projectId, onSelectionChange, onPlayClip, onOp
          title,
          range,
          h('label', { class: 'pr-snap-label muted' }, 'グリッド', snapSelect),
-         h('span', { class: 'pr-snap-label muted', title: 'スケール(グリッドの行を、スケールの音とそれ以外で塗り分ける)' },
-            'スケール', keySelect, modeSelect),
+         scaleText,
          h('span', { class: 'pr-spacer' }),
          h('button', {
             type: 'button', class: 'btn btn-icon', title: 'このクリップの頭から再生', 'aria-label': 'このクリップの頭から再生',
@@ -127,8 +127,7 @@ export function createPianoRoll({ projectId, onSelectionChange, onPlayClip, onOp
          h('button', { type: 'button', class: 'btn btn-icon', 'aria-label': 'ピアノロールを閉じる', onclick: () => close() }, icon('x'))),
       scroller);
 
-   // 鍵盤とグリッドの行は、上が高い音(127)。128音ぶんを一度だけ作る。行の塗り分けは renderScale で付ける
-   const rowEls = [];
+   // 鍵盤は、上が高い音(127)。128音ぶんを一度だけ作る。グリッドの行は、転調の区間ごとに renderScale で作る
    for (let pitch = 127; pitch >= 0; pitch--) {
       const black = isBlackKey(pitch);
       const isC = pitch % 12 === 0;
@@ -140,8 +139,6 @@ export function createPianoRoll({ projectId, onSelectionChange, onPlayClip, onOp
             preview(pitch);
          },
       }, isC ? pitchName(pitch) : ''));
-      rowEls[pitch] = h('div', { class: `pr-row${isC ? ' is-c' : ''}` });
-      rows.append(rowEls[pitch]);
    }
 
    const clip = () => data?.clips.find((c) => c.id === clipId) ?? null;
@@ -169,33 +166,56 @@ export function createPianoRoll({ projectId, onSelectionChange, onPlayClip, onOp
       inner.style.setProperty('--pr-bar', `${TICKS_PER_BAR * PX}px`);
       inner.style.setProperty('--pr-beat', `${BEAT}px`);
       inner.style.setProperty('--pr-row', `${ROW}px`);
-      renderScale(projectScale(data.project));
+      renderScale();
       ruler.replaceChildren(...Array.from({ length: c.bars * BEATS_PER_BAR }, (_, i) => h('span', {
          class: `pr-beat${i % BEATS_PER_BAR === 0 ? ' is-bar' : ''}`,
       }, i % BEATS_PER_BAR === 0 ? String(c.startBar + i / BEATS_PER_BAR) : '')));
    }
 
-   // スケールの外の音の行を暗く、主音の行を少し色付きにする(鍵盤は実際の白黒のまま)
-   function renderScale(scale) {
-      keySelect.value = String(scale.root);
-      modeSelect.value = scale.mode;
-      rowEls.forEach((row, pitch) => {
-         row.classList.toggle('is-out', !inScale(pitch, scale));
-         row.classList.toggle('is-root', pitch % 12 === scale.root);
-      });
+   // スケールの外の音の行を暗く、主音の行を少し色付きにする(鍵盤は実際の白黒のまま)。
+   // 転調があれば、区間ごとに128行の列を作って横に並べる。変わらなければ作り直さない
+   let scaleSignature = '';
+   function renderScale() {
+      const c = clip();
+      const spans = scaleSpans(projectScales(data.project), c.startBar, c.bars);
+      scaleText.textContent = spans.map((span) => scaleLabel(span.scale)).join(' → ');
+      const signature = JSON.stringify(spans);
+      if (signature === scaleSignature) return;
+      scaleSignature = signature;
+      rows.replaceChildren(...spans.map(({ from, to, scale }) => {
+         const column = h('div', {
+            class: `pr-scale${from > 0 ? ' is-change' : ''}`,
+            style: { width: `${(to - from) * TICKS_PER_BAR * PX}px` },
+         });
+         for (let pitch = 127; pitch >= 0; pitch--) {
+            const out = !inScale(pitch, scale);
+            const isRoot = pitch % 12 === scale.root;
+            column.append(h('div', { class: `pr-row${out ? ' is-out' : ''}${isRoot ? ' is-root' : ''}${pitch % 12 === 0 ? ' is-c' : ''}` }));
+         }
+         return column;
+      }));
    }
+
+   // いちばん細い縦線は、グリッドの細かさに合わせる(「なし」なら 1/16)
+   function renderGridLines() {
+      inner.style.setProperty('--pr-snap', `${(snap > 1 ? snap : PPQ / 4) * PX}px`);
+   }
+   renderGridLines();
 
    function renderNotes() {
       const end = clipTicks(clip());
+      const onsets = new Map();
+      for (const n of notes) onsets.set(onsetKey(n), (onsets.get(onsetKey(n)) ?? 0) + 1);
+      const dup = (n) => onsets.get(onsetKey(n)) > 1;
       layer.replaceChildren(...notes.map((n, i) => h('div', {
-         class: `pr-note${selected.has(n) ? ' is-selected' : ''}${n.start < 0 || n.start >= end ? ' is-outside' : ''}`,
+         class: `pr-note${selected.has(n) ? ' is-selected' : ''}${n.start < 0 || n.start >= end ? ' is-outside' : ''}${dup(n) ? ' is-dup' : ''}`,
          style: {
             left: `${n.start * PX}px`,
             top: `${(127 - n.pitch) * ROW}px`,
             width: `${Math.max(3, n.length * PX)}px`,
          },
          dataset: { index: String(i) },
-         title: `${pitchName(n.pitch)}`,
+         title: dup(n) ? `${pitchName(n.pitch)}(同じ位置に重なっているノートがあります)` : pitchName(n.pitch),
       })));
    }
 
@@ -203,6 +223,16 @@ export function createPianoRoll({ projectId, onSelectionChange, onPlayClip, onOp
 
    const snapFloor = (tick, free) => (free ? Math.round(tick) : Math.floor(tick / snap) * snap);
    const snapRound = (tick, free) => (free ? Math.round(tick) : Math.round(tick / snap) * snap);
+
+   // まとめて横に動かせる幅(tick)。どのノートもクリップの範囲(0〜クリップの長さ)からはみ出さないようにする。
+   // もともとはみ出しているノート(クリップを縮めたときのもの)があれば、それ以上外へは動かさない
+   function shiftRange(list) {
+      const end = clipTicks(clip());
+      return {
+         min: Math.min(0, -Math.min(...list.map((n) => n.start))),
+         max: Math.max(0, end - Math.max(...list.map((n) => n.start + n.length))),
+      };
+   }
 
    function pointAt(e) {
       const rect = grid.getBoundingClientRect();
@@ -261,7 +291,10 @@ export function createPianoRoll({ projectId, onSelectionChange, onPlayClip, onOp
          }
          lastLength = target.length;
       } else {
-         target = { pitch: at.pitch, start: Math.max(0, snapFloor(at.tick, down.altKey)), length: lastLength, velocity: 100 };
+         // 置くノートも、クリップの右端からはみ出さない長さにする
+         const end = clipTicks(clip());
+         const start = Math.max(0, Math.min(end - 1, snapFloor(at.tick, down.altKey)));
+         target = { pitch: at.pitch, start, length: Math.max(1, Math.min(lastLength, end - start)), velocity: 100 };
          notes.push(target);
          selected = new Set([target]);
          created = true;
@@ -276,6 +309,9 @@ export function createPianoRoll({ projectId, onSelectionChange, onPlayClip, onOp
 
       const moving = [...selected].map((n) => ({ note: n, start: n.start, pitch: n.pitch, length: n.length }));
       const origin = moving.find((m) => m.note === target);
+      const range = shiftRange(moving);
+      // 長さを変えるときも、右端がクリップの右端を越えないようにする(もともと越えているノートがあれば伸ばさない)
+      const maxGrow = Math.max(0, Math.min(...moving.map((m) => clipTicks(clip()) - m.start - m.length)));
       let moved = false;
       let lastPitch = target.pitch;
       dragging = true;
@@ -288,16 +324,16 @@ export function createPianoRoll({ projectId, onSelectionChange, onPlayClip, onOp
          const deltaTick = p.tick - at.tick;
          if (mode === 'resize') {
             const end = snapRound(origin.start + origin.length + deltaTick, e.altKey);
-            const delta = Math.max(Math.min(snap, origin.length), end - origin.start) - origin.length;
+            const delta = Math.min(maxGrow, Math.max(Math.min(snap, origin.length), end - origin.start) - origin.length);
             for (const m of moving) m.note.length = Math.max(1, m.length + delta);
             lastLength = target.length;
          } else {
-            const start = snapRound(origin.start + deltaTick, e.altKey);
+            const shift = Math.max(range.min, Math.min(range.max, snapRound(origin.start + deltaTick, e.altKey) - origin.start));
             const lowest = Math.min(...moving.map((m) => m.pitch));
             const highest = Math.max(...moving.map((m) => m.pitch));
             const pitchDelta = Math.max(-lowest, Math.min(127 - highest, p.pitch - at.pitch));
             for (const m of moving) {
-               m.note.start = m.start + (start - origin.start);
+               m.note.start = m.start + shift;
                m.note.pitch = m.pitch + pitchDelta;
             }
             if (target.pitch !== lastPitch) {
@@ -394,11 +430,14 @@ export function createPianoRoll({ projectId, onSelectionChange, onPlayClip, onOp
       scroller.addEventListener('scroll', update);
    }
 
-   // 並びを整えて保存する。選択はノートの中身で引き継ぐ
+   // 並びを整えて保存する。選択はノートごとに引き継ぐ(中身で引き継ぐと、まったく同じ場所に重なったノートまで選ばれる)
    function commit() {
-      const keys = new Set([...selected].map(noteKey));
-      notes = normalizeNotes(notes);
-      selected = new Set(notes.filter((n) => keys.has(noteKey(n))));
+      // normalizeNotes と同じ並べ方(sort は安定なので、同じ位置のノートの順も変わらない)
+      const pairs = notes
+         .map((n) => ({ note: normalizeNotes([n])[0], isSelected: selected.has(n) }))
+         .sort((a, b) => a.note.start - b.note.start || a.note.pitch - b.note.pitch);
+      notes = pairs.map((p) => p.note);
+      selected = new Set(pairs.filter((p) => p.isSelected).map((p) => p.note));
       renderNotes();
       save();
    }
@@ -435,6 +474,8 @@ export function createPianoRoll({ projectId, onSelectionChange, onPlayClip, onOp
          // 左右でグリッド1つ分(Shift か Ctrl で1小節)動かす
          e.preventDefault();
          const step = (e.key === 'ArrowRight' ? 1 : -1) * (e.shiftKey || e.ctrlKey || e.metaKey ? TICKS_PER_BAR : snap);
+         const range = shiftRange(list);
+         if (step < range.min || step > range.max) return;
          for (const n of list) n.start += step;
          commit();
       }
@@ -464,6 +505,7 @@ export function createPianoRoll({ projectId, onSelectionChange, onPlayClip, onOp
       const opening = id !== clipId;
       clipId = id;
       if (opening) {
+         scaleSignature = '';
          notes = [];
          selected = new Set();
       }

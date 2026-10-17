@@ -48,6 +48,7 @@ button.project-tab {
    --arr-head: 168px; /* 左のトラック名の列の幅 */
    --arr-ruler-h: 22px;
    --arr-marker-h: 28px;
+   --arr-scale-h: 24px;
    --arr-track-h: 48px;
 
    display: flex;
@@ -99,6 +100,21 @@ button.project-tab {
    top: var(--arr-ruler-h);
    height: var(--arr-marker-h);
    border-bottom: 1px solid var(--border);
+}
+
+/* スケールの段は、マーカーの段の下に貼り付ける(マーカーの段の作りを使い回す) */
+.arr-marker-row.arr-scale-row {
+   top: calc(var(--arr-ruler-h) + var(--arr-marker-h));
+   height: var(--arr-scale-h);
+}
+
+.arr-scale-row .arr-flag {
+   font-weight: 400;
+}
+
+/* 1小節目のスケール(動かせない) */
+.arr-flag.is-fixed {
+   cursor: pointer;
 }
 
 .arr-ruler-row .arr-corner,
@@ -756,12 +772,26 @@ button.project-tab {
    background: var(--accent-soft);
 }
 
-/* グリッド。行は鍵盤に合わせて塗り分け、縦線は1/16・1拍・1小節の3段階 */
+/* グリッド。行はスケールに合わせて塗り分け(転調の区間ごとの列)、縦線はグリッドの細かさ・1拍・1小節の3段階 */
 .pr-grid {
    position: relative;
    overflow: hidden;
    cursor: crosshair;
    touch-action: none;
+}
+
+/* 転調の区間ごとの列。区間の行を縦に積み、列を横に並べる */
+.pr-rows {
+   display: flex;
+}
+
+.pr-scale {
+   flex: none;
+}
+
+/* 転調の位置 */
+.pr-scale.is-change {
+   box-shadow: inset 2px 0 0 color-mix(in srgb, var(--accent) 60%, transparent);
 }
 
 .pr-row {
@@ -790,7 +820,7 @@ button.project-tab {
       linear-gradient(to right, color-mix(in srgb, var(--text-muted) 60%, transparent) 1px, transparent 1px),
       linear-gradient(to right, var(--border) 1px, transparent 1px),
       linear-gradient(to right, color-mix(in srgb, var(--border) 45%, transparent) 1px, transparent 1px);
-   background-size: var(--pr-bar) 100%, var(--pr-beat) 100%, calc(var(--pr-beat) / 4) 100%;
+   background-size: var(--pr-bar) 100%, var(--pr-beat) 100%, var(--pr-snap) 100%;
 }
 
 .pr-note {
@@ -816,6 +846,17 @@ button.project-tab {
 .pr-note.is-selected {
    border-color: color-mix(in srgb, var(--doing) 60%, #000);
    background: var(--doing);
+}
+
+/* 同じ高さ・同じ位置で始まるノートが重なっている(片方を消してもらう) */
+.pr-note.is-dup {
+   border-color: color-mix(in srgb, var(--danger) 60%, #000);
+   background: var(--danger);
+}
+
+.pr-note.is-dup.is-selected {
+   outline: 2px solid var(--doing);
+   outline-offset: -1px;
 }
 
 /* クリップの範囲の外(鳴らさない) */

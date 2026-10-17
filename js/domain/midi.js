@@ -1,6 +1,6 @@
 // アレンジのクリップを MIDI として扱うためのドメインロジック(ノート、音色、再生するイベント列、.mid の書き出し)。
 // DOMにもrepositoryにも依存しない。受け取ったレコードは変更せず、新しい値を返す。
-// 拍子は 4/4 固定、テンポは曲全体で1つ(Project.bpm)。キーも曲全体で1つ(Project.scale。ピアノロールの表示だけに使う)。テンポチェンジや CC のオートメーションは持たない(下書き用)。
+// 拍子は 4/4 固定、テンポは曲全体で1つ(Project.bpm)。キーは小節単位で変えられる(Project.scales。ピアノロールの表示だけに使う)。テンポチェンジや CC のオートメーションは持たない(下書き用)。
 //
 // 時間の単位は tick(4分音符 = PPQ tick)。ノートの位置はクリップの先頭からの相対で持つので、
 // クリップを動かせばノートも付いていく。クリップの範囲の外にはみ出したノートは消さずに持ち、鳴らさない。
@@ -89,8 +89,68 @@ export function normalizeScale(scale) {
    };
 }
 
-/** プロジェクトのスケール。項目がない(v8 以前の)データでも C メジャーを返す。 */
-export const projectScale = (project) => normalizeScale(project?.scale ?? DEFAULT_SCALE);
+/**
+ * スケールの並び(転調)を正規化する。小節(1以上の整数)の順に並べ、同じ小節は後のものを残す。
+ * 1小節目は必ずある(なければ C メジャーを足す)。曲の頭のスケールを決めるため。
+ * @param {Array<{ bar: number, root: number, mode: string }>} scales
+ * @returns {Array<{ bar: number, root: number, mode: 'major'|'minor' }>}
+ */
+export function normalizeScales(scales) {
+   const byBar = new Map();
+   for (const s of scales ?? []) {
+      const bar = clampInt(s?.bar, 1, 1e6, 1);
+      byBar.set(bar, { bar, ...normalizeScale(s) });
+   }
+   if (!byBar.has(1)) byBar.set(1, { bar: 1, ...DEFAULT_SCALE });
+   return [...byBar.values()].sort((a, b) => a.bar - b.bar);
+}
+
+/** プロジェクトのスケールの並び。項目がない(v9 より前の)データでも、1小節目から C メジャーを返す。 */
+export const projectScales = (project) => normalizeScales(project?.scales);
+
+/** その小節のスケール(その小節かそれより前で、いちばん後の転調)。 */
+export function scaleAt(scales, bar) {
+   const list = normalizeScales(scales);
+   let current = list[0];
+   for (const s of list) if (s.bar <= bar) current = s;
+   return normalizeScale(current);
+}
+
+/**
+ * 小節の範囲に掛かるスケールの区間。ピアノロールで、クリップの中の転調ごとに塗り分けるのに使う。
+ * @param {object[]} scales
+ * @param {number} startBar
+ * @param {number} bars
+ * @returns {Array<{ from: number, to: number, scale: { root: number, mode: string } }>} from / to は startBar からの小節数(to は含まない)
+ */
+export function scaleSpans(scales, startBar, bars) {
+   const list = normalizeScales(scales);
+   const cuts = [0, ...list.map((s) => s.bar - startBar).filter((d) => d > 0 && d < bars), bars];
+   return cuts.slice(0, -1).map((from, i) => ({ from, to: cuts[i + 1], scale: scaleAt(list, startBar + from) }));
+}
+
+/** その小節にスケールを置く(あれば変える)。 */
+export function setScaleAt(scales, bar, scale) {
+   return normalizeScales([...normalizeScales(scales), { ...normalizeScale(scale), bar }]);
+}
+
+/** 転調の小節を動かす。1小節目のものは動かせず、ほかの転調と同じ小節にも動かせない。 */
+export function moveScale(scales, fromBar, toBar) {
+   const list = normalizeScales(scales);
+   const target = list.find((s) => s.bar === fromBar);
+   if (!target) throw new Error('スケールが見つかりません');
+   if (fromBar === 1) throw new Error('1小節目のスケールは動かせません');
+   if (toBar < 1 || list.some((s) => s.bar === toBar)) throw new Error('その小節にはスケールがあります');
+   return normalizeScales(list.map((s) => (s === target ? { ...s, bar: toBar } : s)));
+}
+
+/** 転調を消す(その小節から、前のスケールが続く)。1小節目のものは消せない。 */
+export function removeScale(scales, bar) {
+   if (bar === 1) throw new Error('1小節目のスケールは消せません');
+   const list = normalizeScales(scales);
+   if (!list.some((s) => s.bar === bar)) throw new Error('スケールが見つかりません');
+   return list.filter((s) => s.bar !== bar);
+}
 
 /** その音がスケールの音か。 */
 export function inScale(pitch, scale) {

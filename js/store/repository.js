@@ -5,7 +5,7 @@
 // すべて非同期(Promise)で、実装を差し替えてもシグネチャは変えない。
 
 import { syncClipTasks } from '../domain/arrangement.js';
-import { normalizeNotes, projectBpm, projectScale, trackSound } from '../domain/midi.js';
+import { normalizeNotes, normalizeScales, projectBpm, trackSound } from '../domain/midi.js';
 
 // v4: テンプレートをプロジェクトと同じ形(isTemplate の付いたプロジェクト)で持つようにし、
 // セクション種別と定番タスクをやめた。それより前のデータは形が違い、変換を用意していないので読み込めない。
@@ -15,8 +15,10 @@ import { normalizeNotes, projectBpm, projectScale, trackSound } from '../domain/
 // v6 以前のデータは、セクションに入っているクリップに連動タスクを作って読み込む。
 // v8: クリップを MIDI クリップにした(プロジェクトの BPM、トラックの音色・音量・パン、クリップのノート)。
 // v7 以前のデータは、BPM 120、ピアノ・音量 100・パン中央、ノートなしとして読み込む。
-// v9: プロジェクトにスケール(キーとメジャー / マイナー。ピアノロールの塗り分け)を足した。v8 以前のデータは C メジャーとして読み込む。
-export const SCHEMA_VERSION = 9;
+// v9: プロジェクトにスケール(scale。キーとメジャー / マイナー。ピアノロールの塗り分け)を足した。
+// v10: 途中の転調のため、スケールを小節ごとの並び(scales)にした。v9 の scale は1小節目のスケールにし、
+// v8 以前のデータは1小節目から C メジャーとして読み込む。
+export const SCHEMA_VERSION = 10;
 const OLDEST_READABLE_VERSION = 4;
 // 保存先に schemaVersion を記録し始めたときのバージョン。記録がない保存先は、このバージョンのデータとみなす
 const UNTRACKED_VERSION = 6;
@@ -31,7 +33,8 @@ const UNTRACKED_VERSION = 6;
  * @property {string|null} dueDate 締切(YYYY-MM-DD)。なければ null。テンプレートでは使わない
  * @property {boolean} isTemplate
  * @property {number} [bpm] アレンジの再生と書き出しのテンポ(拍子は 4/4 固定)。プロジェクトだけが持つ
- * @property {{ root: number, mode: 'major'|'minor' }} [scale] ピアノロールの行の塗り分けに使うキー(root は 0 = C)。プロジェクトだけが持つ
+ * @property {Array<{ bar: number, root: number, mode: 'major'|'minor' }>} [scales] ピアノロールの行の塗り分けに使うキー(root は 0 = C)。
+ *    小節の順に並び、1小節目のものが必ずある。次の転調まで続く。プロジェクトだけが持つ
  * @property {string} createdAt
  * @property {string} updatedAt
  */
@@ -370,8 +373,12 @@ export function migrate(json) {
       }
    }
    // v7 → v8: MIDI の項目を足した。Supabase の一括保存のため、項目の有無が混ざらないように揃える
-   // v8 → v9: スケールを足した(C メジャー)
-   result.projects = result.projects.map((p) => (p.isTemplate ? p : { ...p, bpm: projectBpm(p), scale: projectScale(p) }));
+   // v8 → v9 → v10: スケールの並びを足した。v9 の scale は1小節目のスケールにする
+   result.projects = result.projects.map((p) => {
+      if (p.isTemplate) return p;
+      const { scale, ...rest } = p;
+      return { ...rest, bpm: projectBpm(p), scales: normalizeScales(p.scales ?? (scale ? [{ ...scale, bar: 1 }] : [])) };
+   });
    result.tracks = result.tracks.map((t) => ({ ...t, ...trackSound(t) }));
    result.clips = result.clips.map((c) => ({ ...c, notes: normalizeNotes(c.notes) }));
    return result;

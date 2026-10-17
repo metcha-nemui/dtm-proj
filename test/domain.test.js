@@ -6,8 +6,9 @@ import {
    renameTrack, setClipNotes, syncClipTasks, updateClip, updateMarker, updateTrackSound,
 } from '../js/domain/arrangement.js';
 import {
-   audibleNotes, buildMidiFile, clipTicks, inScale, MAX_BPM, midiFileName, MIN_BPM, normalizeBpm, normalizeNotes,
-   normalizeScale, noteEvents, PPQ, projectBpm, projectScale, scaleLabel, secondsToTicks, soundLabel, TICKS_PER_BAR, ticksToSeconds, trackChannels, trackSound, varLen,
+   audibleNotes, buildMidiFile, clipTicks, inScale, MAX_BPM, midiFileName, MIN_BPM, moveScale, normalizeBpm, normalizeNotes,
+   normalizeScale, normalizeScales, noteEvents, PPQ, projectBpm, projectScales, removeScale, scaleAt, scaleLabel, scaleSpans,
+   secondsToTicks, setScaleAt, soundLabel, TICKS_PER_BAR, ticksToSeconds, trackChannels, trackSound, varLen,
 } from '../js/domain/midi.js';
 import { addDays, daysBetween, toDateString, weekendDaysBetween } from '../js/domain/date.js';
 import { deadlineRange, deadlineRows } from '../js/domain/deadline.js';
@@ -982,26 +983,60 @@ test('migrate: v7 のデータは、BPM 120・ピアノ・ノートなしとし�
       tracks: [{ id: 'tr', projectId: 'p' }],
       clips: [{ id: 'c', projectId: 'p', trackId: 'tr', startBar: 1, bars: 1 }],
    });
-   equal(data.projects, [{ id: 'p', isTemplate: false, bpm: 120, scale: { root: 0, mode: 'major' } }, { id: 't', isTemplate: true }]);
+   equal(data.projects, [{ id: 'p', isTemplate: false, bpm: 120, scales: [{ bar: 1, root: 0, mode: 'major' }] }, { id: 't', isTemplate: true }]);
    equal(data.tracks, [{ id: 'tr', projectId: 'p', program: 0, volume: 100, pan: 64, drum: false }]);
    equal(data.clips[0].notes, []);
 });
 
-test('migrate: v8 のデータは、C メジャーとして読み込む(あるものは正規化して残す)', () => {
+test('migrate: v8 のデータは1小節目から C メジャー、v9 の scale は1小節目のスケールにする', () => {
    const data = migrate({
-      schemaVersion: 8,
-      projects: [{ id: 'p', isTemplate: false, bpm: 90 }, { id: 'q', isTemplate: false, bpm: 90, scale: { root: 21, mode: 'x' } }, { id: 't', isTemplate: true }],
+      schemaVersion: 9,
+      projects: [
+         { id: 'p', isTemplate: false, bpm: 90 },
+         { id: 'q', isTemplate: false, bpm: 90, scale: { root: 21, mode: 'minor' } },
+         { id: 't', isTemplate: true },
+      ],
    });
-   equal(data.projects.map((p) => p.scale), [{ root: 0, mode: 'major' }, { root: 9, mode: 'major' }, undefined]);
+   equal(data.projects.map((p) => p.scales), [[{ bar: 1, root: 0, mode: 'major' }], [{ bar: 1, root: 9, mode: 'minor' }], undefined]);
+   assert(!('scale' in data.projects[1]), 'scale は残さない');
 });
 
-test('normalizeScale / projectScale: 主音は 0〜11、mode は major か minor。なければ C メジャー', () => {
-   equal([normalizeScale({ root: -3, mode: 'minor' }), normalizeScale(null), projectScale({})],
-      [{ root: 9, mode: 'minor' }, { root: 0, mode: 'major' }, { root: 0, mode: 'major' }]);
+test('normalizeScale / normalizeScales: 主音は 0〜11、mode は major か minor。1小節目は必ずある', () => {
+   equal([normalizeScale({ root: -3, mode: 'minor' }), normalizeScale(null)], [{ root: 9, mode: 'minor' }, { root: 0, mode: 'major' }]);
+   equal(normalizeScales([{ bar: 5, root: 7, mode: 'major' }, { bar: 5, root: 2, mode: 'minor' }]),
+      [{ bar: 1, root: 0, mode: 'major' }, { bar: 5, root: 2, mode: 'minor' }], '同じ小節は後のもの');
+   equal(projectScales({}), [{ bar: 1, root: 0, mode: 'major' }]);
    const { project } = createProject({ title: 'p' });
-   equal(project.scale, { root: 0, mode: 'major' }, '新しいプロジェクトは C メジャー');
-   equal(updateProject(project, { scale: { root: '2', mode: 'minor' } }).scale, { root: 2, mode: 'minor' });
-   equal(createTemplate({ name: 't' }).project.scale, undefined, 'テンプレートは持たない');
+   equal(project.scales, [{ bar: 1, root: 0, mode: 'major' }], '新しいプロジェクトは C メジャー');
+   equal(updateProject(project, { scales: [{ bar: 1, root: '2', mode: 'minor' }] }).scales, [{ bar: 1, root: 2, mode: 'minor' }]);
+   equal(createTemplate({ name: 't' }).project.scales, undefined, 'テンプレートは持たない');
+});
+
+test('scaleAt / scaleSpans: 転調ごとの区間', () => {
+   const scales = [{ bar: 1, root: 0, mode: 'major' }, { bar: 9, root: 2, mode: 'major' }, { bar: 17, root: 9, mode: 'minor' }];
+   equal([scaleAt(scales, 8), scaleAt(scales, 9), scaleAt(scales, 30)],
+      [{ root: 0, mode: 'major' }, { root: 2, mode: 'major' }, { root: 9, mode: 'minor' }]);
+   equal(scaleSpans(scales, 1, 4), [{ from: 0, to: 4, scale: { root: 0, mode: 'major' } }], '転調のないクリップ');
+   equal(scaleSpans(scales, 7, 12), [
+      { from: 0, to: 2, scale: { root: 0, mode: 'major' } },
+      { from: 2, to: 10, scale: { root: 2, mode: 'major' } },
+      { from: 10, to: 12, scale: { root: 9, mode: 'minor' } },
+   ], '2回転調をまたぐ');
+   equal(scaleSpans(scales, 9, 2), [{ from: 0, to: 2, scale: { root: 2, mode: 'major' } }], '頭が転調の小節');
+});
+
+test('setScaleAt / moveScale / removeScale', () => {
+   const base = normalizeScales([]);
+   const added = setScaleAt(base, 5, { root: 7, mode: 'major' });
+   equal(added, [{ bar: 1, root: 0, mode: 'major' }, { bar: 5, root: 7, mode: 'major' }]);
+   equal(setScaleAt(added, 1, { root: 4, mode: 'minor' })[0], { bar: 1, root: 4, mode: 'minor' }, 'あれば変える');
+   equal(moveScale(added, 5, 3).map((s) => s.bar), [1, 3]);
+   throws(() => moveScale(added, 1, 3), '1小節目は動かせない');
+   throws(() => moveScale(added, 5, 1), 'ほかの転調と同じ小節');
+   equal(removeScale(added, 5), base);
+   throws(() => removeScale(added, 1), '1小節目は消せない');
+   throws(() => removeScale(added, 4), 'ない小節');
+   equal(base, [{ bar: 1, root: 0, mode: 'major' }], '受け取ったものは変えない');
 });
 
 test('inScale / scaleLabel', () => {

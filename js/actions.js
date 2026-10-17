@@ -2,6 +2,7 @@
 // 計算そのものは domain/ にあり、ここは読み書きの配線だけを受け持つ。
 
 import * as arrangementDomain from './domain/arrangement.js';
+import * as midiDomain from './domain/midi.js';
 import * as projectDomain from './domain/project.js';
 import * as taskDomain from './domain/task.js';
 import { touch } from './domain/record.js';
@@ -85,6 +86,32 @@ export const updateProject = serial(async (projectId, patch) => {
    if (!project) throw new Error('プロジェクトが見つかりません');
    await repo().saveProject(projectDomain.updateProject(project, patch));
    notify({ projectId });
+});
+
+// ---- スケール(転調)----
+
+async function changeScales(projectId, change) {
+   const project = await repo().getProject(projectId);
+   if (!project) throw new Error('プロジェクトが見つかりません');
+   await repo().saveProject(projectDomain.updateProject(project, { scales: change(midiDomain.projectScales(project)) }));
+   notify({ projectId });
+}
+
+/** その小節にスケールを置く(あれば変える)。 */
+export const setScale = serial(async (projectId, bar, scale) => (
+   changeScales(projectId, (scales) => midiDomain.setScaleAt(scales, bar, scale))));
+
+export const moveScale = serial(async (projectId, fromBar, toBar) => (
+   changeScales(projectId, (scales) => midiDomain.moveScale(scales, fromBar, toBar))));
+
+/** 転調を消す。元に戻せるように、消したスケールを返す。 */
+export const deleteScale = serial(async (projectId, bar) => {
+   let deleted = null;
+   await changeScales(projectId, (scales) => {
+      deleted = scales.find((s) => s.bar === bar);
+      return midiDomain.removeScale(scales, bar);
+   });
+   return deleted;
 });
 
 export const deleteProject = serial(async (projectId) => {

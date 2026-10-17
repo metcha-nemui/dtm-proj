@@ -1,5 +1,5 @@
 // アレンジ画面(#/p/:id/arrange)。DAW のアレンジ画面のように、トラックを縦に並べ、クリップを小節単位で置く。
-// 上端のルーラーの下にセクションマーカーの段がある。マーカーはボードのセクションを指し、名前と色はそちらに従う。
+// 上端のルーラーの下にセクションマーカーの段と、スケール(転調)の段がある。マーカーはボードのセクションを指し、名前と色はそちらに従う。
 // クリップは、属するセクションのレーンにタスク(連動タスク)として出る。だから、セクションマーカーの範囲の外には
 // 新しく置けない(作る・動かす・伸ばす)。マーカーを動かしたり消したりして範囲の外になったクリップは、そのまま残す。
 // プロジェクトだけの画面で、テンプレートにはない。
@@ -12,8 +12,8 @@
 import * as actions from '../actions.js';
 import { arrangementBars, canPlace, clipEnd, clipSection, markerSpans, UNTITLED_CLIP } from '../domain/arrangement.js';
 import {
-   audibleNotes, clipTicks, GM_PROGRAMS, MAX_BPM, MIN_BPM, noteEvents, projectBpm, setupMessages, soundLabel,
-   TICKS_PER_BAR, trackChannels, trackSound,
+   audibleNotes, clipTicks, GM_PROGRAMS, KEY_NAMES, MAX_BPM, MIN_BPM, noteEvents, projectBpm, projectScales, scaleAt,
+   scaleLabel, SCALE_MODES, setupMessages, soundLabel, TICKS_PER_BAR, trackChannels, trackSound,
 } from '../domain/midi.js';
 import { sortByOrder } from '../domain/order.js';
 import { sectionColors } from '../domain/project.js';
@@ -322,6 +322,30 @@ export function mount(container, { id: projectId }) {
       });
    }
 
+   /** 転調の旗を横に動かす。1小節目のものは動かせない(押すとメニューだけ) */
+   function dragScale(down, scale, flag) {
+      if (scale.bar === 1) return;
+      const row = flag.closest('.arr-markers');
+      let bar = scale.bar;
+      const taken = (n) => projectScales(data.project).some((s) => s.bar !== scale.bar && s.bar === n);
+      drag(down, {
+         onMove: (e) => {
+            bar = barAt(row, e.clientX);
+            flag.style.setProperty('--start', String(bar));
+            flag.classList.add('is-moving');
+            flag.classList.toggle('is-invalid', taken(bar));
+         },
+         onEnd: (moved) => {
+            if (!moved) return;
+            if (bar === scale.bar || taken(bar)) {
+               render();
+               return;
+            }
+            runPlaced(actions.moveScale(projectId, scale.bar, bar));
+         },
+      });
+   }
+
    // ---- メニューとダイアログ ----
 
    async function addTrackDialog() {
@@ -404,6 +428,37 @@ export function mount(container, { id: projectId }) {
             ))),
          },
       ]);
+   }
+
+   // スケールを選ぶダイアログ。初期値は、その小節でいま効いているスケール
+   async function scaleDialog(bar, title) {
+      const current = scaleAt(projectScales(data.project), bar);
+      const values = await formDialog({
+         title,
+         message: 'ピアノロールの行の塗り分けに使います。次の転調まで続きます。',
+         fields: [
+            {
+               name: 'root', label: 'キー', type: 'select', value: String(current.root),
+               options: KEY_NAMES.map((name, i) => ({ value: String(i), label: name })),
+            },
+            { name: 'mode', label: 'メジャー / マイナー', type: 'select', value: current.mode, options: SCALE_MODES },
+         ],
+      });
+      if (values) await actions.setScale(projectId, bar, { root: Number(values.root), mode: values.mode });
+   }
+
+   function openScaleMenu(scale, anchor) {
+      openMenu(anchor, [
+         { label: 'スケールを変更…', onSelect: () => run(scaleDialog(scale.bar, `${scale.bar}小節目のスケール`)) },
+         scale.bar > 1 && {
+            label: '転調を削除',
+            danger: true,
+            onSelect: () => run(actions.deleteScale(projectId, scale.bar).then((deleted) => showToast(
+               `${deleted.bar}小節目の転調(${scaleLabel(deleted)})を削除しました`,
+               { actionLabel: '元に戻す', onAction: () => run(actions.setScale(projectId, deleted.bar, deleted)) },
+            ))),
+         },
+      ].filter(Boolean));
    }
 
    function openSlotMenu(bar, anchor) {
@@ -543,6 +598,42 @@ export function mount(container, { id: projectId }) {
          h('div', { class: 'arr-markers' }, slots, bands, flags));
    }
 
+   // スケールの段。作りはマーカーの段と同じ(小節のボタンの上に、区間の帯と旗を重ねる)。
+   // 小節を押すと、そこで転調する。1小節目の旗は曲の頭のスケールなので、動かせず消せない
+   function scaleRow() {
+      const scales = projectScales(data.project).filter((s) => s.bar <= data.bars);
+      const spans = scales.map((scale, i) => ({ scale, from: scale.bar, to: (scales[i + 1]?.bar ?? data.bars + 1) - 1 }));
+      const slots = Array.from({ length: data.bars }, (_, i) => h('button', {
+         type: 'button',
+         class: 'arr-slot',
+         style: { '--start': String(i + 1) },
+         title: `${i + 1}小節目で転調する`,
+         'aria-label': `${i + 1}小節目で転調する`,
+         dataset: { focusKey: `scale-slot:${i + 1}` },
+         onclick: () => run(scaleDialog(i + 1, `${i + 1}小節目で転調`)),
+      }));
+      const style = (from, to) => ({ '--start': String(from), '--len': String(to - from + 1), '--lane-color': 'var(--text-muted)' });
+      const bands = spans.map(({ from, to }) => h('div', { class: 'arr-band', style: style(from, to) }));
+      const flags = spans.map(({ scale, from, to }) => {
+         const flag = h('button', {
+            type: 'button',
+            class: `arr-flag${scale.bar === 1 ? ' is-fixed' : ''}`,
+            style: style(from, to),
+            title: `${scaleLabel(scale)}(${from}小節目から)${scale.bar === 1 ? '' : 'ドラッグで移動'}`,
+            dataset: { focusKey: `scale:${scale.bar}` },
+            onpointerdown: (e) => dragScale(e, scale, flag),
+            onclick: (e) => {
+               if (suppressClick) return;
+               openScaleMenu(scale, e.currentTarget);
+            },
+         }, scaleLabel(scale));
+         return flag;
+      });
+      return h('div', { class: 'arr-row arr-marker-row arr-scale-row' },
+         h('div', { class: 'arr-corner arr-corner-label' }, 'スケール'),
+         h('div', { class: 'arr-markers' }, slots, bands, flags));
+   }
+
    function clipElement(clip) {
       // マーカーを動かしたり消したりして、どのセクションにも入らなくなったクリップ。ボードには出ていない
       const outside = clipSection(clip, data.markers) === null;
@@ -665,7 +756,8 @@ export function mount(container, { id: projectId }) {
          renderPending = true;
          return;
       }
-      data.bars = arrangementBars(data.clips, data.markers);
+      // 転調の位置も、マーカーと同じく小節数に数える(右の端に置いた転調が見えなくならないように)
+      data.bars = arrangementBars(data.clips, [...data.markers, ...projectScales(data.project)]);
       const colors = sectionColors(data.lanes);
       const spans = markerSpans(data.markers, data.lanes, data.bars);
       const boundaries = spans.map((s) => s.from).filter((bar) => bar > 1);
@@ -679,6 +771,7 @@ export function mount(container, { id: projectId }) {
                h('div', { class: 'arr-playhead', hidden: true, 'aria-hidden': 'true' }),
                rulerRow(),
                markerRow(spans, colors),
+               scaleRow(),
                h('div', { class: 'arr-tracks' }, data.tracks.map((track) => trackRow(track, boundaries))),
                h('div', { class: 'arr-row arr-foot' },
                   h('button', {
