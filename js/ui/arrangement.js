@@ -204,10 +204,13 @@ export function mount(container, { id: projectId }) {
    // 選ばれていなければ、再生を押したときに知らせる
    sound.prepareSynth().catch(() => {});
 
-   // スペースキーで再生・停止(入力欄やボタン、クリップの上では、そちらの操作を優先する)
+   // スペースキーで再生・停止(入力欄やボタン、クリップの上では、そちらの操作を優先する)。
+   // ただしミュート・ソロのボタンは、押したあとにフォーカスが残っていても再生・停止にする(DAW と同じく、
+   // 切り替えてすぐスペースで聞き直すため。ボタンの切り替えは Enter でできる)
    const onKeydown = (e) => {
       if (e.code !== 'Space' || e.repeat || e.defaultPrevented) return;
-      if (e.target.closest?.('input, textarea, select, button, [contenteditable], .clip')) return;
+      if (!e.target.closest?.('.arr-mix-toggle')
+         && e.target.closest?.('input, textarea, select, button, [contenteditable], .clip')) return;
       if (document.querySelector('dialog[open]') || !data?.project || data.project.isTemplate) return;
       e.preventDefault();
       togglePlayback();
