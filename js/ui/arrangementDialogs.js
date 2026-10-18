@@ -4,7 +4,8 @@
 
 import * as actions from '../actions.js';
 import {
-   DRUM_CHANNEL, DRUM_KITS, KEY_NAMES, kitLabel, projectScales, scaleAt, scaleLabel, SCALE_MODES, setupMessages, trackChannels, trackSound,
+   DRUM_CHANNEL, DRUM_KITS, KEY_NAMES, kitLabel, playbackMessages, projectScales, scaleAt, scaleLabel, SCALE_MODES, trackChannels,
+   trackSound,
 } from '../domain/midi.js';
 import { confirmDialog, formDialog } from './components/dialog.js';
 import { h } from './components/dom.js';
@@ -41,12 +42,12 @@ export async function renameTrackDialog(projectId, track) {
 // ドラムのトラック(10ch)では音色が効かないので、1ch で鳴らす(鳴らす前に毎回音色を送るので、1ch のトラックの音は変わらない)
 function previewProgram(track, tracks, program) {
    const channel = trackSound(track).drum ? 0 : trackChannels(tracks).get(track.id) ?? 0;
-   synth.previewNote(setupMessages({ ...track, program, drum: false }, channel), channel, 60);
+   synth.previewNote(playbackMessages({ ...track, program, drum: false }, channel), channel, 60);
 }
 
 // ドラムキットの欄で選んだキットを、スネア(GM のドラムの 38)で鳴らして聞かせる。ドラムのトラックでなくても 10ch で鳴らす
 function previewKit(track, kit) {
-   synth.previewNote(setupMessages({ ...track, kit, drum: true }, DRUM_CHANNEL), DRUM_CHANNEL, 38);
+   synth.previewNote(playbackMessages({ ...track, kit, drum: true }, DRUM_CHANNEL), DRUM_CHANNEL, 38);
 }
 
 // ドラムキットの欄。セレクトボックスに、知っているキット(GS の並び)を出す。

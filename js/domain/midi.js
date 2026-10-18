@@ -15,6 +15,9 @@ export const DEFAULT_VELOCITY = 100;
 export const DEFAULT_VOLUME = 100;
 export const CENTER_PAN = 64;
 export const DRUM_CHANNEL = 9; // GM のドラムは 10ch(0始まりで 9)
+// リバーブを ON にしたトラックのセンド量(CC91)。spessasynth は CC91 の初期値が 0(掛からない)なので、
+// GS のリセット時の値(40)を送る。リバーブ本体の設定(種類・残響時間・リターンの量)は spessasynth の既定のまま
+export const REVERB_SEND = 40;
 
 const clampInt = (n, min, max, fallback) => {
    const v = Math.round(Number(n));
@@ -178,9 +181,12 @@ export function trackSound(track) {
    };
 }
 
-/** トラックのミュート・ソロ。項目がない(足す前の)データでも、どちらも false を返す。 */
+/**
+ * トラックの、再生だけに効く設定(ミュート・ソロ・リバーブ)。項目がない(足す前の)データでも、
+ * ミュート・ソロは false、リバーブは true を返す。
+ */
 export function trackMix(track) {
-   return { mute: Boolean(track?.mute), solo: Boolean(track?.solo) };
+   return { mute: Boolean(track?.mute), solo: Boolean(track?.solo), reverb: track?.reverb !== false };
 }
 
 /**
@@ -232,11 +238,11 @@ const splitChannel = (channel) => ({ port: Math.floor(channel / 16), ch: channel
 // 再生で送るメッセージ(ポート付き)にする
 const withPort = (track, channel) => {
    const { port, ch } = splitChannel(channel);
-   return setupMessages(track, ch).map((data) => ({ data, port }));
+   return playbackMessages(track, ch).map((data) => ({ data, port }));
 };
 
 /**
- * 再生を始めるときに、チャンネルごとに送る設定(音色・音量・パン)。
+ * チャンネルごとの設定(音色・音量・パン)。.mid の書き出しではトラックの頭に置く(再生では playbackMessages)。
  * ドラムのトラックでは、音色の代わりにキットの番号をプログラムチェンジで送る(GS の決まり。10ch のプログラムで
  * キットが切り替わる。バンクセレクトは使わない)。
  */
@@ -247,6 +253,15 @@ export function setupMessages(track, channel) {
       [0xb0 | channel, 7, volume],
       [0xb0 | channel, 10, pan],
    ];
+}
+
+/**
+ * ブラウザの音源で鳴らすときに、チャンネルごとに送る設定。setupMessages に、リバーブのセンド量(CC91)を足したもの。
+ * リバーブはこのアプリの再生だけに使うので、.mid の書き出し(setupMessages)には入れない。
+ * OFF のときも 0 を送る(同じチャンネルで前に鳴らしたトラックの量を残さない)。
+ */
+export function playbackMessages(track, channel) {
+   return [...setupMessages(track, channel), [0xb0 | channel, 91, trackMix(track).reverb ? REVERB_SEND : 0]];
 }
 
 // ---- 再生するイベント列 ----

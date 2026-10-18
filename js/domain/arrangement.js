@@ -49,8 +49,8 @@ export function updateTrackSound(track, patch) {
 }
 
 /**
- * トラックのミュート・ソロを変える。
- * @param {{ mute?: boolean, solo?: boolean }} patch
+ * トラックのミュート・ソロ・リバーブを変える。
+ * @param {{ mute?: boolean, solo?: boolean, reverb?: boolean }} patch
  */
 export function updateTrackMix(track, patch) {
    return touch(track, trackMix({ ...trackMix(track), ...patch }));

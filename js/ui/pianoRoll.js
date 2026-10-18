@@ -19,8 +19,8 @@
 
 import * as actions from '../actions.js';
 import {
-   audibleNotes, BEATS_PER_BAR, clipTicks, inScale, isBlackKey, normalizeNotes, pitchName, PPQ, projectScales, scaleLabel, scaleSpans,
-   setupMessages, TICKS_PER_BAR, trackChannels,
+   audibleNotes, BEATS_PER_BAR, clipTicks, inScale, isBlackKey, normalizeNotes, pitchName, playbackMessages, PPQ, projectScales,
+   scaleLabel, scaleSpans, TICKS_PER_BAR, trackChannels,
 } from '../domain/midi.js';
 import { sortByOrder } from '../domain/order.js';
 import { UNTITLED_CLIP } from '../domain/arrangement.js';
@@ -331,7 +331,7 @@ export function createPianoRoll({
       const t = track();
       if (!t) return;
       const channel = trackChannels(sortByOrder(data.tracks)).get(t.id);
-      previewNote(setupMessages(t, channel), channel, pitch, velocity);
+      previewNote(playbackMessages(t, channel), channel, pitch, velocity);
    }
 
    // ---- 描画 ----

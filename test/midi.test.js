@@ -6,8 +6,8 @@ import {
 } from '../js/domain/arrangement.js';
 import {
    audibleNotes, audibleTrackIds, buildMidiFile, clipTickRange, clipTicks, DRUM_CHANNEL, DRUM_KITS, filterPrograms, inScale, kitLabel, MAX_BPM,
-   midiFileName, MIN_BPM, moveScale, normalizeBpm, normalizeNotes, normalizeScale, normalizeScales, noteEvents, playbackInput, PPQ,
-   projectBpm, projectScales, removeScale, scaleAt, scaleLabel, scaleSpans, secondsToTicks, setScaleAt, setupMessages, soundLabel,
+   midiFileName, MIN_BPM, moveScale, normalizeBpm, normalizeNotes, normalizeScale, normalizeScales, noteEvents, playbackInput, playbackMessages, PPQ,
+   projectBpm, projectScales, removeScale, REVERB_SEND, scaleAt, scaleLabel, scaleSpans, secondsToTicks, setScaleAt, setupMessages, soundLabel,
    TICKS_PER_BAR, ticksToSeconds, trackChannels, trackMix, trackSound, varLen,
 } from '../js/domain/midi.js';
 import { createProject, updateProject } from '../js/domain/project.js';
@@ -47,14 +47,25 @@ test('ドラムキット: 10ch にはキットの番号をプログラムチェ�
    equal([kitLabel(16), kitLabel(1)], ['17. Power', '2. キット']);
 });
 
-test('ミュート・ソロ: 新しいトラックはどちらもなし。項目がなければなし。音の設定は変えない', () => {
+test('ミュート・ソロ・リバーブ: 新しいトラックはミュート・ソロなし、リバーブあり。項目がなくても同じ。音の設定は変えない', () => {
    const track = addTrack('p', [], 'Lead');
-   equal(trackMix(track), { mute: false, solo: false });
+   equal(trackMix(track), { mute: false, solo: false, reverb: true });
    equal(trackMix({}), trackMix(track), '項目がない(足す前の)トラック');
    const muted = updateTrackMix(updateTrackSound(track, { volume: 80 }), { mute: 1 });
    equal([muted.mute, muted.solo, muted.volume, muted.name], [true, false, 80, 'Lead']);
    equal(updateTrackMix(muted, { solo: true }).mute, true, '片方だけ変える');
    equal(track.mute, false, '元のレコードは変えない');
+   equal(trackMix(updateTrackMix(muted, { reverb: false })), { mute: true, solo: false, reverb: false }, 'リバーブだけ変える');
+});
+
+test('リバーブ: 再生ではセンド量(CC91)を送り、OFF なら 0。書き出し(.mid)には入れない', () => {
+   const track = addTrack('p', [], 'Lead');
+   const dry = updateTrackMix(track, { reverb: false });
+   equal(playbackMessages(track, 2), [...setupMessages(track, 2), [0xb2, 91, REVERB_SEND]]);
+   equal(playbackMessages(dry, 2).at(-1), [0xb2, 91, 0], 'OFF でも 0 を送る');
+   equal(setupMessages(track, 2).some((m) => m[1] === 91), false, '書き出しの設定には入れない');
+   const file = buildMidiFile({ bpm: 120, tracks: [track], clips: [] });
+   assert(!file.some((b, i) => (b & 0xf0) === 0xb0 && file[i + 1] === 91), '.mid に CC91 がない');
 });
 
 test('clearTrackMix: ミュートかソロが ON のトラックだけ、両方を外して返す', () => {
@@ -243,7 +254,7 @@ test('playbackInput: 全体はミュートしたトラックを鳴らさず、�
    equal(loop.loop, { fromTick: 8 * TICKS_PER_BAR, toTick: 10 * TICKS_PER_BAR }, 'クリップの範囲');
    equal(loop.loop, clipTickRange(b));
    equal(loop.events.map((e) => e.data[1]), [48, 48], 'ミュートしていてもループのクリップは鳴らす');
-   equal(loop.setup, setupMessages(muted, 0).map((data) => ({ data, port: 0 })), 'そのトラックの音色だけを送る');
+   equal(loop.setup, playbackMessages(muted, 0).map((data) => ({ data, port: 0 })), 'そのトラックの音色だけを送る');
    equal(playbackInput({ project, tracks: [drums], clips }, b.id), null, 'トラックが消えていたら null');
    equal(playbackInput({ project, tracks: [muted, drums], clips }, 'gone'), null, 'クリップが消えていたら null');
 });

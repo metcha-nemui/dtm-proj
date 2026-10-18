@@ -81,7 +81,7 @@ Task     { id, projectId, laneId, title, memo, status: 'todo' | 'doing' | 'done'
 Track    { id, projectId, name, order,
            program, volume, pan, drum,               // GM の音色(0〜127)、音量・パン(0〜127。パンは64が中央)、ドラムか
            kit,                                      // ドラムキット(10ch のプログラム番号。GS の並び)。ドラムでなければ使わない
-           mute, solo }                              // 再生だけに効く
+           mute, solo, reverb }                      // 再生だけに効く。reverb は項目がなければ true
 Clip     { id, projectId, trackId, name, memo, startBar, bars,   // 小節は1始まりの整数。bars は1以上
            notes: [{ pitch, start, length, velocity }] }        // 位置はクリップの先頭からの相対で、単位は tick(4分音符 = 480)
 Marker   { id, projectId, laneId, bar }              // セクションマーカー。名前と色は指しているレーンのもの

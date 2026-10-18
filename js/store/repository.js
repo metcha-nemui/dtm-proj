@@ -83,6 +83,7 @@ const UNTRACKED_VERSION = 6;
  * @property {number} kit ドラムキット(10ch のプログラム番号。0〜127。GS の並び)。drum でなければ使わない
  * @property {boolean} [mute] ミュート(再生で鳴らさない。書き出しには入れる)。項目がなければ false
  * @property {boolean} [solo] ソロ(ソロのトラックがあれば、それだけを鳴らす)。項目がなければ false
+ * @property {boolean} [reverb] リバーブを掛ける(再生だけに効く。書き出しには入れない)。項目がなければ true
  * @property {string} createdAt
  * @property {string} updatedAt
  */

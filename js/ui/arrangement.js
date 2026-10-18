@@ -983,6 +983,18 @@ export function mount(container, { id: projectId }) {
          onclick: () => openMenu(menuButton, [
             { label: '名前を変更', onSelect: () => run(renameTrackDialog(projectId, track)) },
             { label: '音色', onSelect: () => run(trackSoundDialog(projectId, track, data.tracks)) },
+            // ミュート・ソロと同じく、すぐ音に効かせて裏で保存する。見出しの表示は変わらないので、再描画しない
+            // (作り直すと、開いているメニューのボタンが消える)
+            {
+               label: 'リバーブ',
+               checked: trackMix(track).reverb,
+               onSelect: () => {
+                  const reverb = !trackMix(data.tracks.find((t) => t.id === track.id) ?? track).reverb;
+                  setLocalTrack(track.id, { reverb });
+                  saveLocal(actions.updateTrackMix(projectId, track.id, { reverb }));
+                  return reverb;
+               },
+            },
             { label: '削除', danger: true, onSelect: () => run(deleteTrackDialog(projectId, track, data)) },
          ]),
       }, icon('ellipsis-vertical'));
