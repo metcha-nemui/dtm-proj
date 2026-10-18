@@ -110,6 +110,7 @@ css/
   drawer.css              タスク詳細・クリップ詳細のドロワー、リファレンスの欄と一覧
   gantt.css               ガントチャート
   arrangement.css         アレンジ画面、ボード/アレンジの切り替えタブ
+  pianoroll.css           ピアノロール
   settings.css            設定
 js/
   main.js                 起動(ログイン状態を見て保存先を決める)、ルーター
