@@ -14,6 +14,10 @@
 //
 // オーディオトラックの音声も、同じ AudioContext で、シンセの音と同じ時刻の基準で予約して鳴らす(AudioBufferSourceNode)。
 // トラックごとに音量(GainNode)とパン(StereoPannerNode)を通す。音声は読み込んで(デコードして)覚えておき、使い回す。
+//
+// スマホ(主な入力がタッチの端末)では、合成が締め切りに間に合わずブツブツ途切れやすいので、軽く鳴らす。
+// 出力のバッファを大きくし(試し弾きの音が少し遅れるだけで、再生は先読みで予約しているのでずれない)、
+// 波形の補間を軽いもの(linear。spessasynth の既定は hermite)にする。
 
 import { DRUM_CHANNEL, secondsToTicks, ticksToSeconds } from './domain/midi.js';
 import { loadAudioFile } from './store/audioFileStore.js';
@@ -27,6 +31,8 @@ const START_DELAY = 0.08; // 音色の切り替えを先に届けるための間
 const PREVIEW = 0.25; // 試し弾きの長さ(秒)
 const AUDIO_DELAY = 0.03; // 再生中に音声を鳴らし直すときの間(秒)。読み込み済みでも、すぐの時刻には間に合わないことがある
 const RAMP = 0.01; // 再生中に音量・パンを変えるときに、なめらかに移る時間(秒)。いきなり変えるとプツッと鳴る
+const LIGHT = matchMedia('(pointer: coarse)').matches;
+const LINEAR_INTERPOLATION = 0; // spessasynth_core の InterpolationTypes.linear
 
 /** Windows で MSGS と同じ音色を持つファイル。ブラウザからは自動では読めないので、選ぶときの案内に使う。 */
 export const WINDOWS_GM_DLS = 'C:\\Windows\\System32\\drivers\\gm.dls';
@@ -43,6 +49,7 @@ export class NoSoundFontError extends Error {
 }
 
 let ctx = null;
+const createContext = () => new AudioContext({ latencyHint: LIGHT ? 'playback' : 'interactive' });
 let synth = null;
 let channelCount = 0; // synth が持つチャンネルの数
 let preparing = null;
@@ -81,11 +88,12 @@ export function prepareSynth() {
       source = stored && { name: stored.name, size: stored.size };
       if (!stored) throw new NoSoundFontError();
       const { WorkletSynthesizer } = await import(LIB_URL);
-      ctx ??= new AudioContext({ latencyHint: 'interactive' });
+      ctx ??= createContext();
       // 同じ URL を2回足しても、2回目は読み直さない(入れ替えでシンセを作り直すとき)
       await ctx.audioWorklet.addModule(PROCESSOR_URL);
       const created = new WorkletSynthesizer(ctx);
       created.connect(ctx.destination);
+      if (LIGHT) created.setSystemParameter('interpolationType', LINEAR_INTERPOLATION);
       try {
          await created.soundBankManager.addSoundBank(await stored.blob.arrayBuffer(), 'main');
          await created.isReady;
@@ -156,7 +164,7 @@ function loadAudioBuffer(fileId) {
       const promise = (async () => {
          const stored = await loadAudioFile(fileId);
          if (!stored) return null;
-         ctx ??= new AudioContext({ latencyHint: 'interactive' });
+         ctx ??= createContext();
          return ctx.decodeAudioData(await stored.blob.arrayBuffer());
       })();
       audioBuffers.set(fileId, promise);
