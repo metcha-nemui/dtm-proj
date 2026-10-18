@@ -121,7 +121,7 @@ js/
     supabase.js           文書ストアの Supabase 実装
     soundFontStore.js     音源ファイルの保存(このブラウザの IndexedDB。repository とは別)
   ui/                     画面。各ファイルの先頭のコメントに役割がある
-    components/           dom(h, icon, keepFocus)、dialog、menu、toast、sortable、knob、slowNotice、autoGrow
+    components/           dom(h, icon, keepFocus)、dialog、menu、toast、sortable、knob、pointer(ドラッグの共通部分)、slowNotice、autoGrow
 ```
 
 ## これから(未着手)

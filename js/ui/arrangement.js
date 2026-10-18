@@ -13,26 +13,24 @@ import {
    arrangementBars, canPlace, canShiftSelection, clipEnd, clipSection, markerClips, markerSpans, UNTITLED_CLIP,
 } from '../domain/arrangement.js';
 import {
-   audibleNotes, audibleTrackIds, CENTER_PAN, clipTicks, DEFAULT_VOLUME, DRUM_CHANNEL, DRUM_KITS, KEY_NAMES, kitLabel, MAX_BPM, MIN_BPM,
-   noteEvents, PPQ,
-   projectBpm, projectScales, scaleAt, scaleLabel, SCALE_MODES, setupMessages, soundLabel, TICKS_PER_BAR, trackChannels, trackMix,
-   trackSound,
+   audibleNotes, audibleTrackIds, CENTER_PAN, clipTickRange, clipTicks, DEFAULT_VOLUME, MAX_BPM, MIN_BPM, playbackInput, PPQ,
+   projectBpm, projectScales, scaleLabel, soundLabel, TICKS_PER_BAR, trackMix, trackSound,
 } from '../domain/midi.js';
 import { sortByOrder } from '../domain/order.js';
 import { sectionColors } from '../domain/project.js';
 import { repo, subscribe } from '../state.js';
-import { choiceDialog, confirmDialog, formDialog } from './components/dialog.js';
+import { choiceDialog } from './components/dialog.js';
 import { h, icon, keepFocus } from './components/dom.js';
 import { knob } from './components/knob.js';
 import { openMenu } from './components/menu.js';
 import { drawMarquee, trackPointer } from './components/pointer.js';
 import { createSortable, domIndex } from './components/sortable.js';
 import { reportError, showToast } from './components/toast.js';
+import { addTrackDialog, deleteTrackDialog, openScaleMenu, renameTrackDialog, scaleDialog, trackSoundDialog } from './arrangementDialogs.js';
 import { barRange, createClipDrawer } from './clipDrawer.js';
 import { arrangementMidi, downloadMidi } from './midiExport.js';
 import * as sound from './synth.js';
 import { createPianoRoll } from './pianoRoll.js';
-import { programPicker } from './programPicker.js';
 import { projectHead } from './projectHeader.js';
 import { projectTabs } from './projectTabs.js';
 
@@ -95,7 +93,7 @@ export function mount(container, { id: projectId }) {
       // そのクリップだけを、頭からループで鳴らす(ループ中にもう一度押すと止める)
       onPlayClip: (clip) => {
          if (isLooping(clip.id)) sound.stop();
-         else startPlayback(clipRange(clip).fromTick, clip.id).catch(reportPlayError);
+         else startPlayback(clipTickRange(clip).fromTick, clip.id).catch(reportPlayError);
       },
       isLooping: (clipId) => isLooping(clipId),
       onSeek: (tick) => seek(tick, { keepLoop: true }),
@@ -126,38 +124,13 @@ export function mount(container, { id: projectId }) {
    let loopClipId = null;
    let frame = null;
 
-   const clipRange = (clip) => ({ fromTick: (clip.startBar - 1) * TICKS_PER_BAR, toTick: clipEnd(clip) * TICKS_PER_BAR });
    const isLooping = (clipId) => sound.isPlaying() && loopClipId != null && loopClipId === clipId;
-
-   // 鳴らす中身。ループのクリップが消えていたら null
-   function playbackInput() {
-      const channels = trackChannels(data.tracks);
-      if (loopClipId) {
-         const clip = data.clips.find((c) => c.id === loopClipId);
-         const track = clip && data.tracks.find((t) => t.id === clip.trackId);
-         if (!track) return null;
-         return {
-            bpm: projectBpm(data.project),
-            setup: setupMessages(track, channels.get(track.id)),
-            events: noteEvents({ tracks: data.tracks, clips: [clip] }),
-            loop: clipRange(clip),
-         };
-      }
-      const audible = audibleTrackIds(data.tracks);
-      // ミュートしたトラックの音も、終わりの位置には数える(全部ミュートしても、曲の終わりまで再生位置を進める)
-      const all = noteEvents({ tracks: data.tracks, clips: data.clips });
-      return {
-         bpm: projectBpm(data.project),
-         setup: data.tracks.flatMap((t) => setupMessages(t, channels.get(t.id))),
-         events: noteEvents({ tracks: data.tracks, clips: data.clips.filter((c) => audible.has(c.trackId)) }),
-         endTick: all.at(-1)?.tick ?? 0,
-      };
-   }
+   const playbackData = () => playbackInput(data, loopClipId);
 
    // clipId を渡すと、そのクリップだけをループで鳴らす(fromTick はクリップの範囲に収める)
    async function startPlayback(fromTick, clipId = null) {
       loopClipId = clipId;
-      const input = playbackInput();
+      const input = playbackData();
       if (!input) {
          sound.stop();
          return;
@@ -174,7 +147,7 @@ export function mount(container, { id: projectId }) {
    // ループのクリップを動かしたり伸縮したりしたときも、範囲が変わるので、クリップの中の同じ位置から鳴らし直す。消えたら止める
    async function syncPlayback() {
       if (!sound.isPlaying() || !played) return;
-      const input = playbackInput();
+      const input = playbackData();
       if (!input) {
          sound.stop();
          return;
@@ -726,87 +699,6 @@ export function mount(container, { id: projectId }) {
 
    // ---- メニューとダイアログ ----
 
-   async function addTrackDialog() {
-      const values = await formDialog({
-         title: 'トラックを追加',
-         submitLabel: '追加',
-         fields: [{ name: 'name', label: '名前(空欄なら「トラック」)', placeholder: '例: ドラム' }],
-      });
-      if (!values) return;
-      const track = await actions.addTrack(projectId, values.name);
-      // 足したトラックを見える位置へ
-      document.querySelector(`.arr-track[data-track-id="${CSS.escape(track.id)}"]`)?.scrollIntoView({ block: 'nearest' });
-   }
-
-   async function renameTrackDialog(track) {
-      const values = await formDialog({
-         title: '名前を変更',
-         fields: [{ name: 'name', label: '名前', value: track.name, required: true }],
-      });
-      if (values) await actions.renameTrack(projectId, track.id, values.name);
-   }
-
-   // 音色のダイアログで押した音色を、1音(C4)鳴らして聞かせる。トラックの音量・パンで、トラックのチャンネルを使う。
-   // ドラムのトラック(10ch)では音色が効かないので、1ch で鳴らす(鳴らす前に毎回音色を送るので、1ch のトラックの音は変わらない)
-   function previewProgram(track, program) {
-      const channel = trackSound(track).drum ? 0 : trackChannels(data.tracks).get(track.id) ?? 0;
-      sound.previewNote(setupMessages({ ...track, program, drum: false }, channel), channel, 60);
-   }
-
-   // ドラムキットの欄で選んだキットを、スネア(GM のドラムの 38)で鳴らして聞かせる。ドラムのトラックでなくても 10ch で鳴らす
-   function previewKit(track, kit) {
-      sound.previewNote(setupMessages({ ...track, kit, drum: true }, DRUM_CHANNEL), DRUM_CHANNEL, 38);
-   }
-
-   // ドラムキットの欄。セレクトボックスに、知っているキット(GS の並び)を出す。
-   // 一覧にない番号のキット(手で書き換えたデータなど)を持っていれば、それも選べるように先頭に足す
-   function kitSelect(id, track, initial) {
-      const kits = DRUM_KITS.some((k) => k.kit === initial) ? DRUM_KITS : [{ kit: initial }, ...DRUM_KITS];
-      const select = h('select', { id, class: 'select', onchange: () => previewKit(track, Number(select.value)) },
-         kits.map(({ kit }) => h('option', { value: String(kit), selected: kit === initial }, kitLabel(kit))));
-      return select;
-   }
-
-   async function trackSoundDialog(track) {
-      const sound = trackSound(track);
-      const values = await formDialog({
-         title: `「${track.name}」の音`,
-         message: '音源(設定画面で選んだ SoundFont / DLS)の General MIDI の音色で鳴らします。',
-         wide: true,
-         fields: [
-            { name: 'program', label: '音色', type: 'custom', render: (id) => programPicker(id, sound.program, { onPreview: (program) => previewProgram(track, program) }) },
-            { name: 'drum', label: 'ドラム(10ch で鳴らす。音色は使わず、下のドラムキットで鳴らす)', type: 'checkbox', value: sound.drum },
-            { name: 'kit', label: 'ドラムキット(選ぶとスネアを鳴らす)', type: 'custom', render: (id) => kitSelect(id, track, sound.kit) },
-         ],
-      });
-      if (!values) return;
-      // 音量・パンはトラック名の下のつまみで変える(ここでは持たない)
-      await actions.updateTrackSound(projectId, track.id, {
-         program: Number(values.program),
-         drum: values.drum,
-         kit: Number(values.kit),
-      });
-   }
-
-   async function deleteTrackDialog(track) {
-      const clipIds = new Set(data.clips.filter((c) => c.trackId === track.id).map((c) => c.id));
-      // ボードに出ている連動タスクの数(範囲の外のクリップのものは、ボードに出ていないので数えない)
-      const tasks = data.tasks.filter((t) => clipIds.has(t.clipId) && t.laneId).length;
-      const parts = [clipIds.size && `クリップ${clipIds.size}件`, tasks && `ボードのタスク${tasks}件`].filter(Boolean);
-      const ok = await confirmDialog({
-         title: `「${track.name}」を削除`,
-         message: parts.length ? `このトラックの${parts.join('と、')}も一緒に削除します。` : 'このトラックを削除します。',
-         okLabel: '削除',
-         danger: true,
-      });
-      if (!ok) return;
-      const snapshot = await actions.deleteTrack(projectId, track.id);
-      showToast(`「${track.name}」を削除しました`, {
-         actionLabel: '元に戻す',
-         onAction: () => run(actions.restoreTrack(snapshot)),
-      });
-   }
-
    // まだマーカーを置いていないセクション(1つのセクションにマーカーは1つだけ)
    const unusedSections = () => sections().filter((l) => !data.markers.some((m) => m.laneId === l.id));
 
@@ -825,37 +717,6 @@ export function mount(container, { id: projectId }) {
             ))),
          },
       ]);
-   }
-
-   // スケールを選ぶダイアログ。初期値は、その小節でいま効いているスケール
-   async function scaleDialog(bar, title) {
-      const current = scaleAt(projectScales(data.project), bar);
-      const values = await formDialog({
-         title,
-         message: 'ピアノロールの行の塗り分けに使います。次の転調まで続きます。',
-         fields: [
-            {
-               name: 'root', label: 'キー', type: 'select', value: String(current.root),
-               options: KEY_NAMES.map((name, i) => ({ value: String(i), label: name })),
-            },
-            { name: 'mode', label: 'メジャー / マイナー', type: 'select', value: current.mode, options: SCALE_MODES },
-         ],
-      });
-      if (values) await actions.setScale(projectId, bar, { root: Number(values.root), mode: values.mode });
-   }
-
-   function openScaleMenu(scale, anchor) {
-      openMenu(anchor, [
-         { label: 'スケールを変更…', onSelect: () => run(scaleDialog(scale.bar, `${scale.bar}小節目のスケール`)) },
-         scale.bar > 1 && {
-            label: '転調を削除',
-            danger: true,
-            onSelect: () => run(actions.deleteScale(projectId, scale.bar).then((deleted) => showToast(
-               `${deleted.bar}小節目の転調(${scaleLabel(deleted)})を削除しました`,
-               { actionLabel: '元に戻す', onAction: () => run(actions.setScale(projectId, deleted.bar, deleted)) },
-            ))),
-         },
-      ].filter(Boolean));
    }
 
    function openSlotMenu(bar, anchor) {
@@ -1023,7 +884,7 @@ export function mount(container, { id: projectId }) {
          title: `${i + 1}小節目で転調する`,
          'aria-label': `${i + 1}小節目で転調する`,
          dataset: { focusKey: `scale-slot:${i + 1}` },
-         onclick: () => run(scaleDialog(i + 1, `${i + 1}小節目で転調`)),
+         onclick: () => run(scaleDialog(data.project, i + 1, `${i + 1}小節目で転調`)),
       }));
       const style = (from, to) => ({ '--start': String(from), '--len': String(to - from + 1), '--lane-color': 'var(--text-muted)' });
       const bands = spans.map(({ from, to }) => h('div', { class: 'arr-band', style: style(from, to) }));
@@ -1037,7 +898,7 @@ export function mount(container, { id: projectId }) {
             onpointerdown: (e) => dragScale(e, scale, flag),
             onclick: (e) => {
                if (suppressClick) return;
-               openScaleMenu(scale, e.currentTarget);
+               openScaleMenu(data.project, scale, e.currentTarget);
             },
          }, scaleLabel(scale));
          return flag;
@@ -1083,9 +944,9 @@ export function mount(container, { id: projectId }) {
          'aria-label': `${track.name}のメニュー`,
          dataset: { focusKey: `track-menu:${track.id}` },
          onclick: () => openMenu(menuButton, [
-            { label: '名前を変更', onSelect: () => run(renameTrackDialog(track)) },
-            { label: '音色', onSelect: () => run(trackSoundDialog(track)) },
-            { label: '削除', danger: true, onSelect: () => run(deleteTrackDialog(track)) },
+            { label: '名前を変更', onSelect: () => run(renameTrackDialog(projectId, track)) },
+            { label: '音色', onSelect: () => run(trackSoundDialog(projectId, track, data.tracks)) },
+            { label: '削除', danger: true, onSelect: () => run(deleteTrackDialog(projectId, track, data)) },
          ]),
       }, icon('ellipsis-vertical'));
 
@@ -1150,7 +1011,7 @@ export function mount(container, { id: projectId }) {
                      class: 'arr-head-sound',
                      title: `${soundLabel(track)}(押すと音色を変える)`,
                      dataset: { focusKey: `track-sound:${track.id}` },
-                     onclick: () => run(trackSoundDialog(track)),
+                     onclick: () => run(trackSoundDialog(projectId, track, data.tracks)),
                   }, soundLabel(track)),
                   soundKnob(track, 'volume'),
                   soundKnob(track, 'pan')))),
@@ -1288,7 +1149,7 @@ export function mount(container, { id: projectId }) {
                      type: 'button',
                      class: 'arr-add',
                      dataset: { focusKey: 'track-add' },
-                     onclick: () => run(addTrackDialog()),
+                     onclick: () => run(addTrackDialog(projectId)),
                   }, icon('plus'), 'トラックを追加'),
                   (!data.tracks.length || !data.markers.length) && h('p', { class: 'arr-hint muted' },
                      !data.markers.length && 'クリップは、セクションマーカーの範囲に置きます。先に上の「セクション」の段を押して、マーカーを置いてください。',

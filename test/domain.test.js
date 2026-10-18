@@ -6,8 +6,8 @@ import {
    placeClip, renameTrack, setClipNotes, shiftSelection, syncClipTasks, uniqueTrackName, updateClip, updateMarker, updateTrackMix, updateTrackSound,
 } from '../js/domain/arrangement.js';
 import {
-   audibleNotes, audibleTrackIds, buildMidiFile, clipTicks, DRUM_KITS, filterPrograms, inScale, kitLabel, MAX_BPM, midiFileName, MIN_BPM, moveScale, normalizeBpm,
-   normalizeNotes, normalizeScale, normalizeScales, noteEvents, PPQ, projectBpm, projectScales, removeScale, scaleAt, scaleLabel,
+   audibleNotes, audibleTrackIds, buildMidiFile, clipTickRange, clipTicks, DRUM_KITS, filterPrograms, inScale, kitLabel, MAX_BPM, midiFileName, MIN_BPM, moveScale, normalizeBpm,
+   normalizeNotes, normalizeScale, normalizeScales, noteEvents, playbackInput, PPQ, projectBpm, projectScales, removeScale, scaleAt, scaleLabel,
    scaleSpans, secondsToTicks, setScaleAt, setupMessages, soundLabel, TICKS_PER_BAR, ticksToSeconds, trackChannels, trackMix, trackSound, varLen,
 } from '../js/domain/midi.js';
 import { addDays, daysBetween, toDateString, weekendDaysBetween } from '../js/domain/date.js';
@@ -971,6 +971,25 @@ test('noteEvents: 曲の頭からの位置で並べ、同じ位置ではノー�
    ]);
    equal(noteEvents({ tracks: [synth], clips }).length, 6, 'トラックのないクリップは鳴らさない');
    equal([ticksToSeconds(TICKS_PER_BAR, 120), secondsToTicks(0.5, 120)], [2, PPQ]);
+});
+
+test('playbackInput: 全体はミュートしたトラックを鳴らさず、終わりには数える。ループはそのクリップだけを範囲で', () => {
+   const { project, synth, drums, a, b } = arrangementFixture();
+   const muted = updateTrackMix(synth, { mute: true });
+   const drumClip = setClipNotes(addClip(drums, [], { startBar: 2, bars: 1 }), [note(36, 0, 60)]);
+   const clips = [setClipNotes(a, [note(60, 0)]), setClipNotes(b, [note(48, 0)]), drumClip];
+   const all = playbackInput({ project, tracks: [muted, drums], clips });
+   equal(all.events.map((e) => e.tick), [TICKS_PER_BAR, TICKS_PER_BAR + 60], 'ミュートしたシンセは鳴らさない');
+   equal(all.endTick, 8 * TICKS_PER_BAR + PPQ, '終わりはミュートしたトラックの最後の音');
+   assert(!all.loop, '全体はループしない');
+
+   const loop = playbackInput({ project, tracks: [muted, drums], clips }, b.id);
+   equal(loop.loop, { fromTick: 8 * TICKS_PER_BAR, toTick: 10 * TICKS_PER_BAR }, 'クリップの範囲');
+   equal(loop.loop, clipTickRange(b));
+   equal(loop.events.map((e) => e.data[1]), [48, 48], 'ミュートしていてもループのクリップは鳴らす');
+   equal(loop.setup, setupMessages(muted, 0), 'そのトラックの音色だけを送る');
+   equal(playbackInput({ project, tracks: [drums], clips }, b.id), null, 'トラックが消えていたら null');
+   equal(playbackInput({ project, tracks: [muted, drums], clips }, 'gone'), null, 'クリップが消えていたら null');
 });
 
 // .mid のバイト列を、チャンクごとに読み戻す(テスト用の簡易パーサー)

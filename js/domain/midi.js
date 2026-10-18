@@ -254,6 +254,44 @@ export function noteEvents({ tracks, clips }) {
    return events.sort((a, b) => a.tick - b.tick || Number(isOff(b)) - Number(isOff(a)));
 }
 
+/** クリップの範囲を、曲の頭からの tick で。toTick はクリップの右端(含まない) */
+export const clipTickRange = (clip) => ({
+   fromTick: (clip.startBar - 1) * TICKS_PER_BAR,
+   toTick: (clip.startBar - 1 + clip.bars) * TICKS_PER_BAR,
+});
+
+/**
+ * 再生する中身(音源に渡すもの)。
+ * loopClipId を渡すと、そのクリップのノートだけを、トラックのミュート・ソロに関わらずループで鳴らす(loop にクリップの範囲)。
+ * そのクリップかトラックが消えていれば null。
+ * 渡さなければ全体で、鳴らすのはミュート・ソロで聞こえるトラックだけ。ただし endTick(再生の終わり)には、
+ * ミュートしたトラックの音も数える(全部ミュートしても、曲の終わりまで再生位置を進める)。
+ * @param {{ project: object, tracks: object[], clips: object[] }} data tracks は並び順に並べたもの
+ * @returns {{ bpm: number, setup: number[][], events: { tick: number, data: number[] }[], loop?: { fromTick: number, toTick: number }, endTick?: number } | null}
+ */
+export function playbackInput({ project, tracks, clips }, loopClipId = null) {
+   const channels = trackChannels(tracks);
+   if (loopClipId) {
+      const clip = clips.find((c) => c.id === loopClipId);
+      const track = clip && tracks.find((t) => t.id === clip.trackId);
+      if (!track) return null;
+      return {
+         bpm: projectBpm(project),
+         setup: setupMessages(track, channels.get(track.id)),
+         events: noteEvents({ tracks, clips: [clip] }),
+         loop: clipTickRange(clip),
+      };
+   }
+   const audible = audibleTrackIds(tracks);
+   const all = noteEvents({ tracks, clips });
+   return {
+      bpm: projectBpm(project),
+      setup: tracks.flatMap((t) => setupMessages(t, channels.get(t.id))),
+      events: noteEvents({ tracks, clips: clips.filter((c) => audible.has(c.trackId)) }),
+      endTick: all.at(-1)?.tick ?? 0,
+   };
+}
+
 /** tick を秒にする。 */
 export const ticksToSeconds = (ticks, bpm) => (ticks * 60) / (normalizeBpm(bpm) * PPQ);
 
