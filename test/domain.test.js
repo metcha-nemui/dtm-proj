@@ -2,7 +2,7 @@
 // Node でも動く: node -e "import('./test/domain.test.js').then(m => m.report()).then(ok => process.exit(ok ? 0 : 1))"
 
 import {
-   addClip, addMarker, addTrack, arrangementBars, canPlace, canShiftSelection, clipEnd, clipSection, duplicateClip, markerClips, markerSpans, moveTrack,
+   addClip, addMarker, addTrack, arrangementBars, canPlace, canShiftSelection, clearTrackMix, clipEnd, clipSection, duplicateClip, markerClips, markerSpans, moveTrack,
    placeClip, renameTrack, setClipNotes, shiftSelection, syncClipTasks, uniqueTrackName, updateClip, updateMarker, updateTrackMix, updateTrackSound,
 } from '../js/domain/arrangement.js';
 import {
@@ -809,6 +809,16 @@ test('ミュート・ソロ: 新しいトラックはどちらもなし。項目
    equal([muted.mute, muted.solo, muted.volume, muted.name], [true, false, 80, 'Lead']);
    equal(updateTrackMix(muted, { solo: true }).mute, true, '片方だけ変える');
    equal(track.mute, false, '元のレコードは変えない');
+});
+
+test('clearTrackMix: ミュートかソロが ON のトラックだけ、両方を外して返す', () => {
+   const plain = addTrack('p', [], 'A');
+   const muted = updateTrackMix(addTrack('p', [], 'B'), { mute: true });
+   const soloed = updateTrackMix(addTrack('p', [], 'C'), { solo: true, mute: true });
+   const cleared = clearTrackMix([plain, muted, soloed]);
+   equal(cleared.map((t) => [t.name, t.mute, t.solo]), [['B', false, false], ['C', false, false]]);
+   equal(clearTrackMix([plain]), [], '何も ON でなければ空');
+   equal(muted.mute, true, '元のレコードは変えない');
 });
 
 test('audibleTrackIds: ソロがあればソロだけ、なければミュートしていないもの。alwaysId は必ず鳴らす', () => {

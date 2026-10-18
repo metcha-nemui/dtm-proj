@@ -126,6 +126,39 @@ button.project-tab {
    z-index: 5;
 }
 
+/* ルーラーの左の角。全トラックのミュート・ソロを外すボタンを置く */
+.arr-ruler-corner {
+   display: flex;
+   align-items: center;
+   justify-content: flex-end;
+   padding: 0 var(--space-1);
+}
+
+.arr-clear-mix {
+   display: inline-flex;
+   align-items: center;
+   gap: 2px;
+   padding: 0 var(--space-1);
+   border: 0;
+   border-radius: var(--radius-sm);
+   background: transparent;
+   color: var(--text-muted);
+   font: inherit;
+   font-size: 11px;
+   white-space: nowrap;
+   cursor: pointer;
+}
+
+.arr-clear-mix:hover:not(:disabled) {
+   background: var(--surface-2);
+   color: var(--text);
+}
+
+.arr-clear-mix:disabled {
+   opacity: 0.4;
+   cursor: default;
+}
+
 .arr-corner-label {
    display: flex;
    align-items: center;

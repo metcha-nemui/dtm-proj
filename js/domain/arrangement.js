@@ -56,6 +56,14 @@ export function updateTrackMix(track, patch) {
    return touch(track, trackMix({ ...trackMix(track), ...patch }));
 }
 
+/**
+ * 全トラックのミュート・ソロを外す。
+ * @returns {object[]} 変えたトラック(ミュートかソロが ON だったものだけ)
+ */
+export function clearTrackMix(tracks) {
+   return tracks.filter((t) => t.mute || t.solo).map((t) => updateTrackMix(t, { mute: false, solo: false }));
+}
+
 export function renameTrack(track, name) {
    const trimmed = String(name ?? '').trim();
    if (!trimmed) throw new Error('名前を入力してください');

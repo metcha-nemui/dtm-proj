@@ -255,6 +255,12 @@ export const updateTrackMix = serial(async (projectId, trackId, patch) => {
    await changed(projectId);
 });
 
+/** 全トラックのミュート・ソロを外す。 */
+export const clearTrackMix = serial(async (projectId) => {
+   await repo().saveTracks(arrangementDomain.clearTrackMix(await repo().getTracks(projectId)));
+   await changed(projectId);
+});
+
 export const moveTrack = serial(async (projectId, trackId, toIndex) => {
    await repo().saveTracks(arrangementDomain.moveTrack(await repo().getTracks(projectId), trackId, toIndex));
    await changed(projectId);

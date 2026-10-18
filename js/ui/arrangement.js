@@ -940,7 +940,25 @@ export function mount(container, { id: projectId }) {
          'aria-hidden': 'true',
       }, String(i + 1))),
       h('span', { class: 'arr-cursor', style: { '--start': String(1 + startTick / TICKS_PER_BAR) }, 'aria-hidden': 'true' }));
-      return h('div', { class: 'arr-row arr-ruler-row' }, h('div', { class: 'arr-corner' }), ruler);
+      return h('div', { class: 'arr-row arr-ruler-row' }, h('div', { class: 'arr-corner arr-ruler-corner' }, clearMixButton()), ruler);
+   }
+
+   // 全トラックのミュート・ソロを外すボタン。トラック名の列の上(ルーラーの左の角)に置く。
+   // ミュート・ソロのボタンと同じく、押すとすぐに音と表示を変え、裏で保存する
+   function clearMixButton() {
+      const mixed = data.tracks.filter((t) => t.mute || t.solo);
+      return h('button', {
+         type: 'button',
+         class: 'arr-clear-mix',
+         title: '全トラックのミュート・ソロを解除',
+         disabled: !mixed.length,
+         dataset: { focusKey: 'clear-mix' },
+         onclick: () => {
+            for (const t of mixed) setLocalTrack(t.id, { mute: false, solo: false });
+            render();
+            saveLocal(actions.clearTrackMix(projectId));
+         },
+      }, icon('volume-2', 12), 'ミュート・ソロ解除');
    }
 
    // クリップの中に、ノートの並びを小さく出す(高さは、クリップの中のいちばん低い音〜高い音に合わせる)
