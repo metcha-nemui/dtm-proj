@@ -34,7 +34,6 @@ import { clipMidi, downloadMidi } from './midiExport.js';
 import { importMidiToClip } from './midiImport.js';
 import { previewNote } from '../synth.js';
 
-const ROW = 12; // 1音の高さ(px)
 const BEAT = 64; // 1拍の幅(px)
 const PX = BEAT / PPQ; // 1 tick の幅(px)
 const EDGE = 6; // ノートの右端の、掴むと長さを変えられる幅(px)
@@ -66,7 +65,7 @@ const SNAP_KEY = 'dtm-proj:piano-roll-snap';
 // gantt.js と同じく、このブラウザの localStorage に覚えておく
 const HEIGHT_KEY = 'dtm-proj:piano-roll-height';
 const MIN_HEIGHT = 140; // 見出し・ルーラー・数行・ベロシティの段が見える高さ
-const KEY_STEP = ROW * 4; // 矢印キーで動かす量
+const KEY_STEP = 48; // 矢印キーで動かす量
 
 function loadHeight() {
    try {
@@ -78,6 +77,23 @@ function loadHeight() {
 }
 
 let savedHeight = loadHeight();
+
+// 1音の高さ(px)。見出しのボタンで段階的に変える。指で押すスマホ(pointer: coarse)は、既定を広めにする。
+// パネルの高さと同じく、このブラウザの localStorage に覚えておく
+const ROW_KEY = 'dtm-proj:piano-roll-row';
+const ROWS = [8, 10, 12, 14, 16, 20, 24, 28, 32];
+
+function loadRow() {
+   try {
+      const saved = Number(localStorage.getItem(ROW_KEY));
+      if (ROWS.includes(saved)) return saved;
+   } catch {
+      // 覚えていなければ既定
+   }
+   return matchMedia('(pointer: coarse)').matches ? 20 : 12;
+}
+
+let row = loadRow();
 
 function loadSnap() {
    try {
@@ -172,6 +188,13 @@ export function createPianoRoll({
    const editButton = (name, label, onclick) => h('button', {
       type: 'button', class: 'btn btn-icon', title: label, 'aria-label': label, onclick,
    }, icon(name));
+   // ノートの高さ(縦のズーム)。広げると押しやすく、狭めると多くの音域が見える
+   const rowButton = (name, label, dir) => h('button', {
+      type: 'button', class: 'btn btn-icon', title: label, 'aria-label': label, onclick: () => zoomRow(dir),
+   }, icon(name));
+   const rowTools = h('span', { class: 'pr-row-tools' },
+      rowButton('fold-vertical', 'ノートの高さを狭める', -1),
+      rowButton('unfold-vertical', 'ノートの高さを広げる', 1));
    const editTools = h('span', { class: 'pr-edit-tools', hidden: true },
       editButton('arrow-left', '選んだノートをグリッド1つ分左へ', () => nudge(-snap, 0)),
       editButton('arrow-right', '選んだノートをグリッド1つ分右へ', () => nudge(snap, 0)),
@@ -232,6 +255,7 @@ export function createPianoRoll({
          range,
          h('label', { class: 'pr-snap-label muted' }, 'グリッド', snapSelect),
          scaleText,
+         rowTools,
          h('span', { class: 'pr-onion-tools' }, onionToggle, onionTracks),
          h('span', { class: 'pr-spacer' }),
          editTools,
@@ -360,7 +384,7 @@ export function createPianoRoll({
       inner.style.setProperty('--pr-width', `${clipTicks(c) * PX}px`);
       inner.style.setProperty('--pr-bar', `${TICKS_PER_BAR * PX}px`);
       inner.style.setProperty('--pr-beat', `${BEAT}px`);
-      inner.style.setProperty('--pr-row', `${ROW}px`);
+      inner.style.setProperty('--pr-row', `${row}px`);
       renderScale();
       ruler.replaceChildren(...Array.from({ length: c.bars * BEATS_PER_BAR }, (_, i) => h('span', {
          class: `pr-beat${i % BEATS_PER_BAR === 0 ? ' is-bar' : ''}`,
@@ -401,6 +425,31 @@ export function createPianoRoll({
    }
 
    // いちばん細い縦線は、グリッドの細かさに合わせる(「なし」なら 1/16)
+   // ノートの高さを1段階変える。見ている音域の真ん中を保つ
+   function zoomRow(dir) {
+      const next = ROWS[ROWS.indexOf(row) + dir];
+      if (!next) return;
+      const center = (scroller.scrollTop + scroller.clientHeight / 2) / row;
+      row = next;
+      try {
+         localStorage.setItem(ROW_KEY, String(row));
+      } catch {
+         // 覚えられなくても、この画面の間は効く
+      }
+      inner.style.setProperty('--pr-row', `${row}px`);
+      renderNotes();
+      renderOnion();
+      scroller.scrollTop = center * row - scroller.clientHeight / 2;
+      updateRowTools();
+   }
+
+   function updateRowTools() {
+      const [narrow, wide] = rowTools.children;
+      narrow.disabled = row === ROWS[0];
+      wide.disabled = row === ROWS[ROWS.length - 1];
+   }
+   updateRowTools();
+
    function renderGridLines() {
       inner.style.setProperty('--pr-snap', `${(snap > 1 ? snap : PPQ / 4) * PX}px`);
    }
@@ -418,7 +467,7 @@ export function createPianoRoll({
          class: `pr-note${selected.has(n) ? ' is-selected' : ''}${outside(n) ? ' is-outside' : ''}${dup(n) ? ' is-dup' : ''}`,
          style: {
             left: `${n.start * PX}px`,
-            top: `${(127 - n.pitch) * ROW}px`,
+            top: `${(127 - n.pitch) * row}px`,
             width: `${Math.max(3, n.length * PX)}px`,
             '--vel': String(velocityOf(n) / 127),
          },
@@ -476,7 +525,7 @@ export function createPianoRoll({
          class: 'pr-onion-note',
          style: {
             left: `${Math.max(0, n.start) * PX}px`,
-            top: `${(127 - n.pitch) * ROW}px`,
+            top: `${(127 - n.pitch) * row}px`,
             width: `${Math.max(3, (Math.min(end, n.start + n.length) - Math.max(0, n.start)) * PX)}px`,
          },
       })));
@@ -501,7 +550,7 @@ export function createPianoRoll({
       const rect = grid.getBoundingClientRect();
       return {
          tick: (e.clientX - rect.left) / PX,
-         pitch: Math.max(0, Math.min(127, 127 - Math.floor((e.clientY - rect.top) / ROW))),
+         pitch: Math.max(0, Math.min(127, 127 - Math.floor((e.clientY - rect.top) / row))),
          x: e.clientX - rect.left,
          y: e.clientY - rect.top,
       };
@@ -847,8 +896,8 @@ export function createPianoRoll({
          // 行の上端・下端の位置で比べる(描いているノートの見た目の範囲と揃える)
          const hit = (n) => {
             const x = n.start * PX;
-            const y = (127 - n.pitch) * ROW;
-            return x < right && x + Math.max(3, n.length * PX) > left && y < bottom && y + ROW > top;
+            const y = (127 - n.pitch) * row;
+            return x < right && x + Math.max(3, n.length * PX) > left && y < bottom && y + row > top;
          };
          selected = new Set([...base, ...notes.filter(hit)]);
          renderNotes();
@@ -971,7 +1020,7 @@ export function createPianoRoll({
          // ノートがあればその高さ、なければ C4 のあたりを真ん中に出す
          const pitches = notes.map((n) => n.pitch);
          const center = pitches.length ? (Math.min(...pitches) + Math.max(...pitches)) / 2 : 60;
-         scroller.scrollTop = (127 - center) * ROW - scroller.clientHeight / 2;
+         scroller.scrollTop = (127 - center) * row - scroller.clientHeight / 2;
          scroller.scrollLeft = 0;
       }
       scroller.focus({ preventScroll: true });
