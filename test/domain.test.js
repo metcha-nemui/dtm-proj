@@ -3,7 +3,7 @@
 
 import {
    addClip, addMarker, addTrack, arrangementBars, canPlace, canShiftSelection, clipEnd, clipSection, duplicateClip, markerClips, markerSpans, moveTrack,
-   placeClip, renameTrack, setClipNotes, shiftSelection, syncClipTasks, updateClip, updateMarker, updateTrackMix, updateTrackSound,
+   placeClip, renameTrack, setClipNotes, shiftSelection, syncClipTasks, uniqueTrackName, updateClip, updateMarker, updateTrackMix, updateTrackSound,
 } from '../js/domain/arrangement.js';
 import {
    audibleNotes, audibleTrackIds, buildMidiFile, clipTicks, DRUM_KITS, filterPrograms, inScale, kitLabel, MAX_BPM, midiFileName, MIN_BPM, moveScale, normalizeBpm,
@@ -16,7 +16,7 @@ import { ganttRange, ganttRows } from '../js/domain/gantt.js';
 import { orderAtEnd, orderBetween, placeAt, reorder, sortByOrder } from '../js/domain/order.js';
 import {
    addSection, assertSection, createProject, daysUntilDue, duplicateLane, moveLane,
-   normalizeDueDate, renameLane, SECTION_COLORS, sectionColors, uniqueLaneName, updateProject,
+   normalizeDueDate, renameLane, SECTION_COLORS, sectionColors, updateProject,
 } from '../js/domain/project.js';
 import {
    canonicalizeReference, cleanReferences, collectReferences, listReferences, normalizeReference, suggestReferences,
@@ -147,10 +147,10 @@ test('reorder: 自身を除いた位置で動かす', () => {
 
 // ---- project ----
 
-test('uniqueLaneName: 重複したら番号を振る', () => {
-   equal(uniqueLaneName('Aメロ', []), 'Aメロ');
-   equal(uniqueLaneName('Aメロ', ['Aメロ']), 'Aメロ2');
-   equal(uniqueLaneName('Aメロ', ['Aメロ', 'Aメロ2']), 'Aメロ3');
+test('uniqueTrackName: 重複したら番号を振る', () => {
+   equal(uniqueTrackName('ドラム', []), 'ドラム');
+   equal(uniqueTrackName('ドラム', ['ドラム']), 'ドラム2');
+   equal(uniqueTrackName('ドラム', ['ドラム', 'ドラム2']), 'ドラム3');
 });
 
 test('createProject: 「全体」レーンだけで作る', () => {
@@ -204,7 +204,7 @@ test('addSection: 空のセクションを、指定位置か末尾に足す', ()
    const last = addSection(base);
    equal(last.lane.name, 'セクション', '名前を省略したとき');
    equal(sectionNames([...lanes, last.lane]).at(-1), 'セクション');
-   equal(addSection({ ...base, name: 'サビ' }).lane.name, 'サビ4', '名前が重なったら番号を振る');
+   equal(addSection({ ...base, name: 'サビ' }).lane.name, 'サビ', '名前が重なっても番号は振らない');
 });
 
 test('duplicateLane: タスクごと複製し、ステータスは未着手に戻す', () => {
@@ -214,12 +214,12 @@ test('duplicateLane: タスクごと複製し、ステータスは未着手に�
       ? { ...setStatus(t, i % 2 ? 'done' : 'doing'), memo: 'メモ' }
       : t));
    const dup = duplicateLane(source.id, lanes, worked);
-   equal(dup.lane.name, 'サビ4');
+   equal(dup.lane.name, 'サビ', '名前は元と同じ');
    equal(dup.tasks.length, 6);
    assert(dup.tasks.every((t) => t.status === 'todo' && t.doneAt === null && t.memo === 'メモ'));
    assert(dup.tasks.every((t) => t.laneId === dup.lane.id && !worked.some((w) => w.id === t.id)));
    equal(titles(dup.tasks), titles(worked.filter((t) => t.laneId === source.id)));
-   equal(sectionNames(apply([...lanes, dup.lane], dup.lanes)).slice(3, 5), ['サビ', 'サビ4'], '元のレーンの直後');
+   equal(ids(apply([...lanes, dup.lane], dup.lanes).filter((l) => l.type === 'section')).slice(3, 5), [source.id, dup.lane.id], '元のレーンの直後');
 });
 
 test('moveLane: 同じ種類の中だけで並べ替える', () => {

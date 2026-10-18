@@ -7,15 +7,6 @@ import { ORDER_STEP, placeAt, reorder, sortByOrder } from './order.js';
 import { newRecord, touch } from './record.js';
 import { copyTask } from './task.js';
 
-/** 既存の名前と重ならない名前を返す。「Aメロ」が既にあれば「Aメロ2」「Aメロ3」…。 */
-export function uniqueLaneName(base, existingNames) {
-   const used = new Set(existingNames);
-   if (!used.has(base)) return base;
-   let n = 2;
-   while (used.has(`${base}${n}`)) n++;
-   return `${base}${n}`;
-}
-
 /** 締切(YYYY-MM-DD)を正規化する。空や、存在しない日付は null(締切なし)。 */
 export const normalizeDueDate = normalizeDate;
 
@@ -56,7 +47,7 @@ export const SECTION_COLORS = [
 ];
 
 /**
- * セクションの色を、並び順にパレットの先頭から1色ずつ割り振る。名前は見ない(「サビ」と「サビ2」も別の色)。
+ * セクションの色を、並び順にパレットの先頭から1色ずつ割り振る。名前は見ない(同じ名前のセクションも別の色)。
  * パレットを使い切ったら先頭に戻る。
  * 色は保存せず、表示のたびに決める。だから並べ替えると、位置に合わせて色も入れ替わる。
  * @param {object[]} lanes プロジェクトの全レーン
@@ -65,11 +56,6 @@ export const SECTION_COLORS = [
 export function sectionColors(lanes) {
    const sections = sortByOrder(lanes.filter((l) => l.type === 'section'));
    return new Map(sections.map((l, i) => [l.id, SECTION_COLORS[i % SECTION_COLORS.length]]));
-}
-
-/** レーン名から、重複を避けるために付けた末尾の番号を除く(「サビ2」→「サビ」)。 */
-export function laneBaseName(name) {
-   return name.replace(/\d+$/, '') || name;
 }
 
 export const GLOBAL_LANE_NAME = '全体';
@@ -121,19 +107,19 @@ export function updateProject(project, patch) {
  * @param {string} input.projectId
  * @param {object[]} input.lanes プロジェクトの全レーン
  * @param {number} [input.index] セクションの並びでの挿入位置。省略すると末尾
- * @param {string} [input.name] 省略すると「セクション」
+ * @param {string} [input.name] 省略すると「セクション」。ほかのセクションと同じ名前でもよい(レーンは id で見分ける)
  * @returns {{ lane: object, lanes: object[] }} lanes は保存が必要なレーン(新レーンを含む)
  */
 export function addSection({ projectId, lanes, index, name }) {
    const sections = lanes.filter((l) => l.type === 'section');
-   const draft = newLane(projectId, { name: uniqueLaneName(name?.trim() || 'セクション', lanes.map((l) => l.name)) });
+   const draft = newLane(projectId, { name: name?.trim() || 'セクション' });
    const changed = placeAt(sections, draft, index);
    const lane = changed.find((l) => l.id === draft.id);
    return { lane, lanes: changed.map((l) => (l.id === lane.id ? l : touch(l))) };
 }
 
 /**
- * レーンをタスクごと複製し、元のレーンの直後に置く。ステータスは未着手に戻し、メモとリファレンスは引き継ぐ。
+ * レーンをタスクごと複製し、元のレーンの直後に置く。名前は元と同じ。ステータスは未着手に戻し、メモとリファレンスは引き継ぐ。
  * @returns {{ lane: object, lanes: object[], tasks: object[] }}
  */
 export function duplicateLane(laneId, lanes, tasks) {
@@ -143,7 +129,7 @@ export function duplicateLane(laneId, lanes, tasks) {
    const group = sortByOrder(lanes.filter((l) => l.type === source.type));
    const draft = newLane(source.projectId, {
       type: source.type,
-      name: uniqueLaneName(laneBaseName(source.name), lanes.map((l) => l.name)),
+      name: source.name,
    });
    const changed = placeAt(group, draft, group.findIndex((l) => l.id === laneId) + 1);
    const lane = changed.find((l) => l.id === draft.id);

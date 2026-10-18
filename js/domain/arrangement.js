@@ -3,7 +3,7 @@
 // 小節は1始まりの整数。クリップは startBar から bars 小節ぶん(startBar + bars - 1 小節目まで)を占める。
 
 import { normalizeNotes, TICKS_PER_BAR, trackMix, trackSound } from './midi.js';
-import { assertSection, uniqueLaneName } from './project.js';
+import { assertSection } from './project.js';
 import { orderAtEnd, reorder, sortByOrder } from './order.js';
 import { newRecord, touch } from './record.js';
 import { addClipTask } from './task.js';
@@ -19,12 +19,21 @@ export const clipEnd = (clip) => clip.startBar + clip.bars - 1;
 
 // ---- トラック ----
 
+/** 既存の名前と重ならない名前を返す。「ドラム」が既にあれば「ドラム2」「ドラム3」…。 */
+export function uniqueTrackName(base, existingNames) {
+   const used = new Set(existingNames);
+   if (!used.has(base)) return base;
+   let n = 2;
+   while (used.has(`${base}${n}`)) n++;
+   return `${base}${n}`;
+}
+
 /** トラックを末尾に追加する。名前が空なら「トラック」。重なったら番号を振る。音色はピアノ。 */
 export function addTrack(projectId, tracks, name = '') {
    const base = String(name ?? '').trim() || DEFAULT_TRACK_NAME;
    return newRecord({
       projectId,
-      name: uniqueLaneName(base, tracks.map((t) => t.name)),
+      name: uniqueTrackName(base, tracks.map((t) => t.name)),
       order: orderAtEnd(tracks),
       ...trackSound(null),
       ...trackMix(null),
