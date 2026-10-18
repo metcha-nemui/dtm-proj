@@ -97,6 +97,8 @@ async function evaluate(cdp, expression) {
       expression: `(async () => (${expression}))()`,
       awaitPromise: true,
       returnByValue: true,
+      // ユーザーの操作の中として扱う(全画面のように、操作の中でしか許されない API を式から確かめるため)
+      userGesture: true,
    });
    if (exceptionDetails) throw new Error(exceptionDetails.exception?.description ?? exceptionDetails.text);
    return result.value;

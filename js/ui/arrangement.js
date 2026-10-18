@@ -40,6 +40,7 @@ import { removeAudioFiles } from '../store/audioFileStore.js';
 import { addAudioTrackFromFile, chooseTrackAudio, loadPeaks, presentAudioIds } from './audioImport.js';
 import * as sound from '../synth.js';
 import { createIdleTimer } from './idleTimer.js';
+import { canFullscreen, enterFullscreen, exitFullscreen, isFullscreen } from './fullscreen.js';
 import { createPianoRoll } from './pianoRoll.js';
 import { projectHead } from './projectHeader.js';
 import { projectTabs } from './projectTabs.js';
@@ -861,7 +862,16 @@ export function mount(container, { id: projectId }) {
                { label: '.mid で書き出す', onSelect: () => downloadMidi(arrangementMidi(project, data.tracks, data.clips)) },
                { label: '.wav で書き出す', onSelect: () => { exportAudio(); } },
             ]),
-         }, icon('download')));
+         }, icon('download')),
+         // スマホで、通知バーを隠して高さを確保する。タブから開いたときは自動で入るが、再読み込みや戻るジェスチャーで外れたときに使う
+         canFullscreen() && h('button', {
+            type: 'button',
+            class: 'btn btn-icon',
+            title: isFullscreen() ? '全画面を終了' : '全画面にする',
+            'aria-label': isFullscreen() ? '全画面を終了' : '全画面にする',
+            dataset: { focusKey: 'fullscreen' },
+            onclick: () => (isFullscreen() ? exitFullscreen() : enterFullscreen()),
+         }, icon(isFullscreen() ? 'minimize' : 'maximize')));
    }
 
    // アレンジ全体を、音源で鳴らした音(WAV)で書き出す。書き出している間は、もう一度押しても始めない
@@ -1455,6 +1465,9 @@ export function mount(container, { id: projectId }) {
       await syncPlayback();
    }
 
+   // 全画面の出入り(戻るジェスチャーで外れたときも)で、ボタンの表示を変える
+   const onFullscreenChange = () => render();
+   document.addEventListener('fullscreenchange', onFullscreenChange);
    const unsubscribe = subscribe(() => run(refresh()));
    run(refresh());
    return () => {
@@ -1467,6 +1480,9 @@ export function mount(container, { id: projectId }) {
       document.removeEventListener('keydown', onKeydown);
       document.removeEventListener('keyup', onKeyup);
       wide.removeEventListener('change', onWideChange);
+      document.removeEventListener('fullscreenchange', onFullscreenChange);
+      // 全画面はアレンジのためのものなので、ほかの画面へ移ったら戻す
+      exitFullscreen();
       drawer.destroy();
       pianoRoll.close();
       sortable?.destroy();

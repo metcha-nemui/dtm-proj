@@ -477,6 +477,18 @@ textarea {
    }
 }
 
+/* スマホ(タッチで、縦か横が狭い画面)では、グローバルヘッダーをプロジェクト一覧でだけ出す(縦の場所を空けるため)。
+   ほかの画面には一覧へ戻るボタンがある。条件は js/ui/fullscreen.js と揃える */
+@media (pointer: coarse) and (max-width: 720px), (pointer: coarse) and (max-height: 500px) {
+   body:not(.is-home) {
+      --header-h: 0px;
+   }
+
+   body:not(.is-home) .app-header {
+      display: none;
+   }
+}
+
 /* ---- アイコン(Lucide) ---- */
 
 .icon {

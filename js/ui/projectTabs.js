@@ -1,6 +1,7 @@
 // プロジェクトの中の画面を切り替えるタブ(ボード / アレンジ)。
 
 import { h, icon } from './components/dom.js';
+import { enterFullscreenOnPhone } from './fullscreen.js';
 
 const TABS = [
    { key: 'board', label: 'ボード', icon: 'columns-3', href: (id) => `#/p/${encodeURIComponent(id)}` },
@@ -16,5 +17,7 @@ export function projectTabs(projectId, active) {
       class: `project-tab${tab.key === active ? ' is-active' : ''}`,
       href: tab.href(projectId),
       'aria-current': tab.key === active ? 'page' : null,
+      // スマホでは、アレンジを全画面で開く(高さが足りないため。全画面にできるのはタップの中だけ)
+      onclick: tab.key === 'arrange' ? () => enterFullscreenOnPhone() : null,
    }, icon(tab.icon, 14), tab.label)));
 }

@@ -67,6 +67,8 @@ function render() {
    for (const link of document.querySelectorAll('[data-nav]')) {
       link.classList.toggle('is-active', link.dataset.nav === route.name);
    }
+   // スマホでは、グローバルヘッダーをプロジェクト一覧でだけ出す(base.css)。ほかの画面には一覧へ戻るボタンがある
+   document.body.classList.toggle('is-home', route.view === projectList);
    if (route.view === board || route.view === arrangement) currentProjectHash = location.hash;
    else if (route.view === projectList) currentProjectHash = null;
    projectsLink.href = currentProjectHash ?? '#/';
