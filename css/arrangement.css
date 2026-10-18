@@ -832,15 +832,8 @@ button.project-tab {
 
 /* リバーブは ON のトラックがほとんどなので、目立ちすぎないよう薄く塗る */
 .arr-head .arr-mix-toggle.is-on.is-reverb {
-   background: color-mix(in srgb, var(--done) 22%, var(--surface));
+   background: var(--done-soft);
    color: var(--done);
-}
-
-/* リバーブはアイコンの代わりに「R」の文字 */
-.arr-mix-toggle.is-reverb {
-   font-size: 13px;
-   font-weight: 700;
-   line-height: 1;
 }
 
 .arr-head .arr-mix-toggle.is-on:hover {
