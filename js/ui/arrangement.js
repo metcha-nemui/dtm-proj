@@ -286,9 +286,11 @@ export function mount(container, { id: projectId }) {
    // 選ばれていなければ、再生を押したときに知らせる
    sound.prepareSynth().catch(() => {});
 
-   // スペースキーで再生・停止(入力欄やボタン、クリップの上では、そちらの操作を優先する)。
-   // ただしミュート・ソロのボタンは、押したあとにフォーカスが残っていても再生・停止にする(DAW と同じく、
-   // 切り替えてすぐスペースで聞き直すため。ボタンの切り替えは Enter でできる)
+   // スペースキーは、どこにフォーカスがあっても再生・停止にする(DAW と同じく、ボタンやクリップを触ったあとも
+   // すぐスペースで聞き直せるように。ボタンやクリップは Enter で押せる)。
+   // ただし文字を打つ欄(クリップ名・詳細・リファレンスなど)では空白を打つので譲り、ダイアログを開いている間もそちらに任せる
+   const isTextEntry = (el) => Boolean(el.closest?.('textarea, [contenteditable]:not([contenteditable="false"])'))
+      || (el.tagName === 'INPUT' && ['text', 'search', 'url', 'email', 'password', 'tel'].includes(el.type));
    const onKeydown = (e) => {
       if (e.key === 'Escape' && placing && !document.querySelector('dialog[open], .menu')) {
          e.preventDefault();
@@ -296,13 +298,18 @@ export function mount(container, { id: projectId }) {
          return;
       }
       if (onPickKeydown(e)) return;
-      if (e.code !== 'Space' || e.repeat || e.defaultPrevented) return;
-      if (!e.target.closest?.('.arr-mix-toggle')
-         && e.target.closest?.('input, textarea, select, button, [contenteditable], .clip')) return;
+      if (e.code !== 'Space' || e.defaultPrevented || isTextEntry(e.target)) return;
       if (document.querySelector('dialog[open]') || !data?.project) return;
+      // 押しっぱなしのくり返しは無視するが、ボタンなどの既定の動き(押す・開く)は、くり返しの分も止める
       e.preventDefault();
-      togglePlayback();
+      if (!e.repeat) togglePlayback();
    };
+   // ボタンはスペースを離したときに押される。押した分を再生・停止にしたので、ボタンとしては押させない
+   const onKeyup = (e) => {
+      if (e.code !== 'Space' || isTextEntry(e.target) || document.querySelector('dialog[open]')) return;
+      e.preventDefault();
+   };
+   document.addEventListener('keyup', onKeyup);
    document.addEventListener('keydown', onKeydown);
 
    // 複数選択のキー操作。Ctrl+A で全部を選び、←→ で選んだものを1小節ずつ動かし、Esc で選択を外す。
@@ -1035,8 +1042,9 @@ export function mount(container, { id: projectId }) {
          role: 'button',
          title: `${clip.name || UNTITLED_CLIP} ${barRange(clip)}${outside ? '(セクションの外。ボードには出ません)' : ''}${clip.memo ? `\n${clip.memo}` : ''}`,
          'aria-label': `${clip.name || UNTITLED_CLIP} ${barRange(clip)}${outside ? '(セクションの外)' : ''}`,
+         // スペースは再生・停止に使うので、開くのは Enter だけ
          onkeydown: (e) => {
-            if (e.key !== 'Enter' && e.key !== ' ') return;
+            if (e.key !== 'Enter') return;
             e.preventDefault();
             openClip(clip.id);
          },
@@ -1302,6 +1310,7 @@ export function mount(container, { id: projectId }) {
       sound.stop();
       cancelAnimationFrame(frame);
       document.removeEventListener('keydown', onKeydown);
+      document.removeEventListener('keyup', onKeyup);
       wide.removeEventListener('change', onWideChange);
       drawer.destroy();
       pianoRoll.close();
