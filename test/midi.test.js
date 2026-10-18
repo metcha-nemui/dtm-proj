@@ -5,7 +5,7 @@ import {
    shiftSelection, updateTrackMix, updateTrackSound,
 } from '../js/domain/arrangement.js';
 import {
-   audibleNotes, audibleTrackIds, buildMidiFile, clipTickRange, clipTicks, DRUM_KITS, filterPrograms, inScale, kitLabel, MAX_BPM,
+   audibleNotes, audibleTrackIds, buildMidiFile, clipTickRange, clipTicks, DRUM_CHANNEL, DRUM_KITS, filterPrograms, inScale, kitLabel, MAX_BPM,
    midiFileName, MIN_BPM, moveScale, normalizeBpm, normalizeNotes, normalizeScale, normalizeScales, noteEvents, playbackInput, PPQ,
    projectBpm, projectScales, removeScale, scaleAt, scaleLabel, scaleSpans, secondsToTicks, setScaleAt, setupMessages, soundLabel,
    TICKS_PER_BAR, ticksToSeconds, trackChannels, trackMix, trackSound, varLen,
@@ -84,6 +84,16 @@ test('trackChannels: 並び順に 1ch から。10ch はドラム専用で、16�
    const channels = trackChannels(tracks);
    equal(tracks.slice(0, 12).map((t) => channels.get(t.id)), [0, 9, 1, 2, 3, 4, 5, 6, 7, 8, 10, 11]);
    equal([channels.get('t15'), channels.get('t16')], [15, 0], '16本目(ドラムを除いて)で先頭に戻る');
+});
+
+test('trackChannels: wrap しなければ、16ch の組を足して全トラックを別のチャンネルにする。ドラムは組ごとの 10ch', () => {
+   const tracks = Array.from({ length: 20 }, (_, i) => ({ id: `t${i}`, drum: i === 1 || i === 18 }));
+   const channels = trackChannels(tracks, { wrap: false });
+   const list = tracks.map((t) => channels.get(t.id));
+   equal(new Set(list).size, tracks.length, 'どれも別のチャンネル');
+   equal([channels.get('t1'), channels.get('t18')], [9, 25], '2本目のドラムは2組目の 10ch');
+   equal([channels.get('t15'), channels.get('t16'), channels.get('t19')], [15, 16, 18], '16本目(ドラムを除いて)から2組目の 1ch');
+   assert(list.every((ch) => (ch % 16 === DRUM_CHANNEL) === (ch === 9 || ch === 25)), 'ドラム以外は 10ch を使わない');
 });
 
 test('setClipNotes / audibleNotes: 範囲の外のノートは持つが鳴らさない。終わりで切る', () => {
@@ -206,14 +216,14 @@ test('noteEvents: 曲の頭からの位置で並べ、同じ位置ではノー�
       setClipNotes(addClip(drums, [], { startBar: 2, bars: 1 }), [note(36, 0, 60)]),
    ];
    equal(noteEvents({ tracks, clips }), [
-      { tick: 0, data: [0x90, 60, 100] },
-      { tick: PPQ, data: [0x80, 60, 0] },
-      { tick: PPQ, data: [0x90, 60, 100] },
-      { tick: 2 * PPQ, data: [0x80, 60, 0] },
-      { tick: TICKS_PER_BAR, data: [0x99, 36, 100] },
-      { tick: TICKS_PER_BAR + 60, data: [0x89, 36, 0] },
-      { tick: 8 * TICKS_PER_BAR, data: [0x90, 48, 90] },
-      { tick: 8 * TICKS_PER_BAR + PPQ, data: [0x80, 48, 0] },
+      { tick: 0, data: [0x90, 60, 100], port: 0 },
+      { tick: PPQ, data: [0x80, 60, 0], port: 0 },
+      { tick: PPQ, data: [0x90, 60, 100], port: 0 },
+      { tick: 2 * PPQ, data: [0x80, 60, 0], port: 0 },
+      { tick: TICKS_PER_BAR, data: [0x99, 36, 100], port: 0 },
+      { tick: TICKS_PER_BAR + 60, data: [0x89, 36, 0], port: 0 },
+      { tick: 8 * TICKS_PER_BAR, data: [0x90, 48, 90], port: 0 },
+      { tick: 8 * TICKS_PER_BAR + PPQ, data: [0x80, 48, 0], port: 0 },
    ]);
    equal(noteEvents({ tracks: [synth], clips }).length, 6, 'トラックのないクリップは鳴らさない');
    equal([ticksToSeconds(TICKS_PER_BAR, 120), secondsToTicks(0.5, 120)], [2, PPQ]);
@@ -233,9 +243,20 @@ test('playbackInput: 全体はミュートしたトラックを鳴らさず、�
    equal(loop.loop, { fromTick: 8 * TICKS_PER_BAR, toTick: 10 * TICKS_PER_BAR }, 'クリップの範囲');
    equal(loop.loop, clipTickRange(b));
    equal(loop.events.map((e) => e.data[1]), [48, 48], 'ミュートしていてもループのクリップは鳴らす');
-   equal(loop.setup, setupMessages(muted, 0), 'そのトラックの音色だけを送る');
+   equal(loop.setup, setupMessages(muted, 0).map((data) => ({ data, port: 0 })), 'そのトラックの音色だけを送る');
    equal(playbackInput({ project, tracks: [drums], clips }, b.id), null, 'トラックが消えていたら null');
    equal(playbackInput({ project, tracks: [muted, drums], clips }, 'gone'), null, 'クリップが消えていたら null');
+});
+
+test('playbackInput: 16本を超えても、チャンネルを使い回さずに2組目(port 1)で送る', () => {
+   const { project, synth, a } = arrangementFixture();
+   const tracks = Array.from({ length: 16 }, (_, i) => ({ ...synth, id: `t${i}`, program: i }));
+   const clips = [setClipNotes({ ...a, trackId: 't15' }, [note(60, 0)])];
+   const input = playbackInput({ project, tracks, clips });
+   equal(input.setup.filter((m) => m.data[0] === 0xc0).map((m) => [m.port, m.data[1]]), [[0, 0], [1, 15]], '1ch は1組目と2組目に別の音色');
+   equal(input.events.map((e) => [e.port, e.data[0]]), [[1, 0x90], [1, 0x80]], '16本目の音は2組目の 1ch');
+   const file = buildMidiFile({ bpm: 120, tracks, clips });
+   assert(file.length > 0, '書き出しは 16ch に収める(port は出さない)');
 });
 
 // .mid のバイト列を、チャンクごとに読み戻す(テスト用の簡易パーサー)

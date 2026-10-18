@@ -14,6 +14,8 @@
 //   node tools/browser.mjs emulate <幅x高さ> "<式>"   スマホ(タッチ・pointer: coarse)の画面にして、式を評価する。
 //                                                  CDP の接続を閉じると元に戻るので、確かめたいことは式の中で済ませる
 //   node tools/browser.mjs key <キー> [Shift,Ctrl,Alt]   キーを押す(例: "Delete"、"a" Ctrl、" ")
+//   node tools/browser.mjs file <セレクタ> <パス>     ファイルを選ぶ欄(input[type=file])に、ファイルを選んだことにする
+//                                                  (例: 設定画面で音源に C:\Windows\System32\drivers\gm.dls を選ぶ)
 //   node tools/browser.mjs shot <出力.png> [セレクタ]   スクリーンショット。セレクタがあればその要素だけを撮る
 //   node tools/browser.mjs stop                      起動したプロセスだけを終了し、プロファイルを消す
 //
@@ -135,7 +137,9 @@ const commands = {
       const server = spawn('python', ['-m', 'http.server', String(HTTP_PORT)], { cwd: ROOT, detached: true, stdio: 'ignore' });
       const chrome = spawn(CHROME, [
          '--headless=new', `--remote-debugging-port=${CDP_PORT}`, `--user-data-dir=${PROFILE}`,
-         `--window-size=${size.replace('x', ',')}`, '--mute-audio', '--no-first-run', '--no-default-browser-check', 'about:blank',
+         `--window-size=${size.replace('x', ',')}`, '--mute-audio',
+         // 再生(AudioContext)を、クリックなしの eval からでも始められるようにする
+         '--autoplay-policy=no-user-gesture-required', '--no-first-run', '--no-default-browser-check', 'about:blank',
       ], { detached: true, stdio: 'ignore' });
       server.unref();
       chrome.unref();
@@ -241,6 +245,21 @@ const commands = {
       await wait(200);
       cdp.close();
       return 'OK';
+   },
+
+   async file(selector, filePath) {
+      const cdp = await connect();
+      try {
+         const { root } = await cdp.send('DOM.getDocument');
+         const { nodeId } = await cdp.send('DOM.querySelector', { nodeId: root.nodeId, selector });
+         if (!nodeId) throw new Error(`見つかりません: ${selector}`);
+         // 選んだときと同じく change が起きる
+         await cdp.send('DOM.setFileInputFiles', { nodeId, files: [path.resolve(filePath)] });
+         await wait(300);
+         return 'OK';
+      } finally {
+         cdp.close();
+      }
    },
 
    async shot(out, selector) {

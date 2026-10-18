@@ -8,8 +8,11 @@
 // 再生は「少し先までを時刻付きで予約する」方式。25ms ごとに、150ms 先までのイベントを AudioContext の時刻付きで送る。
 // タイマーの揺れが音のタイミングに出ず、停止したときに先の音まで予約してしまうこともない。
 // ループ再生(ピアノロールのクリップの再生)では、1周分のイベントを周回ごとに長さぶんずらして予約し続ける。
+//
+// トラックが多いと 16ch では足りないので、16ch の組(ポート)を足して使う(シンセは始めは 16ch。必要になったら足す)。
+// 再生のメッセージは { data, port } で、チャンネルの番号は port × 16 + data のチャンネル。
 
-import { secondsToTicks, ticksToSeconds } from './domain/midi.js';
+import { DRUM_CHANNEL, secondsToTicks, ticksToSeconds } from './domain/midi.js';
 import { loadSoundFont, removeSoundFont, saveSoundFont } from './store/soundFontStore.js';
 
 const LIB_URL = 'https://cdn.jsdelivr.net/npm/spessasynth_lib@4.3.14/+esm';
@@ -35,6 +38,7 @@ export class NoSoundFontError extends Error {
 
 let ctx = null;
 let synth = null;
+let channelCount = 0; // synth が持つチャンネルの数
 let preparing = null;
 // 保存している音源の名前とサイズ。まだ調べていなければ undefined、なければ null
 let source;
@@ -84,6 +88,7 @@ export function prepareSynth() {
          throw new Error(`「${stored.name}」を音源として読み込めませんでした(${error?.message ?? error})`);
       }
       synth = created;
+      channelCount = 16;
       emit();
       return created;
    })().catch((error) => {
@@ -152,6 +157,21 @@ export function previewNote(setup, channel, pitch, velocity = 100) {
 
 // ---- 再生 ----
 
+// ポート付きのメッセージ({ data, port })を送る。そのポートのチャンネルがまだなければ足す。
+// 足したチャンネルは音源が必ずドラムにするので、組の 10ch のほかはドラムをやめる(始めの 16ch と同じにする)
+function send(s, { data, port }, options) {
+   while (channelCount < (port + 1) * 16) {
+      s.addNewChannel();
+      s.midiChannels[channelCount].setDrums(channelCount % 16 === DRUM_CHANNEL);
+      channelCount++;
+   }
+   s.sendMessage(data, port * 16, options);
+}
+
+// 鳴っている音を覚えておくキー(チャンネル:高さ)
+const channelOf = (e) => e.port * 16 + (e.data[0] & 0x0f);
+const soundKey = (e) => `${channelOf(e)}:${e.data[1]}`;
+
 let playing = null;
 
 export const isPlaying = () => playing !== null;
@@ -160,8 +180,8 @@ export const isPlaying = () => playing !== null;
  * 再生を始める(再生中なら、止めてから始め直す)。
  * @param {object} options
  * @param {number} options.bpm
- * @param {number[][]} options.setup 頭で送るメッセージ(チャンネルごとの音色・音量・パン)
- * @param {{ tick: number, data: number[] }[]} options.events noteEvents の結果
+ * @param {{ data: number[], port: number }[]} options.setup 頭で送るメッセージ(チャンネルごとの音色・音量・パン)
+ * @param {{ tick: number, data: number[], port: number }[]} options.events noteEvents の結果
  * @param {number} options.fromTick ここから鳴らす(曲の頭が 0)
  * @param {number} [options.endTick] ここまでは、鳴らす音がなくても止めない(全トラックをミュートしても再生位置を進める)
  * @param {() => void} [options.onEnd] 最後まで鳴らし終えたとき
@@ -171,7 +191,7 @@ export const isPlaying = () => playing !== null;
 export async function play({ bpm, setup, events, fromTick, endTick = 0, onEnd, loop = null }) {
    stop();
    const s = await ready();
-   for (const data of setup) s.sendMessage(data);
+   for (const message of setup) send(s, message);
    const startAt = ctx.currentTime + START_DELAY;
    const state = {
       synth: s,
@@ -223,13 +243,13 @@ function pump(state) {
          continue; // ループの1周目の、再生位置より前の音
       }
       const kind = event.data[0] & 0xf0;
-      const key = `${event.data[0] & 0x0f}:${event.data[1]}`;
+      const key = soundKey(event);
       if (kind === 0x80 && !sounding.has(key)) {
          state.index++;
          continue; // 鳴らしていない音(途中から再生したときの、前の音の終わり)
       }
-      state.synth.sendMessage(event.data, 0, { time: Math.max(at, now) });
-      if (kind === 0x90) sounding.set(key, [event.data[0] & 0x0f, event.data[1], at]);
+      send(state.synth, event, { time: Math.max(at, now) });
+      if (kind === 0x90) sounding.set(key, [channelOf(event), event.data[1], at]);
       else sounding.delete(key);
       state.lastSentAt = Math.max(state.lastSentAt, at);
       state.index++;
@@ -248,18 +268,17 @@ function pump(state) {
  * 鳴らし直すと、いま伸びている音が途切れるため、送り済みの位置より先のイベントだけを入れ替える。
  * 新しい中身に終わり(ノートオフ)がなくなった音(消したノートや、ミュートしたトラックの音)は、すぐに止める。
  * @param {object} options
- * @param {number[][]} [options.messages] すぐに送るメッセージ(変わった音色・音量・パン)
- * @param {{ tick: number, data: number[] }[]} [options.events] 新しいイベント列(noteEvents の結果)。省略すると変えない
+ * @param {{ data: number[], port: number }[]} [options.messages] すぐに送るメッセージ(変わった音色・音量・パン)
+ * @param {{ tick: number, data: number[], port: number }[]} [options.events] 新しいイベント列(noteEvents の結果)。省略すると変えない
  * @param {number} [options.endTick]
  */
 export function updatePlayback({ messages = [], events, endTick }) {
    const state = playing;
    if (!state) return;
    const now = ctx.currentTime;
-   for (const data of messages) state.synth.sendMessage(data, 0, { time: now });
+   for (const message of messages) send(state.synth, message, { time: now });
    if (endTick != null) state.endTick = endTick;
    if (!events) return;
-   const key = (e) => `${e.data[0] & 0x0f}:${e.data[1]}`;
    let upcoming;
    if (state.loop) {
       // ループでは1周分を全部持ち、送り済みの位置が何周目のどこかを求めて、その先から鳴らす
@@ -281,7 +300,7 @@ export function updatePlayback({ messages = [], events, endTick }) {
    const ending = new Set();
    const seen = new Set();
    for (const e of upcoming) {
-      const k = key(e);
+      const k = soundKey(e);
       if (seen.has(k)) continue;
       seen.add(k);
       if ((e.data[0] & 0xf0) === 0x80) ending.add(k);
@@ -318,9 +337,10 @@ export function stop() {
    // 予約済みでまだ鳴っていない音もあるので、最後に予約した時刻の直後にも止める
    const at = Math.max(ctx.currentTime, state.lastSentAt) + 0.001;
    for (const [channel, pitch] of state.sounding.values()) state.synth.noteOff(channel, pitch, { time: at });
-   for (let ch = 0; ch < 16; ch++) {
-      state.synth.sendMessage([0xb0 | ch, 120, 0], 0, { time: at }); // オールサウンドオフ
-      state.synth.sendMessage([0xb0 | ch, 123, 0], 0, { time: at }); // オールノートオフ
+   for (let channel = 0; channel < channelCount; channel++) {
+      const offset = channel - (channel % 16);
+      state.synth.sendMessage([0xb0 | (channel % 16), 120, 0], offset, { time: at }); // オールサウンドオフ
+      state.synth.sendMessage([0xb0 | (channel % 16), 123, 0], offset, { time: at }); // オールノートオフ
    }
    state.synth.stopAll(true);
    emit();

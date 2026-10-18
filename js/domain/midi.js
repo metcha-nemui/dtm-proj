@@ -198,23 +198,42 @@ export function audibleTrackIds(tracks, alwaysId = null) {
    return ids;
 }
 
+const MELODIC_CHANNELS = Array.from({ length: 16 }, (_, i) => i).filter((ch) => ch !== DRUM_CHANNEL);
+
 /**
  * トラックごとの MIDI チャンネル(0始まり)。ドラムのトラックは 10ch。
- * それ以外は、トラックの並び順に 1ch から割り振り、10ch は飛ばす。16本目以降は先頭から使い回す
- * (同じチャンネルのトラックは、後に来た方の音色になる)。
+ * それ以外は、トラックの並び順に 1ch から割り振り、10ch は飛ばす。
+ * wrap(.mid の書き出し。16ch しかない)では、16本目以降は先頭から使い回す
+ * (同じチャンネルのトラックは、後に来た方の音色になる)。ドラムはすべて 10ch。
+ * wrap しない(ブラウザの音源で再生するとき)では、16ch の組(ポート)を足していき、どのトラックも別のチャンネルにする。
+ * 番号は 16 以上にもなる(ポート × 16 + その中のチャンネル)。音源はどの組でも 10番目をドラムとして扱うので、
+ * n 本目のドラムは n 組目の 10ch にする。
  * @param {object[]} tracks 並び順に並べたトラック
  * @returns {Map<string, number>}
  */
-export function trackChannels(tracks) {
-   const melodic = Array.from({ length: 16 }, (_, i) => i).filter((ch) => ch !== DRUM_CHANNEL);
+export function trackChannels(tracks, { wrap = true } = {}) {
    const result = new Map();
-   let i = 0;
+   let melodic = 0;
+   let drums = 0;
    for (const track of tracks) {
-      if (trackSound(track).drum) result.set(track.id, DRUM_CHANNEL);
-      else result.set(track.id, melodic[i++ % melodic.length]);
+      if (trackSound(track).drum) {
+         result.set(track.id, (wrap ? 0 : drums++ * 16) + DRUM_CHANNEL);
+         continue;
+      }
+      const port = wrap ? 0 : Math.floor(melodic / MELODIC_CHANNELS.length);
+      result.set(track.id, port * 16 + MELODIC_CHANNELS[melodic++ % MELODIC_CHANNELS.length]);
    }
    return result;
 }
+
+// trackChannels の番号を、ポート(16ch の組)とその中のチャンネル(0〜15。MIDI のメッセージに入れる方)に分ける
+const splitChannel = (channel) => ({ port: Math.floor(channel / 16), ch: channel % 16 });
+
+// 再生で送るメッセージ(ポート付き)にする
+const withPort = (track, channel) => {
+   const { port, ch } = splitChannel(channel);
+   return setupMessages(track, ch).map((data) => ({ data, port }));
+};
 
 /**
  * 再生を始めるときに、チャンネルごとに送る設定(音色・音量・パン)。
@@ -235,19 +254,20 @@ export function setupMessages(track, channel) {
 /**
  * トラックとクリップから、曲の頭からの絶対位置(tick)で並べたノートのイベント列を作る。
  * 同じ位置では、ノートオフを先に置く(同じ高さのノートが続くときに、次の音を消さないため)。
- * @param {{ tracks: object[], clips: object[] }} input tracks は並び順に並べたもの
- * @returns {{ tick: number, data: number[] }[]}
+ * port は trackChannels のポート(wrap ならいつも 0)。
+ * @param {{ tracks: object[], clips: object[], wrap?: boolean }} input tracks は並び順に並べたもの。wrap は trackChannels に渡す
+ * @returns {{ tick: number, data: number[], port: number }[]}
  */
-export function noteEvents({ tracks, clips }) {
-   const channels = trackChannels(tracks);
+export function noteEvents({ tracks, clips, wrap = true }) {
+   const channels = trackChannels(tracks, { wrap });
    const events = [];
    for (const clip of clips) {
-      const channel = channels.get(clip.trackId);
-      if (channel == null) continue;
+      if (!channels.has(clip.trackId)) continue;
+      const { port, ch } = splitChannel(channels.get(clip.trackId));
       const offset = (clip.startBar - 1) * TICKS_PER_BAR;
       for (const n of audibleNotes(clip)) {
-         events.push({ tick: offset + n.start, data: [0x90 | channel, n.pitch, n.velocity] });
-         events.push({ tick: offset + n.start + n.length, data: [0x80 | channel, n.pitch, 0] });
+         events.push({ tick: offset + n.start, data: [0x90 | ch, n.pitch, n.velocity], port });
+         events.push({ tick: offset + n.start + n.length, data: [0x80 | ch, n.pitch, 0], port });
       }
    }
    const isOff = (e) => (e.data[0] & 0xf0) === 0x80;
@@ -266,28 +286,29 @@ export const clipTickRange = (clip) => ({
  * そのクリップかトラックが消えていれば null。
  * 渡さなければ全体で、鳴らすのはミュート・ソロで聞こえるトラックだけ。ただし endTick(再生の終わり)には、
  * ミュートしたトラックの音も数える(全部ミュートしても、曲の終わりまで再生位置を進める)。
+ * 音源は 16ch より多く持てるので、チャンネルは使い回さない(trackChannels の wrap なし)。メッセージには port が付く。
  * @param {{ project: object, tracks: object[], clips: object[] }} data tracks は並び順に並べたもの
- * @returns {{ bpm: number, setup: number[][], events: { tick: number, data: number[] }[], loop?: { fromTick: number, toTick: number }, endTick?: number } | null}
+ * @returns {{ bpm: number, setup: { data: number[], port: number }[], events: { tick: number, data: number[], port: number }[], loop?: { fromTick: number, toTick: number }, endTick?: number } | null}
  */
 export function playbackInput({ project, tracks, clips }, loopClipId = null) {
-   const channels = trackChannels(tracks);
+   const channels = trackChannels(tracks, { wrap: false });
    if (loopClipId) {
       const clip = clips.find((c) => c.id === loopClipId);
       const track = clip && tracks.find((t) => t.id === clip.trackId);
       if (!track) return null;
       return {
          bpm: projectBpm(project),
-         setup: setupMessages(track, channels.get(track.id)),
-         events: noteEvents({ tracks, clips: [clip] }),
+         setup: withPort(track, channels.get(track.id)),
+         events: noteEvents({ tracks, clips: [clip], wrap: false }),
          loop: clipTickRange(clip),
       };
    }
    const audible = audibleTrackIds(tracks);
-   const all = noteEvents({ tracks, clips });
+   const all = noteEvents({ tracks, clips, wrap: false });
    return {
       bpm: projectBpm(project),
-      setup: tracks.flatMap((t) => setupMessages(t, channels.get(t.id))),
-      events: noteEvents({ tracks, clips: clips.filter((c) => audible.has(c.trackId)) }),
+      setup: tracks.flatMap((t) => withPort(t, channels.get(t.id))),
+      events: noteEvents({ tracks, clips: clips.filter((c) => audible.has(c.trackId)), wrap: false }),
       endTick: all.at(-1)?.tick ?? 0,
    };
 }
