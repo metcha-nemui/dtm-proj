@@ -100,6 +100,7 @@ test.html                 テストをブラウザで実行
 test/                     テスト本体(Nodeでも動く)。Supabase 実装は、APIのふりをする fetch で確かめている
 supabase/                 schema.sql(テーブル定義。SQL Editor で実行)、drop.sql(すべて消す)
 docs/                     画面ごとの仕様
+tools/browser.mjs         画面の動作確認に使うヘッドレス Chrome の操作(開発用。依存なし)
 css/
   tokens.css              色・余白などのCSS変数(ダークモード対応)
   base.css                共通部品(ボタン、入力、ダイアログ、メニュー、トースト)

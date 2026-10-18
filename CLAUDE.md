@@ -18,15 +18,20 @@
   node -e "import('./test/domain.test.js').then(m => m.report()).then(ok => process.exit(ok ? 0 : 1))"
   ```
 
-- 画面は静的サーバー越しに開く(`file://` では ES Modules が動かない):
+- `js/domain/` を変えたらテストを足す。画面の変更は、実際にブラウザで操作して確かめる。
+- ブラウザでの確認は `tools/browser.mjs` を使う(確認用の CDP スクリプトを毎回書かない。足りない操作があればこのスクリプトに足す)。詳しい使い方は先頭のコメントにある:
 
   ```
-  python -m http.server 8765
+  node tools/browser.mjs start                   # サーバー(8766)とヘッドレス Chrome を起動。ログインせずに使う状態で開く
+  node tools/browser.mjs eval "(await import('/js/actions.js')).createProject({ title: 'テスト' })"
+  node tools/browser.mjs open p/<id>/arrange     # 「#/」は省く。読み込み中の例外を出す
+  node tools/browser.mjs click .clip             # ほかに drag x1 y1 x2 y2 [Ctrl]、key Delete
+  node tools/browser.mjs shot <scratchpad>/a.png .arr-tracks
+  node tools/browser.mjs stop                    # 起動したプロセスだけを終了する
   ```
 
-- `js/domain/` を変えたら `test/domain.test.js` にテストを足す。画面の変更は、実際にブラウザで操作して確かめる(この環境には Chrome と Edge がある)。
-- ヘッドレス Chrome の `--user-data-dir` は短いパスにする(例: `%TEMP%\dtmcs`。終わったら消す)。深い場所(作業用の一時フォルダの奥など)だと、Cache Storage の中のパスが Windows の上限(260文字)を超えてキャッシュに書けず、Service Worker まわりが本来と違う動きになる。
-- ヘッドレス Chrome などで確かめたあとは、確認のために起動したプロセスだけを終了する(コマンドラインの `--remote-debugging-port` や `--user-data-dir`、`http.server` のポートで見分ける)。`taskkill /IM chrome.exe` のようにプロセス名でまとめて終了すると、ユーザーが普段使っているブラウザまで閉じてしまうので、しない。
+- 確かめるときは、まず eval で DOM の状態(クラス、件数、値)を取って比べる。スクリーンショットは見た目を確かめたいときだけにし、セレクタで要素だけを撮る(画面全体は撮らない)。
+- プロセスを自分で起動したときも、終了は起動したものだけにする。`taskkill /IM chrome.exe` のようにプロセス名でまとめて終了すると、ユーザーが普段使っているブラウザまで閉じてしまう。ヘッドレス Chrome の `--user-data-dir` は短いパス(`%TEMP%\dtmcs` など)にする(深いと Cache Storage のパスが 260 文字を超え、Service Worker が本来と違う動きになる)。
 
 ## コーディング規約
 
