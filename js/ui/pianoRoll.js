@@ -30,7 +30,7 @@ import { openMenu } from './components/menu.js';
 import { drawMarquee, trackPointer } from './components/pointer.js';
 import { reportError, showToast } from './components/toast.js';
 import { clipMidi, downloadMidi } from './midiExport.js';
-import { previewNote } from './synth.js';
+import { previewNote } from '../synth.js';
 
 const ROW = 12; // 1音の高さ(px)
 const BEAT = 64; // 1拍の幅(px)

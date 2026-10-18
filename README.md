@@ -117,6 +117,7 @@ js/
   main.js                 起動(ログイン状態を見て保存先を決める)、ルーター
   pwa.js / session.js / theme.js   Service Worker の登録 / 擬似ログインの状態 / UIテーマ
   state.js                repository の参照と、変更通知(subscribe / notify)
+  synth.js                ブラウザ内の音源(spessasynth_lib)と再生。何を鳴らすかは domain/midi.js で組み立てる
   actions.js              画面から呼ぶ操作。読む→domainで計算→保存→notify
   domain/                 DOMにもrepositoryにも依存しない純粋なロジック
                           (record, order, date, project, task, stats, deadline, gantt, reference, arrangement, midi)

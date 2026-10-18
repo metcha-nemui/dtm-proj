@@ -9,8 +9,8 @@
 // タイマーの揺れが音のタイミングに出ず、停止したときに先の音まで予約してしまうこともない。
 // ループ再生(ピアノロールのクリップの再生)では、1周分のイベントを周回ごとに長さぶんずらして予約し続ける。
 
-import { secondsToTicks, ticksToSeconds } from '../domain/midi.js';
-import { loadSoundFont, removeSoundFont, saveSoundFont } from '../store/soundFontStore.js';
+import { secondsToTicks, ticksToSeconds } from './domain/midi.js';
+import { loadSoundFont, removeSoundFont, saveSoundFont } from './store/soundFontStore.js';
 
 const LIB_URL = 'https://cdn.jsdelivr.net/npm/spessasynth_lib@4.3.14/+esm';
 const PROCESSOR_URL = 'https://cdn.jsdelivr.net/npm/spessasynth_lib@4.3.14/dist/spessasynth_processor.min.js';

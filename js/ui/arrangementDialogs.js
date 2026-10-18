@@ -11,7 +11,7 @@ import { h } from './components/dom.js';
 import { openMenu } from './components/menu.js';
 import { reportError, showToast } from './components/toast.js';
 import { programPicker } from './programPicker.js';
-import * as synth from './synth.js';
+import * as synth from '../synth.js';
 
 const run = (promise) => promise.catch(reportError);
 

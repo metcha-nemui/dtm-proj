@@ -29,7 +29,7 @@ import { reportError, showToast } from './components/toast.js';
 import { addTrackDialog, deleteTrackDialog, openScaleMenu, renameTrackDialog, scaleDialog, trackSoundDialog } from './arrangementDialogs.js';
 import { barRange, createClipDrawer } from './clipDrawer.js';
 import { arrangementMidi, downloadMidi } from './midiExport.js';
-import * as sound from './synth.js';
+import * as sound from '../synth.js';
 import { createPianoRoll } from './pianoRoll.js';
 import { projectHead } from './projectHeader.js';
 import { projectTabs } from './projectTabs.js';

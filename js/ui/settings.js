@@ -10,7 +10,7 @@ import { watchSlow } from './components/slowNotice.js';
 import { reportError, showToast } from './components/toast.js';
 import {
    clearSoundFont, isWindows, onSynthChange, refreshSoundSource, setSoundFont, soundSource, WINDOWS_GM_DLS,
-} from './synth.js';
+} from '../synth.js';
 
 const dateFormat = new Intl.DateTimeFormat('ja-JP', { dateStyle: 'short', timeStyle: 'short' });
 
