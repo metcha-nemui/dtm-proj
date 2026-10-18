@@ -4,6 +4,7 @@ import { clearSession, loadSession } from '../session.js';
 import { notify, repo } from '../state.js';
 import { migrate } from '../store/repository.js';
 import { loadTheme, setTheme, THEMES } from '../theme.js';
+import { loadIdleMinutes, MAX_IDLE_MINUTES, saveIdleMinutes } from './idleTimer.js';
 import { confirmDialog } from './components/dialog.js';
 import { h, icon } from './components/dom.js';
 import { watchSlow } from './components/slowNotice.js';
@@ -156,12 +157,36 @@ export function mount(container) {
    renderTheme();
    const sound = soundFontSection(run, section);
 
+   // アレンジ画面の「編集から 〜」を出し始めるまでの分数。データではなく、このブラウザの設定
+   const idleInput = h('input', {
+      type: 'number',
+      class: 'input settings-number',
+      min: '0',
+      max: String(MAX_IDLE_MINUTES),
+      step: '1',
+      value: String(loadIdleMinutes()),
+      'aria-label': '表示し始めるまでの分数',
+      onchange: () => {
+         const minutes = Math.round(Number(idleInput.value));
+         if (idleInput.value === '' || !Number.isFinite(minutes)) {
+            idleInput.value = String(loadIdleMinutes());
+            return;
+         }
+         const clamped = Math.max(0, Math.min(minutes, MAX_IDLE_MINUTES));
+         saveIdleMinutes(clamped);
+         idleInput.value = String(clamped);
+      },
+   });
+
    container.append(h('div', { class: 'page settings-page' },
       h('div', { class: 'page-head' }, h('h1', { class: 'page-title' }, '設定')),
       section('UIテーマ',
          '画面の明るさを選びます。「システム」では端末の設定(ライト / ダーク)に合わせます。このブラウザにだけ保存されます。',
          h('div', { class: 'project-tabs', role: 'radiogroup', 'aria-label': 'UIテーマ' }, themeButtons)),
       sound.el,
+      section('編集していない時間',
+         `アレンジ画面で、最後に編集してからこの時間が過ぎると、ツールバーに経過時間を出します。0 にすると出しません(1〜${MAX_IDLE_MINUTES}分)。このブラウザにだけ保存されます。`,
+         h('label', { class: 'settings-inline' }, idleInput, '分')),
       remote
          ? section('保存先: Supabase',
             `${session.url} に保存しています。ログアウトすると、このブラウザから Project URL と公開キーを消します。Supabase 上のデータは残ります。`,

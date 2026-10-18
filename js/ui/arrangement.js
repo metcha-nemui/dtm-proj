@@ -30,6 +30,7 @@ import { addTrackDialog, deleteTrackDialog, openScaleMenu, renameTrackDialog, sc
 import { barRange, createClipDrawer } from './clipDrawer.js';
 import { arrangementMidi, downloadMidi } from './midiExport.js';
 import * as sound from '../synth.js';
+import { createIdleTimer } from './idleTimer.js';
 import { createPianoRoll } from './pianoRoll.js';
 import { projectHead } from './projectHeader.js';
 import { projectTabs } from './projectTabs.js';
@@ -52,6 +53,8 @@ export function mount(container, { id: projectId }) {
 
    let alive = true;
    let data = null;
+   // 最後に編集してからの経過時間(ツールバーに出す)
+   const idle = createIdleTimer(projectId);
    let sortable = null;
    // ドラッグ中に再描画すると、掴んでいる要素が消える。終わるまで待たせる
    let dragging = false;
@@ -811,6 +814,7 @@ export function mount(container, { id: projectId }) {
          projectHead({ project, tasks: data.tasks, run }),
          projectTabs(projectId, 'arrange'),
          transport(),
+         idle.el,
          h('span', { class: 'muted board-summary' }, `トラック${data.tracks.length}・クリップ${data.clips.length}`));
    }
 
@@ -1239,6 +1243,7 @@ export function mount(container, { id: projectId }) {
    return () => {
       alive = false;
       unsubscribe();
+      idle.destroy();
       unwatchSynth();
       sound.stop();
       cancelAnimationFrame(frame);

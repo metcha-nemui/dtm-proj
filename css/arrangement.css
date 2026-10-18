@@ -588,6 +588,27 @@ button.project-tab {
    }
 }
 
+/* ---- 最後に編集してからの経過時間(ツールバー) ---- */
+
+/* 手が止まっていることへの注意なので、作業中の色で目に付くようにする */
+.idle-timer {
+   display: inline-flex;
+   align-items: center;
+   gap: var(--space-1);
+   padding: 2px var(--space-2);
+   border-radius: 999px;
+   background: var(--doing-soft);
+   color: var(--doing);
+   font-size: 13px;
+   font-variant-numeric: tabular-nums;
+   font-weight: 600;
+   white-space: nowrap;
+}
+
+.idle-timer[hidden] {
+   display: none;
+}
+
 /* ---- 再生(ツールバー) ---- */
 
 /* ツールバー(再生・BPM)より小さくは縮まない(ピアノロールを高くしても、ツールバーは隠れない) */

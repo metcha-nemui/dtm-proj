@@ -30,6 +30,18 @@
    font-size: 12px;
 }
 
+/* 編集していない時間 */
+.settings-inline {
+   display: inline-flex;
+   align-items: center;
+   gap: var(--space-2);
+   font-size: 14px;
+}
+
+.settings-number {
+   width: 6em;
+}
+
 /* 音源 */
 .settings-sound-status {
    margin-top: var(--space-3);
