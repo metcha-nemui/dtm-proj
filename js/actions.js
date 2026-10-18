@@ -43,11 +43,12 @@ async function syncArrangement(projectId) {
    for (const id of remove) await repo().deleteTask(id);
 }
 
-// プロジェクトの最終更新を進めて、画面に変更を知らせる
-async function changed(projectId) {
+// プロジェクトの最終更新を進めて、画面に変更を知らせる。
+// listening は、聴くための切り替え(ミュート・ソロ)だけの変更。アレンジ画面の「編集から 〜」は、これを編集に数えない
+async function changed(projectId, { listening = false } = {}) {
    const project = await repo().getProject(projectId);
    if (project) await repo().saveProject(touch(project));
-   notify({ projectId });
+   notify({ projectId, listening });
 }
 
 // ---- プロジェクト ----
@@ -252,13 +253,13 @@ export const updateTrackSound = serial(async (projectId, trackId, patch) => {
 export const updateTrackMix = serial(async (projectId, trackId, patch) => {
    const tracks = await repo().getTracks(projectId);
    await repo().saveTrack(arrangementDomain.updateTrackMix(find(tracks, trackId, 'トラック'), patch));
-   await changed(projectId);
+   await changed(projectId, { listening: !('reverb' in patch) });
 });
 
 /** 全トラックのミュート・ソロを外す。 */
 export const clearTrackMix = serial(async (projectId) => {
    await repo().saveTracks(arrangementDomain.clearTrackMix(await repo().getTracks(projectId)));
-   await changed(projectId);
+   await changed(projectId, { listening: true });
 });
 
 export const moveTrack = serial(async (projectId, trackId, toIndex) => {

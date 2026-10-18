@@ -1,6 +1,6 @@
 // 「最後に編集してから」の経過時間。再生してばかりで手が止まっていることに気づくための表示で、アレンジ画面のツールバーに出す。
 // 数えるのはアレンジ画面を開いている間だけで、開くたびに0から始める(この端末の、いま開いている画面だけを見る)。
-// 編集は、そのプロジェクトへの保存(actions.js の notify({ projectId }))で数える。ミュート・ソロや音量も保存なので編集に含める。
+// 編集は、そのプロジェクトへの保存(actions.js の notify({ projectId }))で数える。ただしミュート・ソロは聴くための切り替えなので数えない(listening)。
 // 経過時間はどこにも保存しない。表示し始める時間(分)だけを、このブラウザの localStorage に覚えておく。
 
 import { subscribe } from '../state.js';
@@ -59,9 +59,9 @@ export function createIdleTimer(projectId) {
       if (show) label.textContent = `編集から ${formatElapsed(elapsed)}`;
    }
 
-   // projectId のない通知(接続の回復、インポート)は編集ではない
+   // projectId のない通知(接続の回復、インポート)とミュート・ソロは編集ではない
    const unsubscribe = subscribe((change) => {
-      if (change.projectId !== projectId) return;
+      if (change.projectId !== projectId || change.listening) return;
       lastEdit = Date.now();
       tick();
    });
