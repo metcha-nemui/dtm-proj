@@ -37,7 +37,7 @@
 
 - 改行は CRLF、インデントはスペース3つ(`.editorconfig` と `.gitattributes` に設定済み)。JS・CSS・HTML すべて同じ。
 - HTML の先頭は `<!DOCTYPE html>`(大文字)。個人用なので、HTML には検索エンジン避けの `<meta name="robots" content="noindex, nofollow, noarchive">` を入れる。
-- ツールで書いたファイルは改行が LF になりやすい。コミット前に CRLF になっているか確かめる。
+- ツールで書いたファイルは改行が LF になりやすいが、Write / Edit のあとに hook(`.claude/settings.json` → `tools/crlf.mjs`)が CRLF に揃えるので、手で確かめなくてよい(シェルで書いたファイルには効かない)。
 - 周りのコードに合わせる(コメントの量、命名、書き方)。コメントは日本語で、「なぜそうしているか」を書く。
 
 ## 守ること
