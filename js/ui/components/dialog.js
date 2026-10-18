@@ -89,33 +89,8 @@ export function viewDialog({ title, body }) {
 
 function readValue(field, el) {
    if (field.type === 'checkbox') return el.checked;
-   if (field.type === 'range') return el.querySelector('input[type=number]').value;
    if (field.type === 'custom') return el.value;
    return el.value;
-}
-
-// 横スライダーと数値の欄。どちらで変えても、もう一方に映す。値は数値の欄から読む(空欄も返せるように)。
-// スライダーのダブルクリックで field.reset の値に戻す
-function rangeControl(field) {
-   const bounds = { min: String(field.min ?? 0), max: String(field.max ?? 100), step: String(field.step ?? 1) };
-   const slider = h('input', {
-      id: `field-${field.name}`, class: 'field-range-slider', type: 'range', ...bounds, value: field.value ?? '',
-      title: field.reset == null ? null : `ダブルクリックで ${field.reset} に戻す`,
-      oninput: () => { number.value = slider.value; },
-      ondblclick: () => {
-         if (field.reset == null) return;
-         slider.value = String(field.reset);
-         number.value = String(field.reset);
-      },
-   });
-   const number = h('input', {
-      name: field.name, class: 'input field-range-number', type: 'number', ...bounds, value: field.value ?? '',
-      'aria-label': `${field.label}(数値)`, autocomplete: 'off',
-      oninput: () => {
-         if (number.value.trim() !== '') slider.value = number.value;
-      },
-   });
-   return h('div', { class: 'field-range' }, slider, number);
 }
 
 function control(field) {
@@ -128,8 +103,6 @@ function control(field) {
             field.options.map((o) => h('option', { value: o.value, selected: o.value === field.value }, o.label)));
       case 'checkbox':
          return h('input', { ...common, type: 'checkbox', checked: Boolean(field.value) });
-      case 'range':
-         return rangeControl(field);
       case 'custom':
          return field.render(`field-${field.name}`);
       default:
@@ -146,12 +119,10 @@ function control(field) {
  * @param {string} options.title
  * @param {string} [options.message]
  * @param {string} [options.submitLabel]
- * @param {Array<{ name: string, label: string, type?: 'text'|'number'|'textarea'|'select'|'checkbox'|'range'|'custom',
+ * @param {Array<{ name: string, label: string, type?: 'text'|'number'|'textarea'|'select'|'checkbox'|'custom',
  *   value?: any, placeholder?: string, required?: boolean,
  *   options?: Array<{ value: string, label: string }>,
- *   min?: number, max?: number, step?: number, reset?: number,
  *   render?: (id: string) => HTMLElement & { value: any } }>} options.fields
- *   range は横スライダーと数値の欄。min / max / step はその範囲、reset はスライダーのダブルクリックで戻す値。
  *   custom は render(id) が作る部品を置き、その value を読む(id はラベルが指す要素に付ける)
  * @param {boolean} [options.wide] ダイアログの幅を広げる
  * @returns {Promise<Object|null>} name をキーにした入力値。キャンセルなら null

@@ -788,25 +788,14 @@ export function mount(container, { id: projectId }) {
             { name: 'program', label: '音色', type: 'custom', render: (id) => programPicker(id, sound.program, { onPreview: (program) => previewProgram(track, program) }) },
             { name: 'drum', label: 'ドラム(10ch で鳴らす。音色は使わず、下のドラムキットで鳴らす)', type: 'checkbox', value: sound.drum },
             { name: 'kit', label: 'ドラムキット(選ぶとスネアを鳴らす)', type: 'custom', render: (id) => kitSelect(id, track, sound.kit) },
-            {
-               name: 'volume', label: '音量(0〜127)', type: 'range', value: String(sound.volume),
-               min: 0, max: 127, reset: DEFAULT_VOLUME,
-            },
-            {
-               name: 'pan', label: 'パン(0 = 左、64 = 中央、127 = 右)', type: 'range', value: String(sound.pan),
-               min: 0, max: 127, reset: CENTER_PAN,
-            },
          ],
       });
       if (!values) return;
-      // 空欄は元のまま
-      const number = (value, fallback) => (String(value).trim() === '' ? fallback : Number(value));
+      // 音量・パンはトラック名の下のつまみで変える(ここでは持たない)
       await actions.updateTrackSound(projectId, track.id, {
          program: Number(values.program),
          drum: values.drum,
          kit: Number(values.kit),
-         volume: number(values.volume, sound.volume),
-         pan: number(values.pan, sound.pan),
       });
    }
 
@@ -1088,7 +1077,7 @@ export function mount(container, { id: projectId }) {
          dataset: { focusKey: `track-menu:${track.id}` },
          onclick: () => openMenu(menuButton, [
             { label: '名前を変更', onSelect: () => run(renameTrackDialog(track)) },
-            { label: '音色・音量・パン', onSelect: () => run(trackSoundDialog(track)) },
+            { label: '音色', onSelect: () => run(trackSoundDialog(track)) },
             { label: '削除', danger: true, onSelect: () => run(deleteTrackDialog(track)) },
          ]),
       }, icon('ellipsis-vertical'));
@@ -1152,7 +1141,7 @@ export function mount(container, { id: projectId }) {
                   h('button', {
                      type: 'button',
                      class: 'arr-head-sound',
-                     title: `${soundLabel(track)}(押すと音色・音量・パンを変える)`,
+                     title: `${soundLabel(track)}(押すと音色を変える)`,
                      dataset: { focusKey: `track-sound:${track.id}` },
                      onclick: () => run(trackSoundDialog(track)),
                   }, soundLabel(track)),
