@@ -32,8 +32,8 @@ export function addTrack(projectId, tracks, name = '') {
 }
 
 /**
- * トラックの音(音色・音量・パン・ドラムか)を変える。範囲の外の値は端に寄せる。
- * @param {{ program?: number, volume?: number, pan?: number, drum?: boolean }} patch
+ * トラックの音(音色・音量・パン・ドラムか・ドラムキット)を変える。範囲の外の値は端に寄せる。
+ * @param {{ program?: number, volume?: number, pan?: number, drum?: boolean, kit?: number }} patch
  */
 export function updateTrackSound(track, patch) {
    return touch(track, trackSound({ ...trackSound(track), ...patch }));

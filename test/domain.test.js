@@ -6,9 +6,9 @@ import {
    placeClip, renameTrack, setClipNotes, shiftSelection, syncClipTasks, updateClip, updateMarker, updateTrackMix, updateTrackSound,
 } from '../js/domain/arrangement.js';
 import {
-   audibleNotes, audibleTrackIds, buildMidiFile, clipTicks, filterPrograms, inScale, MAX_BPM, midiFileName, MIN_BPM, moveScale, normalizeBpm,
+   audibleNotes, audibleTrackIds, buildMidiFile, clipTicks, DRUM_KITS, filterPrograms, inScale, kitLabel, MAX_BPM, midiFileName, MIN_BPM, moveScale, normalizeBpm,
    normalizeNotes, normalizeScale, normalizeScales, noteEvents, PPQ, projectBpm, projectScales, removeScale, scaleAt, scaleLabel,
-   scaleSpans, secondsToTicks, setScaleAt, soundLabel, TICKS_PER_BAR, ticksToSeconds, trackChannels, trackMix, trackSound, varLen,
+   scaleSpans, secondsToTicks, setScaleAt, setupMessages, soundLabel, TICKS_PER_BAR, ticksToSeconds, trackChannels, trackMix, trackSound, varLen,
 } from '../js/domain/midi.js';
 import { addDays, daysBetween, toDateString, weekendDaysBetween } from '../js/domain/date.js';
 import { deadlineRange, deadlineRows } from '../js/domain/deadline.js';
@@ -780,11 +780,19 @@ test('normalizeBpm / projectBpm: 範囲に収め、項目がなければ 120', (
 
 test('トラックの音: 既定はピアノ・音量100・パン中央。範囲の外は端に寄せる', () => {
    const track = addTrack('p', [], 'Lead');
-   equal(trackSound(track), { program: 0, volume: 100, pan: 64, drum: false });
+   equal(trackSound(track), { program: 0, volume: 100, pan: 64, drum: false, kit: 0 });
    equal(trackSound({}), trackSound(track), '項目がない(v7 以前の)トラック');
-   const changed = updateTrackSound(track, { program: 300, pan: -5, drum: true });
-   equal([changed.program, changed.volume, changed.pan, changed.drum, changed.name], [127, 100, 0, true, 'Lead']);
-   equal([soundLabel(track), soundLabel(changed)], ['1. Acoustic Grand Piano', 'ドラム']);
+   const changed = updateTrackSound(track, { program: 300, pan: -5, drum: true, kit: 200 });
+   equal([changed.program, changed.volume, changed.pan, changed.drum, changed.kit, changed.name], [127, 100, 0, true, 127, 'Lead']);
+   equal([soundLabel(track), soundLabel(changed)], ['1. Acoustic Grand Piano', 'ドラム(128. キット)']);
+});
+
+test('ドラムキット: 10ch にはキットの番号をプログラムチェンジで送る。一覧にない番号は番号だけ出す', () => {
+   const track = updateTrackSound(addTrack('p', [], 'Drums'), { program: 5, drum: true, kit: 16 });
+   equal(setupMessages(track, 9), [[0xc9, 16], [0xb9, 7, 100], [0xb9, 10, 64]], '音色(5)ではなくキット');
+   equal(setupMessages(updateTrackSound(track, { drum: false }), 0)[0], [0xc0, 5], 'ドラムをやめると音色に戻る');
+   equal(DRUM_KITS.map((k) => k.kit), [0, 8, 16, 24, 25, 32, 40, 48, 56]);
+   equal([kitLabel(16), kitLabel(1)], ['17. Power', '2. キット']);
 });
 
 test('ミュート・ソロ: 新しいトラックはどちらもなし。項目がなければなし。音の設定は変えない', () => {
@@ -1005,7 +1013,7 @@ test('migrate: v7 のデータは、BPM 120・ピアノ・ノートなしとし�
       clips: [{ id: 'c', projectId: 'p', trackId: 'tr', startBar: 1, bars: 1 }],
    });
    equal(data.projects, [{ id: 'p', bpm: 120, scales: [{ bar: 1, root: 0, mode: 'major' }] }]);
-   equal(data.tracks, [{ id: 'tr', projectId: 'p', program: 0, volume: 100, pan: 64, drum: false }]);
+   equal(data.tracks, [{ id: 'tr', projectId: 'p', program: 0, volume: 100, pan: 64, drum: false, kit: 0 }]);
    equal(data.clips[0].notes, []);
 });
 
@@ -1031,6 +1039,11 @@ test('migrate: v10 のテンプレートは、レーンとタスクごと捨て�
    });
    equal(data.projects.map((p) => [p.id, 'isTemplate' in p]), [[vocal.project.id, false]], 'isTemplate の項目も消す');
    equal([data.lanes.length, data.tasks.length], [vocal.lanes.length, vocal.tasks.length]);
+});
+
+test('migrate: v11 のドラムのトラックは、キットを Standard(0)として読み込む', () => {
+   const data = migrate({ schemaVersion: 11, tracks: [{ id: 'tr', projectId: 'p', program: 3, volume: 90, pan: 64, drum: true }] });
+   equal([data.tracks[0].kit, data.tracks[0].program, data.tracks[0].drum], [0, 3, true]);
 });
 
 test('normalizeScale / normalizeScales: 主音は 0〜11、mode は major か minor。1小節目は必ずある', () => {

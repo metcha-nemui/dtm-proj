@@ -13,7 +13,8 @@ import {
    arrangementBars, canPlace, canShiftSelection, clipEnd, clipSection, markerClips, markerSpans, UNTITLED_CLIP,
 } from '../domain/arrangement.js';
 import {
-   audibleNotes, audibleTrackIds, CENTER_PAN, clipTicks, DEFAULT_VOLUME, KEY_NAMES, MAX_BPM, MIN_BPM, noteEvents, PPQ,
+   audibleNotes, audibleTrackIds, CENTER_PAN, clipTicks, DEFAULT_VOLUME, DRUM_CHANNEL, DRUM_KITS, KEY_NAMES, kitLabel, MAX_BPM, MIN_BPM,
+   noteEvents, PPQ,
    projectBpm, projectScales, scaleAt, scaleLabel, SCALE_MODES, setupMessages, soundLabel, TICKS_PER_BAR, trackChannels, trackMix,
    trackSound,
 } from '../domain/midi.js';
@@ -763,6 +764,20 @@ export function mount(container, { id: projectId }) {
       sound.previewNote(setupMessages({ ...track, program, drum: false }, channel), channel, 60);
    }
 
+   // ドラムキットの欄で選んだキットを、スネア(GM のドラムの 38)で鳴らして聞かせる。ドラムのトラックでなくても 10ch で鳴らす
+   function previewKit(track, kit) {
+      sound.previewNote(setupMessages({ ...track, kit, drum: true }, DRUM_CHANNEL), DRUM_CHANNEL, 38);
+   }
+
+   // ドラムキットの欄。セレクトボックスに、知っているキット(GS の並び)を出す。
+   // 一覧にない番号のキット(手で書き換えたデータなど)を持っていれば、それも選べるように先頭に足す
+   function kitSelect(id, track, initial) {
+      const kits = DRUM_KITS.some((k) => k.kit === initial) ? DRUM_KITS : [{ kit: initial }, ...DRUM_KITS];
+      const select = h('select', { id, class: 'select', onchange: () => previewKit(track, Number(select.value)) },
+         kits.map(({ kit }) => h('option', { value: String(kit), selected: kit === initial }, kitLabel(kit))));
+      return select;
+   }
+
    async function trackSoundDialog(track) {
       const sound = trackSound(track);
       const values = await formDialog({
@@ -771,7 +786,8 @@ export function mount(container, { id: projectId }) {
          wide: true,
          fields: [
             { name: 'program', label: '音色', type: 'custom', render: (id) => programPicker(id, sound.program, { onPreview: (program) => previewProgram(track, program) }) },
-            { name: 'drum', label: 'ドラム(10ch で鳴らす。音色は使わない)', type: 'checkbox', value: sound.drum },
+            { name: 'drum', label: 'ドラム(10ch で鳴らす。音色は使わず、下のドラムキットで鳴らす)', type: 'checkbox', value: sound.drum },
+            { name: 'kit', label: 'ドラムキット(選ぶとスネアを鳴らす)', type: 'custom', render: (id) => kitSelect(id, track, sound.kit) },
             {
                name: 'volume', label: '音量(0〜127)', type: 'range', value: String(sound.volume),
                min: 0, max: 127, reset: DEFAULT_VOLUME,
@@ -788,6 +804,7 @@ export function mount(container, { id: projectId }) {
       await actions.updateTrackSound(projectId, track.id, {
          program: Number(values.program),
          drum: values.drum,
+         kit: Number(values.kit),
          volume: number(values.volume, sound.volume),
          pan: number(values.pan, sound.pan),
       });

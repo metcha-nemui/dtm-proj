@@ -174,6 +174,7 @@ export function trackSound(track) {
       volume: clampInt(track?.volume ?? DEFAULT_VOLUME, 0, 127, DEFAULT_VOLUME),
       pan: clampInt(track?.pan ?? CENTER_PAN, 0, 127, CENTER_PAN),
       drum: Boolean(track?.drum),
+      kit: clampInt(track?.kit ?? 0, 0, 127, 0),
    };
 }
 
@@ -215,11 +216,15 @@ export function trackChannels(tracks) {
    return result;
 }
 
-/** 再生を始めるときに、チャンネルごとに送る設定(音色・音量・パン)。 */
+/**
+ * 再生を始めるときに、チャンネルごとに送る設定(音色・音量・パン)。
+ * ドラムのトラックでは、音色の代わりにキットの番号をプログラムチェンジで送る(GS の決まり。10ch のプログラムで
+ * キットが切り替わる。バンクセレクトは使わない)。
+ */
 export function setupMessages(track, channel) {
-   const { program, volume, pan, drum } = trackSound(track);
+   const { program, volume, pan, drum, kit } = trackSound(track);
    return [
-      ...(drum ? [] : [[0xc0 | channel, program]]),
+      [0xc0 | channel, drum ? kit : program],
       [0xb0 | channel, 7, volume],
       [0xb0 | channel, 10, pan],
    ];
@@ -377,8 +382,30 @@ export function filterPrograms(query) {
    })).filter((group) => group.programs.length);
 }
 
+/**
+ * ドラムキット(10ch のプログラム番号。0 始まり)。Roland GS の並びで、gm.dls(MSGS)が持つのもこの9つ。
+ * 音源にない番号を選ぶと、音源(spessasynth)が別のキットで鳴らす。
+ */
+export const DRUM_KITS = [
+   { kit: 0, name: 'Standard' },
+   { kit: 8, name: 'Room' },
+   { kit: 16, name: 'Power' },
+   { kit: 24, name: 'Electronic' },
+   { kit: 25, name: 'TR-808' },
+   { kit: 32, name: 'Jazz' },
+   { kit: 40, name: 'Brush' },
+   { kit: 48, name: 'Orchestra' },
+   { kit: 56, name: 'SFX' },
+];
+
+/** ドラムキットの表示名。一覧にない番号(手で書き換えたデータなど)は番号だけ出す。 */
+export function kitLabel(kit) {
+   const known = DRUM_KITS.find((k) => k.kit === kit);
+   return known ? `${kit + 1}. ${known.name}` : `${kit + 1}. キット`;
+}
+
 /** トラックの音色の表示名。 */
 export function soundLabel(track) {
-   const { program, drum } = trackSound(track);
-   return drum ? 'ドラム' : `${program + 1}. ${GM_PROGRAMS[program]}`;
+   const { program, drum, kit } = trackSound(track);
+   return drum ? `ドラム(${kitLabel(kit)})` : `${program + 1}. ${GM_PROGRAMS[program]}`;
 }

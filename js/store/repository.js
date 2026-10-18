@@ -19,7 +19,8 @@ import { normalizeNotes, normalizeScales, projectBpm, trackSound } from '../doma
 // v10: 途中の転調のため、スケールを小節ごとの並び(scales)にした。v9 の scale は1小節目のスケールにし、
 // v8 以前のデータは1小節目から C メジャーとして読み込む。
 // v11: テンプレート機能をやめた。v10 以前のデータのテンプレート(isTemplate の付いたプロジェクト)は、レーン・タスクごと捨てる。
-export const SCHEMA_VERSION = 11;
+// v12: トラックにドラムキット(kit)を足した。v11 以前のデータは Standard(0)として読み込む。
+export const SCHEMA_VERSION = 12;
 const OLDEST_READABLE_VERSION = 4;
 // 保存先に schemaVersion を記録し始めたときのバージョン。記録がない保存先は、このバージョンのデータとみなす
 const UNTRACKED_VERSION = 6;
@@ -79,6 +80,7 @@ const UNTRACKED_VERSION = 6;
  * @property {number} volume 音量(0〜127)
  * @property {number} pan パン(0〜127。64 が中央)
  * @property {boolean} drum ドラムのトラック(10ch で鳴らす)
+ * @property {number} kit ドラムキット(10ch のプログラム番号。0〜127。GS の並び)。drum でなければ使わない
  * @property {boolean} [mute] ミュート(再生で鳴らさない。書き出しには入れる)。項目がなければ false
  * @property {boolean} [solo] ソロ(ソロのトラックがあれば、それだけを鳴らす)。項目がなければ false
  * @property {string} createdAt
@@ -380,6 +382,7 @@ export function migrate(json) {
       const { scale, isTemplate, ...rest } = p;
       return { ...rest, bpm: projectBpm(p), scales: normalizeScales(p.scales ?? (scale ? [{ ...scale, bar: 1 }] : [])) };
    });
+   // v11 → v12: ドラムキットを足した(trackSound が既定値の 0 を入れる)
    result.tracks = result.tracks.map((t) => ({ ...t, ...trackSound(t) }));
    result.clips = result.clips.map((c) => ({ ...c, notes: normalizeNotes(c.notes) }));
    return result;

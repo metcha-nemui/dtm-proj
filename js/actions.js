@@ -241,7 +241,7 @@ export const renameTrack = serial(async (projectId, trackId, name) => {
    await changed(projectId);
 });
 
-/** トラックの音(音色・音量・パン・ドラムか)を変える。patch は { program?, volume?, pan?, drum? } */
+/** トラックの音(音色・音量・パン・ドラムか・ドラムキット)を変える。patch は { program?, volume?, pan?, drum?, kit? } */
 export const updateTrackSound = serial(async (projectId, trackId, patch) => {
    const tracks = await repo().getTracks(projectId);
    await repo().saveTrack(arrangementDomain.updateTrackSound(find(tracks, trackId, 'トラック'), patch));
