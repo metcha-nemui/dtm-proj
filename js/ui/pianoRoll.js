@@ -67,9 +67,6 @@ const SNAP_KEY = 'dtm-proj:piano-roll-snap';
 const HEIGHT_KEY = 'dtm-proj:piano-roll-height';
 const MIN_HEIGHT = 140; // 見出し・ルーラー・数行・ベロシティの段が見える高さ
 const KEY_STEP = ROW * 4; // 矢印キーで動かす量
-// スマホの横持ち。縦が狭いので、開くたびに目一杯の高さで出す(ドラッグしても覚えない。縦持ちの高さを上書きしないように)
-const PHONE_LANDSCAPE = matchMedia('(orientation: landscape) and (max-height: 500px) and (pointer: coarse)');
-const FULL_HEIGHT = 10000; // 目一杯(CSS の flex で、ツールバーの下までに縮む)
 
 function loadHeight() {
    try {
@@ -279,20 +276,13 @@ export function createPianoRoll({
       else el.style.removeProperty('--pr-h');
    }
 
-   // 覚えた高さ(スマホの横持ちなら目一杯)にする
+   // 覚えた高さにする(スマホの横持ちでは、CSS で画面全体に出すので効かない)
    function applyHeight() {
-      setHeight(PHONE_LANDSCAPE.matches ? FULL_HEIGHT : savedHeight);
+      setHeight(savedHeight);
    }
    applyHeight();
-   // 縦持ち・横持ちを切り替えたら合わせ直す(画面を離れたあとは外す)
-   const onOrientation = () => {
-      if (el.isConnected) applyHeight();
-      else PHONE_LANDSCAPE.removeEventListener('change', onOrientation);
-   };
-   PHONE_LANDSCAPE.addEventListener('change', onOrientation);
 
    function saveHeight(value) {
-      if (PHONE_LANDSCAPE.matches) return;
       savedHeight = value;
       try {
          if (value) localStorage.setItem(HEIGHT_KEY, String(value));
@@ -955,7 +945,7 @@ export function createPianoRoll({
    function open(id) {
       const opening = id !== clipId;
       // 閉じた状態から開くときは、オニオンスキンを初めの状態(全体 OFF・各トラック ON)に戻す
-      // 高さも覚えた高さに戻す(スマホの横持ちなら目一杯)
+      // 高さも覚えた高さに戻す
       if (!clipId) {
          onion = false;
          onionOff = new Set();

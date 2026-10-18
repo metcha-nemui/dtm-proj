@@ -425,3 +425,20 @@
       margin-left: 0;
    }
 }
+
+/* スマホの横持ち。縦が狭いので、グローバルヘッダーとツールバーの上に重ねて、画面全体に出す(高さは変えられない)。
+   再生はピアノロールのループ再生で足りる。クリップ詳細(z-index 40)・メニュー・トーストは、この上に出す */
+@media (orientation: landscape) and (max-height: 500px) and (pointer: coarse) {
+   .pr {
+      position: fixed;
+      inset: 0;
+      z-index: 30;
+      height: auto;
+      min-height: 0;
+      border-top: none;
+   }
+
+   .pr-resize {
+      display: none;
+   }
+}
