@@ -18,7 +18,7 @@
   node -e "import('./test/domain.test.js').then(m => m.report()).then(ok => process.exit(ok ? 0 : 1))"
   ```
 
-- `js/domain/` を変えたらテストを足す。画面の変更は、実際にブラウザで操作して確かめる。
+- `js/domain/` を変えたら、`test/` のそのモジュールのファイル(`midi.test.js` など。共通の部品とテスト用のデータは `helpers.js`)にテストを足す。新しいファイルを作ったら `test/domain.test.js` で読み込む。画面の変更は、実際にブラウザで操作して確かめる。
 - ブラウザでの確認は `tools/browser.mjs` を使う(確認用の CDP スクリプトを毎回書かない。足りない操作があればこのスクリプトに足す)。詳しい使い方は先頭のコメントにある:
 
   ```

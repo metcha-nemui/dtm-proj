@@ -97,7 +97,8 @@ manifest.webmanifest      PWA のマニフェスト
 sw.js                     Service Worker(オフラインでの起動のためのキャッシュ)
 icons/                    アプリのアイコン。icon.svg と icon-maskable.svg が元で、PNG はヘッドレス Chrome で書き出した
 test.html                 テストをブラウザで実行
-test/                     テスト本体(Nodeでも動く)。Supabase 実装は、APIのふりをする fetch で確かめている
+test/                     テスト(Nodeでも動く)。domain.test.js が入口で、モジュールごとの *.test.js を読む。共通の部品は helpers.js。
+                          Supabase 実装は、APIのふりをする fetch で確かめている
 supabase/                 schema.sql(テーブル定義。SQL Editor で実行)、drop.sql(すべて消す)
 docs/                     画面ごとの仕様
 tools/                    開発用(依存なし)。browser.mjs は画面の動作確認に使うヘッドレス Chrome の操作、
