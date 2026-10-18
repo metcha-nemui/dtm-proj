@@ -1093,7 +1093,7 @@ export function mount(container, { id: projectId }) {
    const MIX_BUTTONS = {
       mute: { label: 'ミュート', title: 'ミュート(再生で鳴らさない)', icon: 'volume-x' },
       solo: { label: 'ソロ', title: 'ソロ(ソロのトラックだけを鳴らす)', icon: 'headphones' },
-      reverb: { label: 'リバーブ', title: 'リバーブ(再生でリバーブを掛ける)', icon: 'waves' },
+      reverb: { label: 'リバーブ', title: 'リバーブ(再生でリバーブを掛ける)', icon: 'reverb' },
    };
 
    // ミュート・ソロ・リバーブのボタン。押すとすぐに音と表示を変え、裏で保存する

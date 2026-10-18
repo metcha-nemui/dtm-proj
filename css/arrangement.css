@@ -821,7 +821,7 @@ button.project-tab {
 /* ミュート・ソロ・リバーブが ON のときは塗りつぶす。ホバーの背景(.arr-head .btn-icon:hover)より強くして、
    ホバー中でも ON / OFF が見分けられるようにする(ホバーでは少し明るくするだけ) */
 .arr-head .arr-mix-toggle.is-on.is-mute {
-   background: var(--doing);
+   background: var(--danger);
    color: var(--accent-contrast);
 }
 
@@ -832,8 +832,8 @@ button.project-tab {
 
 /* リバーブは ON のトラックがほとんどなので、目立ちすぎないよう薄く塗る */
 .arr-head .arr-mix-toggle.is-on.is-reverb {
-   background: var(--done-soft);
-   color: var(--done);
+   background: var(--doing-soft);
+   color: var(--doing);
 }
 
 .arr-head .arr-mix-toggle.is-on:hover {

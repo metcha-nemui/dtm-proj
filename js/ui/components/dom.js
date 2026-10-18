@@ -27,15 +27,41 @@ export function h(tag, attrs, ...children) {
    return el;
 }
 
+// Lucide に合うものがないアイコン。Lucide と同じ形(24×24 の座標に線で描く)で書き、同じ作り方で SVG にする。
+// 外側の svg の属性は Lucide のアイコンが持っているものと同じ
+const CUSTOM_ICON_ATTRS = {
+   xmlns: 'http://www.w3.org/2000/svg',
+   width: 24,
+   height: 24,
+   viewBox: '0 0 24 24',
+   fill: 'none',
+   stroke: 'currentColor',
+   'stroke-width': 2,
+   'stroke-linecap': 'round',
+   'stroke-linejoin': 'round',
+};
+const CUSTOM_ICONS = {
+   // リバーブ。左右に3重の弧 ((( ))) を広げ、外側ほど薄くして残響が減っていく感じを出す
+   reverb: [
+      ['path', { d: 'M10.5 9.4a3 3 0 0 0 0 5.2' }],
+      ['path', { d: 'M13.5 9.4a3 3 0 0 1 0 5.2' }],
+      ['path', { d: 'M8.75 6.37a6.5 6.5 0 0 0 0 11.26', opacity: '0.7' }],
+      ['path', { d: 'M15.25 6.37a6.5 6.5 0 0 1 0 11.26', opacity: '0.7' }],
+      ['path', { d: 'M7 3.34a10 10 0 0 0 0 17.32', opacity: '0.45' }],
+      ['path', { d: 'M17 3.34a10 10 0 0 1 0 17.32', opacity: '0.45' }],
+   ],
+};
+
 /**
- * Lucide(CDNから読み込むグローバル)のアイコン。
- * @param {string} name Lucide のアイコン名(例: 'ellipsis-vertical')
+ * Lucide(CDNから読み込むグローバル)のアイコン。CUSTOM_ICONS にある名前なら、そちらを使う。
+ * @param {string} name Lucide のアイコン名(例: 'ellipsis-vertical')か CUSTOM_ICONS の名前
  * @param {number} [size] 幅と高さ(px)
  * @param {number} [strokeWidth] 線の太さ。省略すると Lucide の既定(2)
  */
 export function icon(name, size = 16, strokeWidth = null) {
    const key = name.replace(/(^|-)(\w)/g, (_, __, c) => c.toUpperCase());
-   const svg = window.lucide.createElement(window.lucide.icons[key]);
+   const custom = CUSTOM_ICONS[name];
+   const svg = window.lucide.createElement(custom ? ['svg', CUSTOM_ICON_ATTRS, custom] : window.lucide.icons[key]);
    svg.setAttribute('width', size);
    svg.setAttribute('height', size);
    svg.setAttribute('aria-hidden', 'true');
