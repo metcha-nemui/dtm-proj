@@ -35,6 +35,8 @@ import { projectHead } from './projectHeader.js';
 import { projectTabs } from './projectTabs.js';
 
 const DRAG_THRESHOLD = 4; // これより動かなければクリック(詳細を開く・メニューを出す)として扱う(px)
+// タッチでクリップを動かす・伸縮するときは、この時間だけ押さえてから(ms)。すぐ動かせばスクロールになる
+const HOLD_MS = 350;
 const HEAD_MIN = 192; // トラック名の列の幅(px)。名前が短ければこの幅
 const HEAD_NAME_CHARS = 10; // 名前が長ければ、全角でこの文字数が入るところまで列を広げる
 const SVG_NS = 'http://www.w3.org/2000/svg';
@@ -350,25 +352,52 @@ export function mount(container, { id: projectId }) {
    /**
     * ドラッグの共通部分。しきい値を超えて動いたら onMove(e) を呼び、離したら onEnd(moved) を呼ぶ。
     * ポインタは down.currentTarget が捕まえる(要素の外へ出ても追える)。
+    * hold が真なら、タッチのときは HOLD_MS 押さえてから(onHold() を呼んで)ドラッグにする。それより先に指が動いたら
+    * ブラウザのスクロールに任せて、onMove も onEnd も呼ばない(クリップの上から始めたスクロールで、動かしたり開いたりしない)。
     */
-   function drag(down, { onMove, onEnd }) {
+   function drag(down, { onMove, onEnd, hold = false, onHold }) {
       if (down.button !== 0) return;
       down.preventDefault(); // ドラッグ中に文字が選択されないようにする
+      const target = down.currentTarget;
+      const waitHold = hold && down.pointerType === 'touch';
+      let held = !waitHold;
+      let gaveUp = false;
+      let timer = null;
+      // 長押しが成立したら、指を動かしてもスクロールさせない(touch-action ではスクロールを許しているので、touchmove で止める)
+      const blockScroll = (e) => {
+         if (held) e.preventDefault();
+      };
+      if (waitHold) {
+         timer = setTimeout(() => {
+            held = true;
+            onHold?.();
+         }, HOLD_MS);
+         target.addEventListener('touchmove', blockScroll, { passive: false });
+      }
       let moved = false;
       dragging = true;
-      trackPointer(down.currentTarget, down, {
+      trackPointer(target, down, {
          onMove: (e) => {
+            if (gaveUp) return;
             if (!moved && Math.hypot(e.clientX - down.clientX, e.clientY - down.clientY) < DRAG_THRESHOLD) return;
+            if (!held) {
+               gaveUp = true;
+               clearTimeout(timer);
+               return;
+            }
             moved = true;
             onMove(e);
          },
          onEnd: (e) => {
+            clearTimeout(timer);
+            target.removeEventListener('touchmove', blockScroll);
             dragging = false;
             if (moved) {
                suppressClick = true;
                setTimeout(() => { suppressClick = false; });
             }
-            onEnd(moved && e.type === 'pointerup');
+            // スクロールに任せた(または取り消された)ときは、押さなかったことにする
+            if (!gaveUp && !(waitHold && !held && e.type === 'pointercancel')) onEnd(moved && e.type === 'pointerup');
             if (renderPending) {
                renderPending = false;
                render();
@@ -500,6 +529,8 @@ export function mount(container, { id: projectId }) {
       let laneEl = fromLane;
       let place = null;
       drag(down, {
+         hold: true,
+         onHold: () => clipEl.classList.add('is-moving'),
          onMove: (e) => {
             if (mode === 'move') {
                laneEl = document.elementFromPoint(e.clientX, e.clientY)?.closest('.arr-lane') ?? laneEl;
@@ -592,6 +623,10 @@ export function mount(container, { id: projectId }) {
       const clipEls = () => ids.map((id) => root.querySelector(`.clip[data-clip-id="${CSS.escape(id)}"]`)).filter(Boolean);
       let bars = 0;
       drag(down, {
+         hold: true,
+         onHold: () => {
+            for (const el of clipEls()) el.classList.add('is-moving');
+         },
          onMove: (e) => {
             bars = barAt(fromLane, e.clientX) - grab;
             const ok = canShiftSelection(data.clips, data.markers, { clipIds: ids }, bars);
@@ -975,6 +1010,10 @@ export function mount(container, { id: projectId }) {
                return;
             }
             dragClip(e, clip, edge);
+         },
+         // タッチの長押しでクリップを掴んでいる間は、ブラウザのメニューを出さない
+         oncontextmenu: (e) => {
+            if (dragging) e.preventDefault();
          },
          // クリップのダブルクリックでピアノロールを開く。空いているところなら、1小節のクリップを作る
          ondblclick: (e) => {

@@ -383,7 +383,10 @@ button.project-tab {
    color: var(--text);
    font-size: 12px;
    cursor: grab;
-   touch-action: none;
+   /* タッチでは長押ししてから動かす(arrangement.js の drag)。すぐ動かしたときはスクロールさせるので、touch-action は止めない。
+      長押しで文字の選択や OS のメニューが出ないようにする */
+   user-select: none;
+   -webkit-touch-callout: none;
 }
 
 .clip:focus-visible {
