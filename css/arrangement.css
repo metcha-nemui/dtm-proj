@@ -479,6 +479,13 @@ button.project-tab {
    cursor: ew-resize;
 }
 
+/* 指では 7px を狙えないので広げる。短いクリップでも、真ん中に掴んで動かすところが残るよう、幅の3分の1まで */
+@media (pointer: coarse) {
+   .clip-edge {
+      width: min(16px, 33%);
+   }
+}
+
 .clip-edge.is-start {
    left: 0;
 }

@@ -46,8 +46,11 @@ import { projectHead } from './projectHeader.js';
 import { projectTabs } from './projectTabs.js';
 
 const DRAG_THRESHOLD = 4; // これより動かなければクリック(詳細を開く・メニューを出す)として扱う(px)
-// タッチでクリップを動かす・伸縮するときは、この時間だけ押さえてから(ms)。すぐ動かせばスクロールになる
+// タッチでクリップを作る・動かす・伸縮するときは、この時間だけ押さえてから(ms)。すぐ動かせばスクロールになる
 const HOLD_MS = 350;
+// 長押しの途中で指がこれだけ動いたら、スクロールとみなして長押しをやめる(px)。
+// 押さえている指は少し揺れるので、マウスのしきい値より広くとる(ブラウザがスクロールを始めるのはもう少し先)
+const HOLD_SLOP = 10;
 const HEAD_MIN = 216; // トラック名の列の幅(px)。名前が短ければこの幅
 const HEAD_NAME_CHARS = 10; // 名前が長ければ、全角でこの文字数が入るところまで列を広げる
 const SVG_NS = 'http://www.w3.org/2000/svg';
@@ -71,6 +74,13 @@ export function mount(container, { id: projectId }) {
    let renderPending = false;
    // ドラッグを終えた直後の click(ボタンの上で離すと起きる)を、クリックとして扱わない
    let suppressClick = false;
+   // タッチの長押しが成立している間は、指を動かしてもスクロールさせない(touch-action ではスクロールを許しているので、touchmove で止める)。
+   // リスナーは最初から付けておく。押してから付けると、ブラウザがその指の動きを止められないもの(cancelable でない)として扱い、
+   // 長押しのあとに動かすとスクロールが始まってドラッグが pointercancel で切れることがある
+   let holding = false;
+   root.addEventListener('touchmove', (e) => {
+      if (holding && e.cancelable) e.preventDefault();
+   }, { passive: false });
    const run = (promise) => promise.catch(reportError);
    // 画面を先に動かしてから保存する操作。失敗したら、保存済みの状態で描き直す
    const runPlaced = (promise) => promise.catch((error) => {
@@ -375,7 +385,8 @@ export function mount(container, { id: projectId }) {
    }
 
    /**
-    * ドラッグの共通部分。しきい値を超えて動いたら onMove(e) を呼び、離したら onEnd(moved) を呼ぶ。
+    * ドラッグの共通部分。しきい値を超えて動いたら onMove(e) を呼び、離したら onEnd(moved, released) を呼ぶ
+    * (released は取り消されずに離したか)。
     * ポインタは down.currentTarget が捕まえる(要素の外へ出ても追える)。
     * hold が真なら、タッチのときは HOLD_MS 押さえてから(onHold() を呼んで)ドラッグにする。それより先に指が動いたら
     * ブラウザのスクロールに任せて、onMove も onEnd も呼ばない(クリップの上から始めたスクロールで、動かしたり開いたりしない)。
@@ -388,23 +399,20 @@ export function mount(container, { id: projectId }) {
       let held = !waitHold;
       let gaveUp = false;
       let timer = null;
-      // 長押しが成立したら、指を動かしてもスクロールさせない(touch-action ではスクロールを許しているので、touchmove で止める)
-      const blockScroll = (e) => {
-         if (held) e.preventDefault();
-      };
       if (waitHold) {
          timer = setTimeout(() => {
             held = true;
+            holding = true;
             onHold?.();
          }, HOLD_MS);
-         target.addEventListener('touchmove', blockScroll, { passive: false });
       }
       let moved = false;
       dragging = true;
       trackPointer(target, down, {
          onMove: (e) => {
             if (gaveUp) return;
-            if (!moved && Math.hypot(e.clientX - down.clientX, e.clientY - down.clientY) < DRAG_THRESHOLD) return;
+            const distance = Math.hypot(e.clientX - down.clientX, e.clientY - down.clientY);
+            if (!moved && distance < (held ? DRAG_THRESHOLD : HOLD_SLOP)) return;
             if (!held) {
                gaveUp = true;
                clearTimeout(timer);
@@ -415,14 +423,14 @@ export function mount(container, { id: projectId }) {
          },
          onEnd: (e) => {
             clearTimeout(timer);
-            target.removeEventListener('touchmove', blockScroll);
+            holding = false;
             dragging = false;
             if (moved) {
                suppressClick = true;
                setTimeout(() => { suppressClick = false; });
             }
             // スクロールに任せた(または取り消された)ときは、押さなかったことにする
-            if (!gaveUp && !(waitHold && !held && e.type === 'pointercancel')) onEnd(moved && e.type === 'pointerup');
+            if (!gaveUp && !(waitHold && !held && e.type === 'pointercancel')) onEnd(moved && e.type === 'pointerup', e.type === 'pointerup');
             if (renderPending) {
                renderPending = false;
                render();
@@ -443,22 +451,32 @@ export function mount(container, { id: projectId }) {
       ghost.classList.toggle('is-invalid', !ok);
    }
 
-   /** 空いているところをドラッグして、クリップを作る */
+   /**
+    * 空いているところをドラッグして、クリップを作る。タッチでは長押ししてから(押さえた小節に1小節の置き先が出て、
+    * 動かせば広がる。動かさずに離せば1小節で作る。タッチではダブルタップで作れないため)
+    */
    function dragCreate(down, track) {
       const laneEl = down.currentTarget;
       const from = barAt(laneEl, down.clientX);
       const ghost = h('div', { class: 'clip-ghost' });
       let place = null;
+      let held = false;
+      const reach = (to) => {
+         place = { trackId: track.id, startBar: Math.min(from, to), bars: Math.abs(to - from) + 1 };
+         showGhost(ghost, laneEl, place, placeable(place));
+      };
       drag(down, {
-         onMove: (e) => {
-            const to = barAt(laneEl, e.clientX);
-            place = { trackId: track.id, startBar: Math.min(from, to), bars: Math.abs(to - from) + 1 };
-            showGhost(ghost, laneEl, place, placeable(place));
+         hold: true,
+         onHold: () => {
+            held = true;
+            reach(from);
          },
-         onEnd: (moved) => {
+         onMove: (e) => reach(barAt(laneEl, e.clientX)),
+         onEnd: (moved, released) => {
             ghost.remove();
-            if (moved && needMarker()) return;
-            if (!moved || !place || !placeable(place)) return;
+            const done = moved || (held && released);
+            if (done && needMarker()) return;
+            if (!done || !place || !placeable(place)) return;
             createClip(track, place);
          },
       });
