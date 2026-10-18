@@ -11,6 +11,7 @@
 // 全体の ON / OFF と、トラックごとの ON / OFF がある。覚えておかず、閉じた状態から開くたびに「全体 OFF・各トラック ON」に戻す。
 // ベロシティ:グリッドの下の段に、ノートの頭の位置で縦棒として出す(ノートの濃さにも映す)。段を押して上下になぞると、
 // なぞった位置の棒をその高さのベロシティにする(FL Studio と同じ。選んでいるノートがあれば、選んでいるものだけを変える)。
+// Alt を押している間は既定値(100)にし、Shift を押して始めると直線で描く。
 // 新しく置くノートのベロシティは、最後に触ったノートのもの。
 //
 // 編集は手元の notes に反映してから、操作の区切り(ポインタを離したとき)ごとにクリップのノートを丸ごと保存する。
@@ -178,7 +179,7 @@ export function createPianoRoll({
    const velBars = h('div', { class: 'pr-vel-bars' });
    const vel = h('div', {
       class: 'pr-vel',
-      title: '上下になぞって、ノートのベロシティを変える(選んでいるノートがあれば、それだけ)',
+      title: '上下になぞって、ノートのベロシティを変える(選んでいるノートがあれば、それだけ)。Alt を押しながらで 100 に戻し、Shift を押して始めると直線で描く',
       onpointerdown: (e) => onVelDown(e),
       oncontextmenu: (e) => e.preventDefault(),
    }, velBars);
@@ -533,30 +534,53 @@ export function createPianoRoll({
    }
 
    // ベロシティの段を押して、なぞる。前の位置から今の位置までの間にある棒を、今の高さのベロシティにする
-   // (速くなぞっても飛ばさない)。選んでいるノートがあれば、選んでいるものだけを変える
+   // (速くなぞっても飛ばさない)。選んでいるノートがあれば、選んでいるものだけを変える。
+   // FL Studio と同じく、Alt を押している間は既定値(100)にし、Shift を押して始めると、押した位置から今の位置まで直線で描く
    function onVelDown(down) {
       if (!clipId || down.button !== 0) return;
       down.preventDefault();
       scroller.focus({ preventScroll: true });
       const targets = selected.size ? [...selected] : notes;
       const before = new Map(targets.map((n) => [n, velocityOf(n)]));
+      const raw = new Map(targets.map((n) => [n, n.velocity]));
+      const pointAt = (e) => {
+         const rect = velBars.getBoundingClientRect();
+         const value = e.altKey ? DEFAULT_VELOCITY
+            : Math.max(1, Math.min(127, Math.round(((rect.bottom - e.clientY) / (VEL_HEIGHT - VEL_PAD)) * 127)));
+         return { x: e.clientX - rect.left, value };
+      };
+      // 直線は、押した位置を始点に固定して、動かすたびに引き直す(線の外に出た棒は元の値に戻す)
+      const line = down.shiftKey ? pointAt(down) : null;
       let lastX = null;
       const paint = (e) => {
-         const rect = velBars.getBoundingClientRect();
-         const x = e.clientX - rect.left;
-         const value = Math.max(1, Math.min(127, Math.round(((rect.bottom - e.clientY) / (VEL_HEIGHT - VEL_PAD)) * 127)));
-         const from = Math.min(lastX ?? x, x) - VEL_HIT;
-         const to = Math.max(lastX ?? x, x) + VEL_HIT;
-         lastX = x;
+         const { x, value } = pointAt(e);
          let hit = false;
-         for (const n of targets) {
-            const at = n.start * PX;
-            if (at < from || at > to) continue;
-            n.velocity = value;
-            hit = true;
+         if (line) {
+            const from = Math.min(line.x, x) - VEL_HIT;
+            const to = Math.max(line.x, x) + VEL_HIT;
+            for (const n of targets) {
+               const at = n.start * PX;
+               if (at < from || at > to) {
+                  n.velocity = raw.get(n);
+                  continue;
+               }
+               const t = x === line.x ? 1 : Math.max(0, Math.min(1, (at - line.x) / (x - line.x)));
+               n.velocity = Math.round(line.value + (value - line.value) * t);
+               hit = true;
+            }
+         } else {
+            const from = Math.min(lastX ?? x, x) - VEL_HIT;
+            const to = Math.max(lastX ?? x, x) + VEL_HIT;
+            lastX = x;
+            for (const n of targets) {
+               const at = n.start * PX;
+               if (at < from || at > to) continue;
+               n.velocity = value;
+               hit = true;
+            }
          }
-         if (!hit) return;
-         lastVelocity = value;
+         if (!hit && !line) return;
+         if (hit) lastVelocity = value;
          velLabel.textContent = String(value);
          renderNotes();
       };
