@@ -811,7 +811,8 @@ button.project-tab {
    min-width: 0;
 }
 
-.arr-head-top .btn-icon {
+.arr-head-top .btn-icon,
+.arr-head-bottom .btn-icon {
    flex: none;
    width: 24px;
    height: 24px;
@@ -829,9 +830,17 @@ button.project-tab {
    color: var(--accent-contrast);
 }
 
+/* リバーブは ON のトラックがほとんどなので、目立ちすぎないよう薄く塗る */
 .arr-head .arr-mix-toggle.is-on.is-reverb {
-   background: var(--done);
-   color: var(--accent-contrast);
+   background: color-mix(in srgb, var(--done) 22%, var(--surface));
+   color: var(--done);
+}
+
+/* リバーブはアイコンの代わりに「R」の文字 */
+.arr-mix-toggle.is-reverb {
+   font-size: 13px;
+   font-weight: 700;
+   line-height: 1;
 }
 
 .arr-head .arr-mix-toggle.is-on:hover {

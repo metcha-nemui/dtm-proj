@@ -1093,12 +1093,13 @@ export function mount(container, { id: projectId }) {
    const MIX_BUTTONS = {
       mute: { label: 'ミュート', title: 'ミュート(再生で鳴らさない)', icon: 'volume-x' },
       solo: { label: 'ソロ', title: 'ソロ(ソロのトラックだけを鳴らす)', icon: 'headphones' },
-      reverb: { label: 'リバーブ', title: 'リバーブ(再生でリバーブを掛ける)', icon: 'waves' },
+      // リバーブに合う Lucide のアイコンがないので、文字で出す
+      reverb: { label: 'リバーブ', title: 'リバーブ(再生でリバーブを掛ける)', text: 'R' },
    };
 
    // ミュート・ソロ・リバーブのボタン。押すとすぐに音と表示を変え、裏で保存する
    function mixButton(track, key, on) {
-      const { label, title, icon: name } = MIX_BUTTONS[key];
+      const { label, title, icon: name, text } = MIX_BUTTONS[key];
       return h('button', {
          type: 'button',
          class: `btn btn-icon arr-mix-toggle is-${key}${on ? ' is-on' : ''}`,
@@ -1112,7 +1113,7 @@ export function mount(container, { id: projectId }) {
             render();
             saveLocal(actions.updateTrackMix(projectId, track.id, patch));
          },
-      }, icon(name, 14));
+      }, text ?? icon(name, 14));
    }
 
    function setupSortable() {
