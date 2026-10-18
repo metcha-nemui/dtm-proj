@@ -15,7 +15,7 @@ MVP、アレンジ(MIDI クリップとピアノロール)、Supabase への保�
 | ファイル | 内容 |
 |---|---|
 | [docs/board.md](docs/board.md) | プロジェクト一覧、締切パネル、ボード、タスク詳細、ガントチャート、リファレンス、セクションの色、設定 |
-| [docs/arrangement.md](docs/arrangement.md) | アレンジ画面(トラック、クリップ、セクションマーカー、連動タスク、スケール、再生、音源、.mid と WAV の書き出し) |
+| [docs/arrangement.md](docs/arrangement.md) | アレンジ画面(トラック、クリップ、セクションマーカー、連動タスク、スケール、再生、音源、.mid と WAV の書き出し、.mid の読み込み) |
 | [docs/pianoroll.md](docs/pianoroll.md) | ピアノロール(編集、ベロシティ、オニオンスキン、ループ再生) |
 | [docs/storage.md](docs/storage.md) | 保存先とログイン、通信の失敗、インポート・削除の連鎖、スキーマバージョン、PWA |
 

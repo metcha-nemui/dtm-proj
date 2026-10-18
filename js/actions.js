@@ -331,6 +331,24 @@ export const setClipNotes = serial(async (projectId, clipId, notes) => {
    await changed(projectId);
 });
 
+/**
+ * クリップのノートを丸ごと置き換え、bars を渡せば長さも変える(.mid の読み込み)。
+ * 長さを変えるときは、移動・伸縮と同じく、重なる位置やセクションマーカーの範囲の外にはできない。
+ * @returns 変える前の { notes, bars }。同じ操作に渡すと元に戻せる
+ */
+export const replaceClipNotes = serial(async (projectId, clipId, { notes, bars }) => {
+   const [clips, markers] = await Promise.all([repo().getClips(projectId), repo().getMarkers(projectId)]);
+   const clip = find(clips, clipId, 'クリップ');
+   const before = { notes: clip.notes ?? [], bars: clip.bars };
+   const resized = bars && bars !== clip.bars;
+   const placed = resized ? arrangementDomain.placeClip(clips, clipId, { bars }, markers) : clip;
+   await repo().saveClip(arrangementDomain.setClipNotes(placed, notes));
+   // 長さが変わると、どのセクションに出るかが変わることがある
+   if (resized) await syncArrangement(projectId);
+   await changed(projectId);
+   return before;
+});
+
 /** クリップの移動・伸縮・トラック間の移動。patch は { trackId?, startBar?, bars? } */
 export const placeClip = serial(async (projectId, clipId, patch) => {
    const [tracks, clips, markers] = await Promise.all([

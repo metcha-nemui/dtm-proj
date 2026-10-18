@@ -30,6 +30,7 @@ import { openMenu } from './components/menu.js';
 import { drawMarquee, trackPointer } from './components/pointer.js';
 import { reportError, showToast } from './components/toast.js';
 import { clipMidi, downloadMidi } from './midiExport.js';
+import { importMidiToClip } from './midiImport.js';
 import { previewNote } from '../synth.js';
 
 const ROW = 12; // 1音の高さ(px)
@@ -222,6 +223,10 @@ export function createPianoRoll({
          h('span', { class: 'pr-onion-tools' }, onionToggle, onionTracks),
          h('span', { class: 'pr-spacer' }),
          playButton,
+         h('button', {
+            type: 'button', class: 'btn btn-icon', title: '.mid を読み込む(ノートを置き換える)', 'aria-label': '.mid を読み込む',
+            onclick: () => { if (clipId) importMidiToClip(projectId, clipId); },
+         }, icon('upload')),
          h('button', {
             type: 'button', class: 'btn btn-icon', title: '.mid を書き出す', 'aria-label': '.mid を書き出す',
             onclick: () => downloadMidi(currentMidi()),

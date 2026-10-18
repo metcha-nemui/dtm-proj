@@ -1,4 +1,4 @@
-// アレンジのクリップを MIDI として扱うためのドメインロジック(ノート、音色、再生するイベント列、.mid の書き出し)。
+// アレンジのクリップを MIDI として扱うためのドメインロジック(ノート、音色、再生するイベント列、.mid の書き出しと読み込み)。
 // DOMにもrepositoryにも依存しない。受け取ったレコードは変更せず、新しい値を返す。
 // 拍子は 4/4 固定、テンポは曲全体で1つ(Project.bpm)。キーは小節単位で変えられる(Project.scales。ピアノロールの表示だけに使う)。テンポチェンジや CC のオートメーションは持たない(下書き用)。
 //
@@ -418,6 +418,140 @@ export function buildMidiFile({ title = '', bpm, tracks, clips, offsetBar = 1 })
    });
    const header = [...ascii('MThd'), ...u32(6), 0, 1, 0, chunks.length + 1, (PPQ >> 8) & 0xff, PPQ & 0xff];
    return new Uint8Array([...header, ...trackChunk(conductor), ...chunks.flat()]);
+}
+
+// ---- Standard MIDI File(.mid)の読み込み ----
+
+/**
+ * .mid(SMF フォーマット0 / 1)を読み、ノートだけを取り出す。クリップに読み込むのに使う(FL Studio のピアノロールで
+ * 書き出したものを想定)。位置はファイルの頭(tick 0)からの、このアプリの tick(PPQ)に換算する。
+ * テンポは使わない(tick のまま取り込めば位置は保たれる)。CC・ピッチベンド・プログラムチェンジなどは読み込まず、数だけ返す。
+ * トラックとチャンネルの組ごとに分けて返す(フォーマット0 の複数チャンネルも、別々に選べるようにするため)。
+ * ノートオフはベロシティ 0 のノートオンでもよい。同じ高さのノートが重なったときは、先に始まったものから閉じる。
+ * トラックの終わりまで閉じなかったノートは、トラックの終わりで閉じる。
+ * @param {Uint8Array|ArrayBuffer} input
+ * @returns {{ tracks: { name: string, channel: number, notes: object[] }[], otherMeter: boolean, skipped: number }}
+ *   tracks はノートのあるものだけ(ファイルの順)。otherMeter は 4/4 以外の拍子があるか。skipped は読み込まなかったイベントの数
+ */
+export function parseMidiFile(input) {
+   const bytes = input instanceof Uint8Array ? input : new Uint8Array(input);
+   const broken = () => new Error('.mid ファイルとして読めません');
+   const text = (from, to) => String.fromCharCode(...bytes.subarray(from, to));
+   const u16 = (at) => (bytes[at] << 8) | bytes[at + 1];
+   const u32 = (at) => ((bytes[at] << 24) | (bytes[at + 1] << 16) | (bytes[at + 2] << 8) | bytes[at + 3]) >>> 0;
+
+   if (bytes.length < 14 || text(0, 4) !== 'MThd') throw broken();
+   const headerLength = u32(4);
+   const format = u16(8);
+   const division = u16(12);
+   if (format > 1) throw new Error(`フォーマット${format}の .mid には対応していません`);
+   // 最上位ビットが立っていれば SMPTE(秒ベース)の時間単位。拍に換算できないので扱わない
+   if (division & 0x8000 || division === 0) throw new Error('この時間単位(SMPTE)の .mid には対応していません');
+   const toTick = (tick) => Math.round((tick * PPQ) / division);
+
+   const groups = new Map(); // `${トラック}:${チャンネル}` → { name, channel, notes }
+   let otherMeter = false;
+   let skipped = 0;
+   let trackIndex = 0;
+   for (let at = 8 + headerLength; at + 8 <= bytes.length;) {
+      const type = text(at, at + 4);
+      const end = at + 8 + u32(at + 4);
+      if (end > bytes.length) throw broken();
+      if (type === 'MTrk') {
+         const track = readTrack(at + 8, end);
+         for (const [channel, notes] of track.notes) {
+            groups.set(`${trackIndex}:${channel}`, { name: track.name, channel, notes, multi: track.notes.size > 1 });
+         }
+         trackIndex++;
+      }
+      at = end; // 知らない種類のチャンクは読み飛ばす
+   }
+
+   function readTrack(from, end) {
+      let pos = from;
+      const byte = () => {
+         if (pos >= end) throw broken();
+         return bytes[pos++];
+      };
+      const readVarLen = () => {
+         let value = 0;
+         for (let i = 0; i < 4; i++) {
+            const b = byte();
+            value = value * 128 + (b & 0x7f);
+            if (!(b & 0x80)) return value;
+         }
+         throw broken();
+      };
+      let name = '';
+      let tick = 0;
+      let status = 0; // ランニングステータス(直前のチャンネルメッセージのステータス)
+      const open = new Map(); // `${チャンネル}:${高さ}` → 鳴っているノート(始まった順)
+      const notes = new Map(); // チャンネル → ノート
+      const close = (key, at) => {
+         const note = open.get(key)?.shift();
+         if (!note) return; // 対になるノートオンがない
+         const start = toTick(note.start);
+         notes.get(note.channel).push({ pitch: note.pitch, start, length: Math.max(1, toTick(at) - start), velocity: note.velocity });
+      };
+      while (pos < end) {
+         tick += readVarLen();
+         let b = bytes[pos];
+         if (b & 0x80) pos++;
+         else if (status) b = status;
+         else throw broken();
+         if (b === 0xff) {
+            status = 0;
+            const meta = byte();
+            const length = readVarLen();
+            if (pos + length > end) throw broken();
+            const body = bytes.subarray(pos, pos + length);
+            pos += length;
+            if (meta === 0x03 && !name) name = new TextDecoder().decode(body).trim();
+            if (meta === 0x58 && (body[0] !== BEATS_PER_BAR || body[1] !== 2)) otherMeter = true;
+            if (meta === 0x2f) break;
+         } else if (b === 0xf0 || b === 0xf7) {
+            status = 0;
+            pos += readVarLen(); // SysEx は使わない
+            if (pos > end) throw broken();
+         } else {
+            status = b;
+            const kind = b & 0xf0;
+            const channel = b & 0x0f;
+            const d1 = byte();
+            const d2 = kind === 0xc0 || kind === 0xd0 ? 0 : byte();
+            const key = `${channel}:${d1}`;
+            if (kind === 0x90 && d2 > 0) {
+               if (!open.has(key)) open.set(key, []);
+               open.get(key).push({ channel, pitch: d1, velocity: d2, start: tick });
+               if (!notes.has(channel)) notes.set(channel, []);
+            } else if (kind === 0x80 || kind === 0x90) {
+               close(key, tick);
+            } else {
+               skipped++;
+            }
+         }
+      }
+      for (const [key, list] of open) while (list.length) close(key, tick);
+      for (const [channel, list] of notes) {
+         if (list.length) notes.set(channel, normalizeNotes(list));
+         else notes.delete(channel);
+      }
+      return { name, notes };
+   }
+
+   // 1本のトラックに複数のチャンネルがあれば(フォーマット0 など)、名前にチャンネルを添えて見分ける
+   const tracks = [...groups.values()].map(({ name, channel, notes, multi }) => ({
+      name: multi ? `${name || 'トラック'}(${channel + 1}ch)` : name,
+      channel,
+      notes,
+   }));
+   return { tracks, otherMeter, skipped };
+}
+
+/** ノートが最後まで収まる小節数(1以上)。読み込んだノートに合わせてクリップを伸ばすのに使う。 */
+export function notesBars(notes) {
+   const end = Math.max(0, ...normalizeNotes(notes).map((n) => n.start + n.length));
+   return Math.max(1, Math.ceil(end / TICKS_PER_BAR));
 }
 
 // 書き出すファイルの名前(拡張子なし)。Windows で使えない文字を除く

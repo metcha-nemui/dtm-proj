@@ -6,7 +6,7 @@ import {
 } from '../js/domain/arrangement.js';
 import {
    audibleNotes, audibleTrackIds, audioFileName, buildMidiFile, clipTickRange, clipTicks, DRUM_CHANNEL, DRUM_KITS, filterPrograms, inScale, kitLabel, MAX_BPM,
-   midiFileName, MIN_BPM, moveScale, normalizeBpm, normalizeNotes, normalizeScale, normalizeScales, noteEvents, playbackInput, playbackMessages, PPQ,
+   midiFileName, MIN_BPM, moveScale, normalizeBpm, normalizeNotes, notesBars, parseMidiFile, normalizeScale, normalizeScales, noteEvents, playbackInput, playbackMessages, PPQ,
    projectBpm, projectScales, removeScale, RENDER_TAIL, renderInput, REVERB_SEND, scaleAt, scaleLabel, scaleSpans, secondsToTicks, setScaleAt, setupMessages, soundLabel,
    TICKS_PER_BAR, ticksToSeconds, trackChannels, trackMix, trackSound, varLen,
 } from '../js/domain/midi.js';
@@ -311,6 +311,70 @@ test('buildMidiFile: フォーマット1。テンポのトラックと、トラ�
    ]);
    const single = parseMidi(buildMidiFile({ bpm: 120, tracks: [track], clips: [clip], offsetBar: 3 }));
    equal(single[2].body.slice(name.length + 15, name.length + 19), [0, 0x90, 60, 100], 'offsetBar の小節を頭にする');
+});
+
+// テスト用の .mid を組み立てる。tracks はトラックの中身(デルタタイム付きのバイト列。終わりのメタイベントは足す)
+function smf({ format = 1, division = 96, tracks }) {
+   const u32 = (n) => [(n >>> 24) & 0xff, (n >>> 16) & 0xff, (n >>> 8) & 0xff, n & 0xff];
+   const chunk = (body) => [0x4d, 0x54, 0x72, 0x6b, ...u32(body.length + 4), ...body, 0, 0xff, 0x2f, 0];
+   return new Uint8Array([
+      0x4d, 0x54, 0x68, 0x64, ...u32(6), 0, format, 0, tracks.length, (division >> 8) & 0xff, division & 0xff,
+      ...tracks.flatMap(chunk),
+   ]);
+}
+
+test('parseMidiFile: 書き出した .mid を読み戻すと、同じノートになる', () => {
+   const { synth, a } = arrangementFixture();
+   const notes = [note(60, 0, PPQ, 90), note(64, PPQ, PPQ / 2), note(67, TICKS_PER_BAR + 30, 10, 127)];
+   const clip = setClipNotes(a, notes);
+   const parsed = parseMidiFile(buildMidiFile({ title: 'Song', bpm: 140, tracks: [synth], clips: [clip], offsetBar: clip.startBar }));
+   equal(parsed.tracks.map((t) => [t.name, t.channel]), [['シンセ', 0]], 'テンポだけのトラックは返さない');
+   equal(parsed.tracks[0].notes, normalizeNotes(notes));
+   equal([parsed.otherMeter, parsed.skipped], [false, 3], '音色・音量・パンは読み込まない');
+});
+
+test('parseMidiFile: FL Studio のピアノロールの書き出しのような、96 tick のファイルを 480 tick に換算する', () => {
+   const parsed = parseMidiFile(smf({ tracks: [
+      [0, 0xff, 0x51, 0x03, 0x05, 0x16, 0x15, 0, 0xff, 0x58, 0x04, 4, 2, 0x18, 8],
+      [
+         0, 0xff, 0x03, 4, ...[...'Str1'].map((c) => c.charCodeAt(0)),
+         0, 0x90, 72, 0x77, 0, 0x90, 63, 0x77, ...varLen(384), 0x80, 72, 0x40, 0, 0x80, 63, 0x40,
+         0, 0x90, 60, 0x7f, 0x30, 0x80, 60, 0x40,
+      ],
+   ] }));
+   equal(parsed.tracks, [{ name: 'Str1', channel: 0, notes: [note(63, 0, 1920, 0x77), note(72, 0, 1920, 0x77), note(60, 1920, 240, 0x7f)] }]);
+   equal(notesBars(parsed.tracks[0].notes), 2);
+});
+
+test('parseMidiFile: ランニングステータス、ベロシティ 0 のノートオフ、重なり、閉じないノート、CC', () => {
+   const parsed = parseMidiFile(smf({ division: 480, tracks: [[
+      0, 0x91, 60, 100, 60, 60, 90, // ランニングステータス。同じ高さが重なる
+      60, 60, 0, // ベロシティ 0 = ノートオフ。先に始まったものから閉じる
+      0, 0xb1, 7, 100, 0, 0xe1, 0, 0x40, 0, 0xc1, 5, // CC、ピッチベンド、プログラムチェンジは読み込まない
+      0, 0x91, 61, 90, 120, 0x81, 60, 0, 120, 61, 0,
+      ...varLen(60), 0x91, 72, 80, // 閉じないノートは、トラックの終わりで閉じる
+      ...varLen(100), 0xff, 0x01, 1, 0x41,
+   ]] }));
+   equal(parsed.tracks[0].notes, [note(60, 0, 120), note(60, 60, 180, 90), note(61, 120, 240, 90), note(72, 420, 100, 80)]);
+   equal(parsed.skipped, 3);
+});
+
+test('parseMidiFile: チャンネルごとに分け、4/4 以外の拍子を知らせる。対応しないファイルはエラー', () => {
+   const parsed = parseMidiFile(smf({ format: 0, division: 480, tracks: [[
+      0, 0xff, 0x03, 1, 0x41, 0, 0xff, 0x58, 0x04, 3, 2, 24, 8,
+      0, 0x90, 60, 100, 0, 0x99, 36, 100, 10, 0x80, 60, 0, 0, 0x89, 36, 0,
+   ]] }));
+   equal(parsed.tracks.map((t) => [t.name, t.channel, t.notes.length]), [['A(1ch)', 0, 1], ['A(10ch)', 9, 1]]);
+   equal(parsed.otherMeter, true);
+   equal(parseMidiFile(smf({ tracks: [[]] })).tracks, [], 'ノートがなければ空');
+   throws(() => parseMidiFile(new Uint8Array([1, 2, 3])), 'MThd で始まらない');
+   throws(() => parseMidiFile(smf({ format: 2, tracks: [] })), 'フォーマット2');
+   throws(() => parseMidiFile(smf({ division: 0xe728, tracks: [] })), 'SMPTE の時間単位');
+   throws(() => parseMidiFile(smf({ tracks: [[0, 0x90, 60]] })), '途中で切れている');
+});
+
+test('notesBars: ノートが最後まで収まる小節数。ノートがなければ1', () => {
+   equal([notesBars([]), notesBars([note(60, 0, TICKS_PER_BAR)]), notesBars([note(60, TICKS_PER_BAR, 1)])], [1, 1, 2]);
 });
 
 test('midiFileName / audioFileName: 使えない文字とコロンを除く', () => {

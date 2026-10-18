@@ -11,6 +11,7 @@ import { autoGrow, fitTextarea } from './components/autoGrow.js';
 import { h, icon } from './components/dom.js';
 import { reportError, showToast } from './components/toast.js';
 import { clipMidi, downloadMidi } from './midiExport.js';
+import { importMidiToClip } from './midiImport.js';
 import { createReferenceField } from './referenceField.js';
 
 /** 「3〜6小節」のような範囲の表示。1小節なら「3小節目」。 */
@@ -123,6 +124,13 @@ export function createClipDrawer(projectId, { onSelectionChange, onOpenPianoRoll
                if (id) onOpenPianoRoll?.(id);
             },
          }, icon('piano', 14), 'ピアノロールで編集'),
+         h('button', {
+            type: 'button', class: 'btn btn-icon', title: '.mid を読み込む(ノートを置き換える)', 'aria-label': '.mid を読み込む',
+            onclick: () => {
+               const id = clip?.id;
+               if (id) importMidiToClip(projectId, id);
+            },
+         }, icon('upload')),
          h('button', {
             type: 'button', class: 'btn btn-icon', title: '.mid を書き出す', 'aria-label': '.mid を書き出す',
             onclick: () => downloadMidi(midi()),
