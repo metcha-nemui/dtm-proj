@@ -278,7 +278,8 @@
    background: color-mix(in srgb, var(--text-muted) 30%, transparent);
 }
 
-.pr-onion-tools {
+.pr-onion-tools,
+.pr-edit-tools {
    display: inline-flex;
    gap: 2px;
 }

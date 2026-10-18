@@ -168,15 +168,16 @@ export function createPianoRoll({
       onpointerdown: (e) => onGridDown(e),
       oncontextmenu: (e) => e.preventDefault(),
    }, rows, onionLayer, layer, playhead);
-   // 選んでいるノートを消す(Delete キーと同じ。キーのないタッチの画面のため。選んでいるときだけ出す)
-   const deleteButton = h('button', {
-      type: 'button',
-      class: 'btn btn-icon',
-      title: '選んだノートを消す',
-      'aria-label': '選んだノートを消す',
-      hidden: true,
-      onclick: () => deleteSelected(),
-   }, icon('trash-2'));
+   // 選んでいるノートを動かす・消す(矢印キー・Delete キーと同じ。キーのないタッチの画面のため。選んでいるときだけ出す)
+   const editButton = (name, label, onclick) => h('button', {
+      type: 'button', class: 'btn btn-icon', title: label, 'aria-label': label, onclick,
+   }, icon(name));
+   const editTools = h('span', { class: 'pr-edit-tools', hidden: true },
+      editButton('arrow-left', '選んだノートをグリッド1つ分左へ', () => nudge(-snap, 0)),
+      editButton('arrow-right', '選んだノートをグリッド1つ分右へ', () => nudge(snap, 0)),
+      editButton('arrow-down', '選んだノートを半音下げる', () => nudge(0, -1)),
+      editButton('arrow-up', '選んだノートを半音上げる', () => nudge(0, 1)),
+      editButton('trash-2', '選んだノートを消す', () => deleteSelected()));
    const onionToggle = h('button', {
       type: 'button',
       class: 'btn btn-icon pr-onion-toggle',
@@ -233,7 +234,7 @@ export function createPianoRoll({
          scaleText,
          h('span', { class: 'pr-onion-tools' }, onionToggle, onionTracks),
          h('span', { class: 'pr-spacer' }),
-         deleteButton,
+         editTools,
          playButton,
          h('button', {
             type: 'button', class: 'btn btn-icon', title: '.mid を読み込む(ノートを置き換える)', 'aria-label': '.mid を読み込む',
@@ -424,7 +425,7 @@ export function createPianoRoll({
          dataset: { index: String(i) },
          title: `${pitchName(n.pitch)} ベロシティ ${velocityOf(n)}${dup(n) ? '(同じ位置に重なっているノートがあります)' : ''}`,
       })));
-      deleteButton.hidden = !selected.size;
+      editTools.hidden = !selected.size;
       // 選んでいるノートの棒は、ほかの棒に隠れないよう後ろ(上)に描く
       const order = [...notes.filter((n) => !selected.has(n)), ...notes.filter((n) => selected.has(n))];
       velBars.replaceChildren(...order.map((n) => h('div', {
@@ -905,20 +906,27 @@ export function createPianoRoll({
       } else if ((e.key === 'ArrowUp' || e.key === 'ArrowDown') && list.length) {
          // 上下で半音(Shift か Ctrl で1オクターブ)動かす
          e.preventDefault();
-         const step = (e.key === 'ArrowUp' ? 1 : -1) * (e.shiftKey || e.ctrlKey || e.metaKey ? 12 : 1);
-         if (list.some((n) => n.pitch + step < 0 || n.pitch + step > 127)) return;
-         for (const n of list) n.pitch += step;
-         if (list.length === 1) preview(list[0].pitch, velocityOf(list[0]));
-         commit();
+         nudge(0, (e.key === 'ArrowUp' ? 1 : -1) * (e.shiftKey || e.ctrlKey || e.metaKey ? 12 : 1));
       } else if ((e.key === 'ArrowLeft' || e.key === 'ArrowRight') && list.length) {
          // 左右でグリッド1つ分(Shift か Ctrl で1小節)動かす
          e.preventDefault();
-         const step = (e.key === 'ArrowRight' ? 1 : -1) * (e.shiftKey || e.ctrlKey || e.metaKey ? TICKS_PER_BAR : snap);
-         const range = shiftRange(list);
-         if (step < range.min || step > range.max) return;
-         for (const n of list) n.start += step;
-         commit();
+         nudge((e.key === 'ArrowRight' ? 1 : -1) * (e.shiftKey || e.ctrlKey || e.metaKey ? TICKS_PER_BAR : snap), 0);
       }
+   }
+
+   // 選んでいるノートをまとめて tick 分右へ、pitch 分上へ動かす。1つでも鍵盤やクリップの範囲を出るなら動かさない
+   function nudge(tick, pitch) {
+      const list = [...selected];
+      if (!list.length) return;
+      if (list.some((n) => n.pitch + pitch < 0 || n.pitch + pitch > 127)) return;
+      const range = shiftRange(list);
+      if (tick < range.min || tick > range.max) return;
+      for (const n of list) {
+         n.start += tick;
+         n.pitch += pitch;
+      }
+      if (pitch && list.length === 1) preview(list[0].pitch, velocityOf(list[0]));
+      commit();
    }
 
    // ---- 読み込み ----
