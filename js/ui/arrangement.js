@@ -38,7 +38,7 @@ import { projectTabs } from './projectTabs.js';
 const DRAG_THRESHOLD = 4; // これより動かなければクリック(詳細を開く・メニューを出す)として扱う(px)
 // タッチでクリップを動かす・伸縮するときは、この時間だけ押さえてから(ms)。すぐ動かせばスクロールになる
 const HOLD_MS = 350;
-const HEAD_MIN = 192; // トラック名の列の幅(px)。名前が短ければこの幅
+const HEAD_MIN = 216; // トラック名の列の幅(px)。名前が短ければこの幅
 const HEAD_NAME_CHARS = 10; // 名前が長ければ、全角でこの文字数が入るところまで列を広げる
 const SVG_NS = 'http://www.w3.org/2000/svg';
 
@@ -986,19 +986,6 @@ export function mount(container, { id: projectId }) {
          dataset: { focusKey: `track-menu:${track.id}` },
          onclick: () => openMenu(menuButton, [
             { label: '名前を変更', onSelect: () => run(renameTrackDialog(projectId, track)) },
-            { label: '音色', onSelect: () => run(trackSoundDialog(projectId, track, data.tracks)) },
-            // ミュート・ソロと同じく、すぐ音に効かせて裏で保存する。見出しの表示は変わらないので、再描画しない
-            // (作り直すと、開いているメニューのボタンが消える)
-            {
-               label: 'リバーブ',
-               checked: trackMix(track).reverb,
-               onSelect: () => {
-                  const reverb = !trackMix(data.tracks.find((t) => t.id === track.id) ?? track).reverb;
-                  setLocalTrack(track.id, { reverb });
-                  saveLocal(actions.updateTrackMix(projectId, track.id, { reverb }));
-                  return reverb;
-               },
-            },
             { label: '削除', danger: true, onSelect: () => run(deleteTrackDialog(projectId, track, data)) },
          ]),
       }, icon('ellipsis-vertical'));
@@ -1049,7 +1036,7 @@ export function mount(container, { id: projectId }) {
       boundaries.map((bar) => h('div', { class: 'arr-boundary', style: { '--start': String(bar) } })),
       clips.map(clipElement));
 
-      const { mute, solo } = trackMix(track);
+      const { mute, solo, reverb } = trackMix(track);
       return h('div', { class: `arr-row arr-track${audible.has(track.id) ? '' : ' is-silent'}`, dataset: { trackId: track.id } },
          h('div', { class: 'arr-head', title: 'ドラッグで並べ替え' },
             // 番号とつまみのアイコンは同じ場所に重ね、ホバーしたらアイコンに切り替える(CSS)
@@ -1071,7 +1058,8 @@ export function mount(container, { id: projectId }) {
                      onclick: () => run(trackSoundDialog(projectId, track, data.tracks)),
                   }, soundLabel(track)),
                   soundKnob(track, 'volume'),
-                  soundKnob(track, 'pan')))),
+                  soundKnob(track, 'pan'),
+                  mixButton(track, 'reverb', reverb)))),
          lane);
    }
 
@@ -1102,13 +1090,19 @@ export function mount(container, { id: projectId }) {
       });
    }
 
-   // ミュート・ソロのボタン。押すとすぐに音と表示を変え、裏で保存する
+   const MIX_BUTTONS = {
+      mute: { label: 'ミュート', title: 'ミュート(再生で鳴らさない)', icon: 'volume-x' },
+      solo: { label: 'ソロ', title: 'ソロ(ソロのトラックだけを鳴らす)', icon: 'headphones' },
+      reverb: { label: 'リバーブ', title: 'リバーブ(再生でリバーブを掛ける)', icon: 'waves' },
+   };
+
+   // ミュート・ソロ・リバーブのボタン。押すとすぐに音と表示を変え、裏で保存する
    function mixButton(track, key, on) {
-      const label = key === 'mute' ? 'ミュート' : 'ソロ';
+      const { label, title, icon: name } = MIX_BUTTONS[key];
       return h('button', {
          type: 'button',
          class: `btn btn-icon arr-mix-toggle is-${key}${on ? ' is-on' : ''}`,
-         title: key === 'mute' ? 'ミュート(再生で鳴らさない)' : 'ソロ(ソロのトラックだけを鳴らす)',
+         title,
          'aria-label': `${track.name}の${label}`,
          'aria-pressed': String(on),
          dataset: { focusKey: `${key}:${track.id}` },
@@ -1118,7 +1112,7 @@ export function mount(container, { id: projectId }) {
             render();
             saveLocal(actions.updateTrackMix(projectId, track.id, patch));
          },
-      }, icon(key === 'mute' ? 'volume-x' : 'headphones', 14));
+      }, icon(name, 14));
    }
 
    function setupSortable() {
