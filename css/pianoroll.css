@@ -213,7 +213,11 @@
    position: relative;
    overflow: hidden;
    cursor: crosshair;
-   touch-action: none;
+   /* タッチでは、指を動かせばスクロールにする(タップで置き、長押ししてから動かす。pianoRoll.js の onTouchDown)。
+      長押しで文字の選択や OS のメニューが出ないようにする */
+   touch-action: pan-x pan-y;
+   user-select: none;
+   -webkit-touch-callout: none;
 }
 
 /* 転調の区間ごとの列。区間の行を縦に積み、列を横に並べる */
