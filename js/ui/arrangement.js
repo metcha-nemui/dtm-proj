@@ -807,7 +807,7 @@ export function mount(container, { id: projectId }) {
             'aria-label': 'アレンジ全体を書き出す',
             onclick: (e) => openMenu(e.currentTarget, [
                { label: '.mid で書き出す', onSelect: () => downloadMidi(arrangementMidi(project, data.tracks, data.clips)) },
-               { label: 'WAV で書き出す(音源で鳴らした音)', onSelect: () => { exportAudio(); } },
+               { label: '.wav で書き出す', onSelect: () => { exportAudio(); } },
             ]),
          }, icon('download')));
    }
