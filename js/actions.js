@@ -401,6 +401,8 @@ export const deleteMarker = serial(async (projectId, markerId) => {
 export const restoreMarker = serial(async (marker) => {
    const markers = await repo().getMarkers(marker.projectId);
    if (markers.some((m) => m.bar === marker.bar)) throw new Error(`${marker.bar}小節目にほかのマーカーがあるので、元に戻せません`);
+   // 1つのセクションにマーカーは1つだけ。消している間に、同じセクションを別の小節に置いていたら戻さない
+   if (markers.some((m) => m.laneId === marker.laneId)) throw new Error('同じセクションのマーカーをほかの小節に置いたので、元に戻せません');
    await repo().saveMarker(marker);
    await syncArrangement(marker.projectId);
    await changed(marker.projectId);

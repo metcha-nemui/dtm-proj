@@ -210,21 +210,28 @@ export function shiftSelection(clips, markers, { clipIds = [], markerIds = [] },
 // ---- セクションマーカー ----
 // マーカーはボードのセクション(レーン)を指す。名前と色はレーンのものを使い、マーカーには持たせない。
 // セクションは、マーカーの小節から次のマーカーの手前まで続く。同じ小節には1つだけ置ける。
+// 1つのセクションを指すマーカーは1つだけ(以前は何度でも使えたので、そのころのデータには重複が残っていることがある。
+// 重複は消さずにそのまま扱い、新しく置くときと、指すセクションを変えるときだけ止める)。
 
 function assertFreeBar(markers, bar, ignoreId = null) {
    if (!isBar(bar)) throw new Error('小節の指定が正しくありません');
    if (markers.some((m) => m.id !== ignoreId && m.bar === bar)) throw new Error(`${bar}小節目には、すでにマーカーがあります`);
 }
 
-/** マーカーを置く。lane はセクションのレーン(「全体」レーンは置けない)。 */
+function assertUnusedLane(markers, lane, ignoreId = null) {
+   if (markers.some((m) => m.id !== ignoreId && m.laneId === lane.id)) throw new Error(`「${lane.name}」のマーカーは、すでにあります`);
+}
+
+/** マーカーを置く。lane はセクションのレーン(「全体」レーンや、すでにマーカーのあるセクションは置けない)。 */
 export function addMarker(projectId, markers, lane, bar) {
    assertSection(lane, 'マーカーに');
+   assertUnusedLane(markers, lane);
    assertFreeBar(markers, bar);
    return newRecord({ projectId, laneId: lane.id, bar });
 }
 
 /**
- * マーカーの小節か、指すセクションを変える。
+ * マーカーの小節か、指すセクションを変える。ほかのマーカーが指しているセクションには変えられない。
  * @param {{ bar?: number, lane?: object }} patch
  */
 export function updateMarker(markers, markerId, { bar, lane }) {
@@ -237,6 +244,7 @@ export function updateMarker(markers, markerId, { bar, lane }) {
    }
    if (lane) {
       assertSection(lane, 'マーカーに');
+      if (lane.id !== marker.laneId) assertUnusedLane(markers, lane, markerId);
       next.laneId = lane.id;
    }
    return touch(marker, next);
@@ -266,7 +274,7 @@ function sectionSpans(markers) {
 /**
  * マーカーの区間に入っているクリップ(マーカーを動かすときに、一緒に動かすか尋ねるためのもの)。
  * 区間をまたぐクリップは、重なる小節数がいちばん多い区間に入れる(同数なら先の区間)。
- * clipSection と違って同じセクションの区間を合計しないので、同じセクションを何度か使っていても、その区間のものだけ。
+ * clipSection と違って同じセクションの区間を合計しないので、同じセクションのマーカーが重複している(以前のデータ)ときも、その区間のものだけ。
  */
 export function markerClips(clips, markers, markerId) {
    const spans = sectionSpans(markers);
@@ -291,7 +299,7 @@ export function inSection(markers, place) {
 
 /**
  * クリップが属するセクション(レーンID)。区間と重なる小節数をセクションごとに合計し、いちばん多いもの。
- * 同じセクションをマーカーで何度か使っていれば、その分を足す。同数なら先(左)に出てくるセクション。
+ * 同じセクションのマーカーが重複していれば(以前のデータ)、その分を足す。同数なら先(左)に出てくるセクション。
  * どの区間にも重ならなければ null(無所属)。
  */
 export function clipSection(clip, markers) {

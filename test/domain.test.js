@@ -605,13 +605,14 @@ test('placeClip: 移動・伸縮・トラック間の移動。重なるなら拒
    equal(updateClip(a, { name: ' ', memo: 'メモ' }), { ...a, name: '', memo: 'メモ', updatedAt: updateClip(a, {}).updatedAt });
 });
 
-test('マーカー: セクションを指し、同じ小節には1つだけ。「全体」レーンは置けない', () => {
+test('マーカー: セクションを指し、同じ小節・同じセクションには1つだけ。「全体」レーンは置けない', () => {
    const { project, lanes, lane } = arrangementFixture();
    const intro = addMarker(project.id, [], lane('イントロ'), 1);
    const verse = addMarker(project.id, [intro], lane('Aメロ'), 9);
    throws(() => addMarker(project.id, [intro, verse], lane('Bメロ'), 9), '同じ小節');
    throws(() => addMarker(project.id, [], lanes.find((l) => l.type === 'global'), 5), '全体レーン');
    throws(() => addMarker(project.id, [], lane('Bメロ'), 0), '0小節目');
+   throws(() => addMarker(project.id, [intro, verse], lane('Aメロ'), 17), '同じセクション');
    const markers = [verse, intro];
    const spans = markerSpans(markers, lanes, 32);
    equal(spans.map((s) => [s.lane.name, s.from, s.to]), [['イントロ', 1, 8], ['Aメロ', 9, 32]], '次のマーカーの手前まで');
@@ -620,6 +621,11 @@ test('マーカー: セクションを指し、同じ小節には1つだけ。�
    equal(updateMarker(markers, verse.id, { bar: 9 }).bar, 9, '自分の小節には置ける');
    const changed = updateMarker(markers, verse.id, { bar: 17, lane: lane('サビ') });
    equal([changed.bar, changed.laneId], [17, lane('サビ').id]);
+   throws(() => updateMarker(markers, verse.id, { lane: lane('イントロ') }), 'ほかのマーカーが指すセクション');
+   equal(updateMarker(markers, verse.id, { lane: lane('Aメロ') }).laneId, lane('Aメロ').id, '自分のセクションのまま');
+   // 以前のデータには同じセクションのマーカーが重複していることがある。消さずに、動かすことはできる
+   const twin = { ...addMarker(project.id, [], lane('Aメロ'), 25), id: 'twin' };
+   equal(updateMarker([...markers, twin], twin.id, { bar: 29 }).bar, 29, '重複したマーカーも動かせる');
 });
 
 test('arrangementBars: 中身の後ろに余白を取り、4小節単位で伸びる', () => {
@@ -633,7 +639,7 @@ test('arrangementBars: 中身の後ろに余白を取り、4小節単位で伸�
 
 // ---- アレンジとボードの連動タスク ----
 
-test('clipSection: 重なる小節がいちばん多いセクション。同じセクションは合計し、同数なら先のもの', () => {
+test('clipSection: 重なる小節がいちばん多いセクション。同じセクションの重複(以前のデータ)は合計し、同数なら先のもの', () => {
    const { project, lanes, lane } = arrangementFixture();
    const markers = [
       addMarker(project.id, [], lane('イントロ'), 1),
@@ -892,7 +898,7 @@ test('markerClips: マーカーの区間に入っているクリップ。また�
    const all = [...clips, c, d, e];
    const verse = addMarker(project.id, [], lane('Aメロ'), 1);
    const chorus = addMarker(project.id, [verse], lane('サビ'), 9);
-   const verse2 = addMarker(project.id, [verse, chorus], lane('Aメロ'), 14);
+   const verse2 = addMarker(project.id, [chorus], lane('Aメロ'), 14); // 同じセクションの重複(以前のデータ)
    const markers = [verse, chorus, verse2];
    const ids = (markerId) => markerClips(all, markers, markerId).map((x) => x.id);
    equal(ids(verse.id), [a.id, c.id], 'c は 7〜8 と 9〜10 で同数なので、先の区間');

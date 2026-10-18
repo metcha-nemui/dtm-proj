@@ -829,9 +829,12 @@ export function mount(container, { id: projectId }) {
       });
    }
 
+   // まだマーカーを置いていないセクション(1つのセクションにマーカーは1つだけ)
+   const unusedSections = () => sections().filter((l) => !data.markers.some((m) => m.laneId === l.id));
+
    function openMarkerMenu(marker, lane, anchor) {
       openMenu(anchor, [
-         ...sections().filter((l) => l.id !== marker.laneId).map((l) => ({
+         ...unusedSections().map((l) => ({
             label: `「${l.name}」に変える`,
             onSelect: () => run(actions.updateMarker(projectId, marker.id, { laneId: l.id })),
          })),
@@ -878,10 +881,13 @@ export function mount(container, { id: projectId }) {
    }
 
    function openSlotMenu(bar, anchor) {
-      const list = sections();
+      const list = unusedSections();
+      const empty = sections().length
+         ? 'すべてのセクションをマーカーに使っています(1つのセクションに1つだけ)'
+         : 'ボードにセクションを追加すると、マーカーに使えます';
       openMenu(anchor, list.length
          ? list.map((lane) => ({ label: lane.name, onSelect: () => run(actions.addMarker(projectId, lane.id, bar)) }))
-         : [{ label: 'ボードにセクションを追加すると、マーカーに使えます', onSelect: () => {} }]);
+         : [{ label: empty, onSelect: () => {} }]);
    }
 
    // ---- 描画 ----
