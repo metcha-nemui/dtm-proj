@@ -4,6 +4,7 @@
 import { addDays, daysBetween, toDateString } from '../domain/date.js';
 import { ganttRange, ganttRows } from '../domain/gantt.js';
 import { h, icon } from './components/dom.js';
+import { trackPointer } from './components/pointer.js';
 
 const HEAD_ROWS = 2; // 月の段と、日の段
 
@@ -61,16 +62,11 @@ function resizeHandle(section) {
       onpointerdown: (down) => {
          if (down.button !== 0) return;
          down.preventDefault(); // ドラッグ中に文字が選択されないようにする
-         handle.setPointerCapture(down.pointerId);
          const startHeight = section.offsetHeight;
-         const move = (e) => setMaxHeight(section, clamp(startHeight + down.clientY - e.clientY));
-         const end = () => {
-            handle.removeEventListener('pointermove', move);
-            saveMaxHeight();
-         };
-         handle.addEventListener('pointermove', move);
-         handle.addEventListener('pointerup', end, { once: true });
-         handle.addEventListener('pointercancel', end, { once: true });
+         trackPointer(handle, down, {
+            onMove: (e) => setMaxHeight(section, clamp(startHeight + down.clientY - e.clientY)),
+            onEnd: saveMaxHeight,
+         });
       },
       ondblclick: () => {
          setMaxHeight(section, null);

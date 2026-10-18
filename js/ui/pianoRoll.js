@@ -27,6 +27,7 @@ import { UNTITLED_CLIP } from '../domain/arrangement.js';
 import { barRange } from './clipDrawer.js';
 import { h, icon } from './components/dom.js';
 import { openMenu } from './components/menu.js';
+import { drawMarquee, trackPointer } from './components/pointer.js';
 import { reportError, showToast } from './components/toast.js';
 import { clipMidi, downloadMidi } from './midiExport.js';
 import { previewNote } from './synth.js';
@@ -463,8 +464,6 @@ export function createPianoRoll({
       const maxGrow = Math.max(0, Math.min(...moving.map((m) => clipTicks(clip()) - m.start - m.length)));
       let moved = false;
       let lastPitch = target.pitch;
-      dragging = true;
-      grid.setPointerCapture(down.pointerId);
 
       const move = (e) => {
          if (!moved && Math.hypot(e.clientX - down.clientX, e.clientY - down.clientY) < DRAG_THRESHOLD) return;
@@ -492,17 +491,15 @@ export function createPianoRoll({
          }
          renderNotes();
       };
-      const end = () => {
-         grid.removeEventListener('pointermove', move);
-         grid.removeEventListener('pointerup', end);
-         grid.removeEventListener('pointercancel', end);
-         dragging = false;
-         const changed = created || moving.some((m) => m.note.start !== m.start || m.note.pitch !== m.pitch || m.note.length !== m.length);
-         if (changed) commit();
-      };
-      grid.addEventListener('pointermove', move);
-      grid.addEventListener('pointerup', end);
-      grid.addEventListener('pointercancel', end);
+      dragging = true;
+      trackPointer(grid, down, {
+         onMove: move,
+         onEnd: () => {
+            dragging = false;
+            const changed = created || moving.some((m) => m.note.start !== m.start || m.note.pitch !== m.pitch || m.note.length !== m.length);
+            if (changed) commit();
+         },
+      });
    }
 
    // 右クリックで消す。押したままなぞると、触れたノートを続けて消す
@@ -519,18 +516,13 @@ export function createPianoRoll({
       };
       hit(down.target);
       dragging = true;
-      grid.setPointerCapture(down.pointerId);
-      const move = (e) => hit(document.elementFromPoint(e.clientX, e.clientY));
-      const end = () => {
-         grid.removeEventListener('pointermove', move);
-         grid.removeEventListener('pointerup', end);
-         grid.removeEventListener('pointercancel', end);
-         dragging = false;
-         if (changed) commit();
-      };
-      grid.addEventListener('pointermove', move);
-      grid.addEventListener('pointerup', end);
-      grid.addEventListener('pointercancel', end);
+      trackPointer(grid, down, {
+         onMove: (e) => hit(document.elementFromPoint(e.clientX, e.clientY)),
+         onEnd: () => {
+            dragging = false;
+            if (changed) commit();
+         },
+      });
    }
 
    // ベロシティの段を押して、なぞる。前の位置から今の位置までの間にある棒を、今の高さのベロシティにする
@@ -586,18 +578,14 @@ export function createPianoRoll({
       };
       paint(down);
       dragging = true;
-      vel.setPointerCapture(down.pointerId);
-      const end = () => {
-         vel.removeEventListener('pointermove', paint);
-         vel.removeEventListener('pointerup', end);
-         vel.removeEventListener('pointercancel', end);
-         dragging = false;
-         velLabel.textContent = 'ベロシティ';
-         if (targets.some((n) => velocityOf(n) !== before.get(n))) commit();
-      };
-      vel.addEventListener('pointermove', paint);
-      vel.addEventListener('pointerup', end);
-      vel.addEventListener('pointercancel', end);
+      trackPointer(vel, down, {
+         onMove: paint,
+         onEnd: () => {
+            dragging = false;
+            velLabel.textContent = 'ベロシティ';
+            if (targets.some((n) => velocityOf(n) !== before.get(n))) commit();
+         },
+      });
    }
 
    // ---- コピー・貼り付け ----
@@ -649,12 +637,7 @@ export function createPianoRoll({
       grid.append(box);
       let last = down;
       const update = () => {
-         const to = pointAt(last);
-         const left = Math.min(from.x, to.x);
-         const right = Math.max(from.x, to.x);
-         const top = Math.min(from.y, to.y);
-         const bottom = Math.max(from.y, to.y);
-         Object.assign(box.style, { left: `${left}px`, top: `${top}px`, width: `${right - left}px`, height: `${bottom - top}px` });
+         const { left, right, top, bottom } = drawMarquee(box, from, pointAt(last));
          // 行の上端・下端の位置で比べる(描いているノートの見た目の範囲と揃える)
          const hit = (n) => {
             const x = n.start * PX;
@@ -666,23 +649,18 @@ export function createPianoRoll({
       };
       update();
       dragging = true;
-      grid.setPointerCapture(down.pointerId);
-      const move = (e) => {
-         last = e;
-         update();
-      };
-      const end = () => {
-         grid.removeEventListener('pointermove', move);
-         grid.removeEventListener('pointerup', end);
-         grid.removeEventListener('pointercancel', end);
-         scroller.removeEventListener('scroll', update);
-         box.remove();
-         dragging = false;
-      };
-      grid.addEventListener('pointermove', move);
-      grid.addEventListener('pointerup', end);
-      grid.addEventListener('pointercancel', end);
       scroller.addEventListener('scroll', update);
+      trackPointer(grid, down, {
+         onMove: (e) => {
+            last = e;
+            update();
+         },
+         onEnd: () => {
+            scroller.removeEventListener('scroll', update);
+            box.remove();
+            dragging = false;
+         },
+      });
    }
 
    // 並びを整えて保存する。選択はノートごとに引き継ぐ(中身で引き継ぐと、まったく同じ場所に重なったノートまで選ばれる)

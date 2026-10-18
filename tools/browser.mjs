@@ -7,7 +7,7 @@
 //                                                  画面は「#/」を省いたハッシュ(例: p/xxxx/arrange、settings)。
 //                                                  「#/p/…」のままだと Git Bash がパスと見なして書き換えるため
 //   node tools/browser.mjs eval "<式>"               ページで式を評価して、結果を JSON で出す(await を使える)
-//   node tools/browser.mjs click <セレクタ>          要素の中央を本物のマウスでクリックする
+//   node tools/browser.mjs click <セレクタ> [2]      要素の中央を本物のマウスでクリックする(2 ならダブルクリック)
 //   node tools/browser.mjs drag <x1> <y1> <x2> <y2> [Shift,Ctrl,Alt]   ビューポート座標でドラッグする
 //   node tools/browser.mjs key <キー> [Shift,Ctrl,Alt]   キーを押す(例: "Delete"、"a" Ctrl、" ")
 //   node tools/browser.mjs shot <出力.png> [セレクタ]   スクリーンショット。セレクタがあればその要素だけを撮る
@@ -119,8 +119,8 @@ async function navigate(cdp, url) {
 const MODIFIERS = { Alt: 1, Ctrl: 2, Meta: 4, Shift: 8 };
 const modifierBits = (list = '') => list.split(',').filter(Boolean).reduce((bits, name) => bits | (MODIFIERS[name] ?? 0), 0);
 
-async function mouse(cdp, type, x, y, modifiers = 0) {
-   await cdp.send('Input.dispatchMouseEvent', { type, x, y, modifiers, button: 'left', buttons: type === 'mouseReleased' ? 0 : 1, clickCount: 1 });
+async function mouse(cdp, type, x, y, modifiers = 0, clickCount = 1) {
+   await cdp.send('Input.dispatchMouseEvent', { type, x, y, modifiers, button: 'left', buttons: type === 'mouseReleased' ? 0 : 1, clickCount });
 }
 
 const commands = {
@@ -163,7 +163,7 @@ const commands = {
       }
    },
 
-   async click(selector) {
+   async click(selector, count = '1') {
       const cdp = await connect();
       const rect = await evaluate(cdp, `(() => {
          const el = document.querySelector(${JSON.stringify(selector)});
@@ -174,8 +174,11 @@ const commands = {
       })()`);
       if (!rect) throw new Error(`見つかりません: ${selector}`);
       await mouse(cdp, 'mouseMoved', rect.x, rect.y);
-      await mouse(cdp, 'mousePressed', rect.x, rect.y);
-      await mouse(cdp, 'mouseReleased', rect.x, rect.y);
+      // ダブルクリックは、clickCount を 1, 2 と増やして押し離しを続けて送ると dblclick になる
+      for (let i = 1; i <= Number(count); i++) {
+         await mouse(cdp, 'mousePressed', rect.x, rect.y, 0, i);
+         await mouse(cdp, 'mouseReleased', rect.x, rect.y, 0, i);
+      }
       await wait(200);
       cdp.close();
       return 'OK';

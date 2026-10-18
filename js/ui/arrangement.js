@@ -25,6 +25,7 @@ import { choiceDialog, confirmDialog, formDialog } from './components/dialog.js'
 import { h, icon, keepFocus } from './components/dom.js';
 import { knob } from './components/knob.js';
 import { openMenu } from './components/menu.js';
+import { drawMarquee, trackPointer } from './components/pointer.js';
 import { createSortable, domIndex } from './components/sortable.js';
 import { reportError, showToast } from './components/toast.js';
 import { barRange, createClipDrawer } from './clipDrawer.js';
@@ -378,34 +379,27 @@ export function mount(container, { id: projectId }) {
    function drag(down, { onMove, onEnd }) {
       if (down.button !== 0) return;
       down.preventDefault(); // ドラッグ中に文字が選択されないようにする
-      const target = down.currentTarget;
-      target.setPointerCapture(down.pointerId);
       let moved = false;
       dragging = true;
-      const move = (e) => {
-         if (!moved && Math.hypot(e.clientX - down.clientX, e.clientY - down.clientY) < DRAG_THRESHOLD) return;
-         moved = true;
-         onMove(e);
-      };
-      const end = (e) => {
-         target.removeEventListener('pointermove', move);
-         target.removeEventListener('pointerup', end);
-         target.removeEventListener('pointercancel', end);
-         dragging = false;
-         const dragged = moved && e.type === 'pointerup';
-         if (moved) {
-            suppressClick = true;
-            setTimeout(() => { suppressClick = false; });
-         }
-         onEnd(dragged);
-         if (renderPending) {
-            renderPending = false;
-            render();
-         }
-      };
-      target.addEventListener('pointermove', move);
-      target.addEventListener('pointerup', end);
-      target.addEventListener('pointercancel', end);
+      trackPointer(down.currentTarget, down, {
+         onMove: (e) => {
+            if (!moved && Math.hypot(e.clientX - down.clientX, e.clientY - down.clientY) < DRAG_THRESHOLD) return;
+            moved = true;
+            onMove(e);
+         },
+         onEnd: (e) => {
+            dragging = false;
+            if (moved) {
+               suppressClick = true;
+               setTimeout(() => { suppressClick = false; });
+            }
+            onEnd(moved && e.type === 'pointerup');
+            if (renderPending) {
+               renderPending = false;
+               render();
+            }
+         },
+      });
    }
 
    function setPlace(el, { startBar, bars }) {
@@ -584,13 +578,8 @@ export function mount(container, { id: projectId }) {
       const box = h('div', { class: 'arr-marquee' });
       let last = down;
       const update = () => {
-         const to = local(last);
-         const left = Math.min(from.x, to.x);
-         const right = Math.max(from.x, to.x);
-         const top = Math.min(from.y, to.y);
-         const bottom = Math.max(from.y, to.y);
          if (box.parentElement !== area) area.append(box);
-         Object.assign(box.style, { left: `${left}px`, top: `${top}px`, width: `${right - left}px`, height: `${bottom - top}px` });
+         const { left, right, top, bottom } = drawMarquee(box, from, local(last));
          const rect = area.getBoundingClientRect();
          const hit = [...area.querySelectorAll('.clip')].filter((el) => {
             const r = el.getBoundingClientRect();

@@ -4,6 +4,7 @@
 // 並べ替えのつまみ(Sortable の handle)の中に置くので、要素は button にして Sortable の filter に掛かるようにしている。
 
 import { h } from './dom.js';
+import { trackPointer } from './pointer.js';
 
 const SVG_NS = 'http://www.w3.org/2000/svg';
 const SWEEP = 270; // 目盛りの円弧の角度(真下を空ける)
@@ -107,27 +108,22 @@ export function knob({
       if (down.button !== 0) return;
       down.preventDefault();
       el.focus({ preventScroll: true });
-      el.setPointerCapture(down.pointerId);
       const before = current;
       let base = current;
       let y = down.clientY;
       onDragStart?.();
-      const move = (e) => {
-         // Shift を途中で押しても飛ばないよう、動いた分だけを足していく
-         base = clamp(base + (y - e.clientY) / (PX_PER_STEP * (e.shiftKey ? FINE : 1)), min, max);
-         y = e.clientY;
-         set(base);
-      };
-      const end = () => {
-         el.removeEventListener('pointermove', move);
-         el.removeEventListener('pointerup', end);
-         el.removeEventListener('pointercancel', end);
-         onDragEnd?.();
-         if (current !== before) onChange?.(current);
-      };
-      el.addEventListener('pointermove', move);
-      el.addEventListener('pointerup', end);
-      el.addEventListener('pointercancel', end);
+      trackPointer(el, down, {
+         onMove: (e) => {
+            // Shift を途中で押しても飛ばないよう、動いた分だけを足していく
+            base = clamp(base + (y - e.clientY) / (PX_PER_STEP * (e.shiftKey ? FINE : 1)), min, max);
+            y = e.clientY;
+            set(base);
+         },
+         onEnd: () => {
+            onDragEnd?.();
+            if (current !== before) onChange?.(current);
+         },
+      });
    }
 
    draw();
