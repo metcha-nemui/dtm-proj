@@ -2,7 +2,8 @@
 // 確認のたびに CDP のスクリプトを書き直さずに済むよう、よく使う操作をコマンドにしてある。
 // npm の依存を足さないため、Node の組み込みの fetch と WebSocket だけで CDP を話す(Node 22 以降)。
 //
-//   node tools/browser.mjs start [画面]            静的サーバーとヘッドレス Chrome を起動し、ログインせずに使う状態で開く
+//   node tools/browser.mjs start [画面] [幅x高さ]  静的サーバーとヘッドレス Chrome を起動し、ログインせずに使う状態で開く
+//                                                  (大きさの既定は 1280x800。スマホ幅は 390x844 など)
 //   node tools/browser.mjs open <画面>             画面を移る。読み込み中の例外とエラーのログを出す
 //                                                  画面は「#/」を省いたハッシュ(例: p/xxxx/arrange、settings)。
 //                                                  「#/p/…」のままだと Git Bash がパスと見なして書き換えるため
@@ -124,14 +125,14 @@ async function mouse(cdp, type, x, y, modifiers = 0, clickCount = 1) {
 }
 
 const commands = {
-   async start(route) {
+   async start(route, size = '1280x800') {
       if (!CHROME) throw new Error('Chrome / Edge が見つかりません');
       if (fs.existsSync(STATE)) throw new Error('起動済みです(先に stop を実行する)');
       fs.rmSync(PROFILE, { recursive: true, force: true });
       const server = spawn('python', ['-m', 'http.server', String(HTTP_PORT)], { cwd: ROOT, detached: true, stdio: 'ignore' });
       const chrome = spawn(CHROME, [
          '--headless=new', `--remote-debugging-port=${CDP_PORT}`, `--user-data-dir=${PROFILE}`,
-         '--window-size=1280,800', '--mute-audio', '--no-first-run', '--no-default-browser-check', 'about:blank',
+         `--window-size=${size.replace('x', ',')}`, '--mute-audio', '--no-first-run', '--no-default-browser-check', 'about:blank',
       ], { detached: true, stdio: 'ignore' });
       server.unref();
       chrome.unref();

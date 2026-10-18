@@ -1,0 +1,253 @@
+/* タスク詳細・クリップ詳細のドロワー(PCは右、スマホはボトムシート)と、リファレンスの欄・一覧。 */
+
+/* ---- タスク詳細ドロワー ---- */
+
+/* 枠は内側に描く。外側に出すと、レーンのスクロール領域の端で切れる */
+.task.is-selected {
+   outline: 2px solid var(--accent);
+   outline-offset: -2px;
+}
+
+.drawer {
+   position: fixed;
+   top: var(--header-h);
+   right: 0;
+   bottom: 0;
+   z-index: 40;
+   display: flex;
+   flex-direction: column;
+   width: min(var(--drawer-width), 100vw);
+   border-left: 1px solid var(--border);
+   background: var(--surface);
+   box-shadow: var(--shadow-2);
+}
+
+.drawer:focus {
+   outline: none;
+}
+
+.drawer-backdrop {
+   display: none;
+}
+
+.drawer-head {
+   flex: none;
+   display: flex;
+   align-items: center;
+   justify-content: space-between;
+   padding: var(--space-2) var(--space-2) 0 var(--space-4);
+}
+
+.drawer-head .btn-icon:hover {
+   background: var(--surface-2);
+}
+
+.drawer-body {
+   flex: 1;
+   padding: var(--space-2) var(--space-4) var(--space-4);
+   overflow-y: auto;
+}
+
+.drawer-title {
+   margin-bottom: var(--space-4);
+   font-size: 16px;
+   font-weight: 600;
+}
+
+.drawer-memo {
+   min-height: 140px;
+   /* 高さは内容に合わせて JS が決める(autoGrow.js)。手で変えるとぶつかるので止める */
+   resize: none;
+}
+
+/* 開始日と終了日を横に並べる */
+.drawer-period {
+   display: grid;
+   grid-template-columns: 1fr 1fr;
+   gap: var(--space-3);
+}
+
+/* 日付の入力欄は中身の幅を持つので、列からはみ出さないようにする */
+.drawer-period .field {
+   min-width: 0;
+}
+
+/* リファレンス:付いている曲名のチップと、その下の入力欄(候補は入力欄の下に重ねて出す) */
+.ref-field {
+   display: flex;
+   flex-direction: column;
+   gap: var(--space-2);
+}
+
+.ref-chips {
+   display: flex;
+   flex-wrap: wrap;
+   gap: var(--space-1);
+   margin: 0;
+   padding: 0;
+   list-style: none;
+}
+
+.ref-chip {
+   display: inline-flex;
+   align-items: center;
+   gap: 2px;
+   max-width: 100%;
+   padding: 2px 2px 2px var(--space-2);
+   border-radius: 999px;
+   background: var(--accent-soft);
+   font-size: 13px;
+}
+
+.ref-chip-name {
+   overflow: hidden;
+   text-overflow: ellipsis;
+   white-space: nowrap;
+}
+
+.ref-chip-remove {
+   flex: none;
+   display: inline-flex;
+   padding: 2px;
+   border: 0;
+   border-radius: 999px;
+   background: transparent;
+   color: var(--text-muted);
+   cursor: pointer;
+}
+
+.ref-chip-remove:hover {
+   background: var(--surface);
+   color: var(--text);
+}
+
+.ref-input {
+   position: relative;
+}
+
+.ref-suggestions {
+   position: absolute;
+   top: calc(100% + 2px);
+   left: 0;
+   right: 0;
+   z-index: 1;
+   max-height: 240px;
+   margin: 0;
+   padding: var(--space-1);
+   overflow-y: auto;
+   border: 1px solid var(--border);
+   border-radius: var(--radius);
+   background: var(--surface);
+   box-shadow: var(--shadow-2);
+   list-style: none;
+}
+
+.ref-suggestion {
+   padding: 6px var(--space-3);
+   border-radius: var(--radius-sm);
+   cursor: pointer;
+   overflow: hidden;
+   text-overflow: ellipsis;
+   white-space: nowrap;
+}
+
+.ref-suggestion:hover,
+.ref-suggestion[aria-selected="true"] {
+   background: var(--surface-2);
+}
+
+/* リファレンスの一覧(ボードのボタンから開くダイアログ。見るだけ) */
+.ref-dialog-list {
+   max-height: 60vh;
+   margin: 0;
+   padding: 0;
+   overflow-y: auto;
+   list-style: none;
+}
+
+.ref-dialog-list li {
+   padding: var(--space-2) 0;
+   border-bottom: 1px solid var(--border);
+   overflow-wrap: anywhere;
+}
+
+.ref-dialog-list li:last-child {
+   border-bottom: 0;
+}
+
+.segments {
+   display: flex;
+   border: 1px solid var(--border);
+   border-radius: var(--radius-sm);
+   overflow: hidden;
+}
+
+.segment {
+   flex: 1;
+   padding: 6px var(--space-2);
+   border: 0;
+   border-left: 1px solid var(--border);
+   background: var(--surface);
+   cursor: pointer;
+}
+
+.segment:first-child {
+   border-left: 0;
+}
+
+.segment:hover {
+   background: var(--surface-2);
+}
+
+.segment[aria-pressed="true"] {
+   background: var(--accent);
+   color: var(--accent-contrast);
+   font-weight: 600;
+}
+
+.segment[data-status="doing"][aria-pressed="true"] {
+   background: var(--doing);
+}
+
+.segment[data-status="done"][aria-pressed="true"] {
+   background: var(--done);
+}
+
+.drawer-foot {
+   margin-top: var(--space-5);
+   padding-top: var(--space-3);
+   border-top: 1px solid var(--border);
+}
+
+@media (min-width: 721px) {
+   /* ドロワーの下に隠れるレーンにもスクロールで届くようにする */
+   .drawer-open .board {
+      padding-right: var(--drawer-width);
+   }
+
+   .drawer-open .board-toolbar,
+   .drawer-open .lane-chips {
+      padding-right: calc(var(--drawer-width) + var(--space-4));
+   }
+}
+
+@media (max-width: 720px) {
+   /* スマホではボトムシート */
+   .drawer {
+      top: auto;
+      left: 0;
+      width: auto;
+      max-height: 85dvh;
+      border-left: 0;
+      border-top: 1px solid var(--border);
+      border-radius: var(--radius) var(--radius) 0 0;
+   }
+
+   .drawer-backdrop {
+      display: block;
+      position: fixed;
+      inset: 0;
+      z-index: 39;
+      background: rgb(0 0 0 / 0.45);
+   }
+}

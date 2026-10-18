@@ -1,0 +1,283 @@
+/* プロジェクト一覧と締切パネル。 */
+
+/* ---- プロジェクト一覧 ---- */
+
+.project-grid {
+   display: grid;
+   grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+   gap: var(--space-4);
+}
+
+.project-grid > .empty {
+   grid-column: 1 / -1;
+}
+
+.project-card {
+   position: relative;
+}
+
+.project-card:hover {
+   border-color: var(--accent);
+}
+
+.project-card-link {
+   display: flex;
+   flex-direction: column;
+   gap: var(--space-2);
+   height: 100%;
+   padding: var(--space-4);
+   border-radius: var(--radius);
+   color: inherit;
+   text-decoration: none;
+}
+
+.project-card-title {
+   padding-right: var(--space-6);
+   font-size: 16px;
+   overflow-wrap: anywhere;
+}
+
+.project-card-memo {
+   display: -webkit-box;
+   -webkit-box-orient: vertical;
+   -webkit-line-clamp: 2;
+   overflow: hidden;
+   font-size: 13px;
+   white-space: pre-wrap;
+}
+
+.project-card-meta {
+   display: flex;
+   justify-content: space-between;
+   gap: var(--space-2);
+   font-size: 12px;
+}
+
+.project-card-menu {
+   position: absolute;
+   top: var(--space-3);
+   right: var(--space-2);
+}
+
+.project-card-menu:hover {
+   background: var(--surface-2);
+}
+
+/* ---- 締切パネル(プロジェクト一覧のカードの上) ---- */
+
+.deadline-panel {
+   margin-bottom: var(--space-4);
+   padding: var(--space-3) var(--space-4) var(--space-4);
+}
+
+.deadline-head {
+   display: flex;
+   align-items: center;
+   justify-content: space-between;
+   gap: var(--space-3);
+   margin-bottom: var(--space-2);
+}
+
+.deadline-heading {
+   display: flex;
+   align-items: center;
+   gap: var(--space-2);
+   font-size: 15px;
+}
+
+.deadline-title {
+   min-width: 0;
+   overflow: hidden;
+   text-overflow: ellipsis;
+   white-space: nowrap;
+}
+
+/* リスト。日付・曜日・タイトル・残り日数・作業日の5列を、全行で同じ幅に揃える(各行は subgrid)。
+   幅は、その列で最も長いデータに合わせる。数字の列は右寄せにして、桁の違う行でも縦の位置を揃える */
+
+.deadline-list {
+   display: grid;
+   grid-template-columns: auto auto minmax(0, 1fr) auto auto;
+   margin: 0;
+   padding: 0;
+   list-style: none;
+}
+
+.deadline-list > li {
+   display: grid;
+   grid-column: 1 / -1;
+   grid-template-columns: subgrid;
+}
+
+.deadline-list > li + li {
+   border-top: 1px solid var(--border);
+}
+
+.deadline-item {
+   display: grid;
+   grid-column: 1 / -1;
+   grid-template-columns: subgrid;
+   align-items: center;
+   padding: var(--space-2) var(--space-1);
+   color: inherit;
+   text-decoration: none;
+}
+
+.deadline-item:hover {
+   background: var(--surface-2);
+}
+
+.deadline-date,
+.deadline-rest,
+.deadline-weekend {
+   justify-self: end;
+   font-variant-numeric: tabular-nums;
+}
+
+.deadline-item > .deadline-title {
+   padding: 0 var(--space-3);
+}
+
+/* 「あと◯日」に併記する土日の日数。主役は残り日数なので控えめにする */
+.deadline-weekend {
+   margin-left: 0.25em;
+   color: var(--text-muted);
+   font-size: 12px; /* 残り日数(.due)と揃える */
+   white-space: nowrap;
+}
+
+/* タイムライン。左がプロジェクト名、右が日付の帯。点の位置と今日の線はパーセントで置く */
+
+.deadline-tl {
+   --tl-label: 10em;
+   display: flex;
+   flex-direction: column;
+}
+
+.deadline-tl-head,
+.deadline-tl-row {
+   display: grid;
+   grid-template-columns: var(--tl-label) minmax(0, 1fr);
+   align-items: center;
+   gap: var(--space-3);
+}
+
+.deadline-tl-head {
+   height: 22px;
+   font-size: 12px;
+}
+
+.deadline-tl-legend {
+   display: inline-flex;
+   align-items: center;
+   gap: var(--space-1);
+   color: var(--text-muted);
+}
+
+.deadline-tl-legend::before {
+   content: "";
+   width: 2px;
+   height: 12px;
+   background: var(--accent);
+}
+
+.deadline-tl-axis,
+.deadline-tl-track {
+   position: relative;
+   height: 100%;
+}
+
+.deadline-tl-month {
+   position: absolute;
+   top: 2px;
+   padding-left: var(--space-1);
+   color: var(--text-muted);
+   white-space: nowrap;
+}
+
+/* 月の1日の目盛り(その日の左端) */
+.deadline-tl-month.is-tick {
+   border-left: 1px solid var(--border);
+}
+
+.deadline-tl-row {
+   height: 32px;
+   padding: 0 var(--space-1);
+   border-top: 1px solid var(--border);
+   color: inherit;
+   text-decoration: none;
+}
+
+.deadline-tl-row:hover {
+   background: var(--surface-2);
+}
+
+/* 今日の線。行ごとに同じ位置に引くので、縦につながって見える */
+.deadline-tl-track::before {
+   content: "";
+   position: absolute;
+   top: 0;
+   bottom: 0;
+   left: var(--today);
+   width: 2px;
+   margin-left: -1px;
+   background: var(--accent);
+   opacity: 0.6;
+}
+
+.deadline-tl-point {
+   position: absolute;
+   top: 50%;
+   padding-left: 14px;
+   transform: translateY(-50%);
+   color: var(--text-muted);
+   font-size: 12px;
+   white-space: nowrap;
+}
+
+.deadline-tl-point::before {
+   content: "";
+   position: absolute;
+   top: 50%;
+   left: -5px;
+   width: 10px;
+   height: 10px;
+   border-radius: 50%;
+   background: var(--text-muted);
+   transform: translateY(-50%);
+}
+
+.deadline-tl-point.is-flipped {
+   padding-right: 14px;
+   padding-left: 0;
+   transform: translate(-100%, -50%);
+}
+
+.deadline-tl-point.is-flipped::before {
+   right: -5px;
+   left: auto;
+}
+
+.deadline-tl-point.is-soon {
+   color: var(--doing);
+   font-weight: 600;
+}
+
+.deadline-tl-point.is-soon::before {
+   background: var(--doing);
+}
+
+.deadline-tl-point.is-overdue {
+   color: var(--danger);
+   font-weight: 600;
+}
+
+.deadline-tl-point.is-overdue::before {
+   background: var(--danger);
+}
+
+@media (max-width: 720px) {
+   .deadline-tl {
+      --tl-label: 6.5em;
+   }
+}

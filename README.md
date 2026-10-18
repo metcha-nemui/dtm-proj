@@ -105,7 +105,10 @@ tools/                    開発用(依存なし)。browser.mjs は画面の動�
 css/
   tokens.css              色・余白などのCSS変数(ダークモード対応)
   base.css                共通部品(ボタン、入力、ダイアログ、メニュー、トースト)
-  board.css               プロジェクト一覧、ボード、タスク詳細、ガントチャート、スマホレイアウト
+  projectList.css         プロジェクト一覧、締切パネル
+  board.css               ボード(レーン、タスク、計画変更、セクション一覧)とスマホのレイアウト
+  drawer.css              タスク詳細・クリップ詳細のドロワー、リファレンスの欄と一覧
+  gantt.css               ガントチャート
   arrangement.css         アレンジ画面、ボード/アレンジの切り替えタブ
   settings.css            設定
 js/
