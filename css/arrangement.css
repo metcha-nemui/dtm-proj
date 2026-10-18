@@ -936,7 +936,7 @@ button.project-tab {
    display: flex;
    flex: none;
    flex-direction: column;
-   height: min(46vh, 460px);
+   height: min(52vh, 524px);
    border-top: 2px solid var(--border);
    background: var(--surface);
 }
@@ -1013,7 +1013,7 @@ button.project-tab {
 
    display: grid;
    grid-template-columns: var(--pr-keys) var(--pr-width);
-   grid-template-rows: var(--pr-ruler-h) auto;
+   grid-template-rows: var(--pr-ruler-h) auto var(--pr-vel-h);
    width: max-content;
 }
 
@@ -1184,12 +1184,13 @@ button.project-tab {
    color: var(--accent-contrast);
 }
 
+/* ベロシティ(--vel は 0〜1)が小さいノートほど薄くする */
 .pr-note {
    position: absolute;
    height: calc(var(--pr-row) - 1px);
    border: 1px solid color-mix(in srgb, var(--accent) 70%, #000);
    border-radius: 2px;
-   background: var(--accent);
+   background: color-mix(in srgb, var(--accent) calc(35% + 65% * var(--vel, 1)), var(--surface));
    cursor: move;
 }
 
@@ -1232,6 +1233,73 @@ button.project-tab {
    border: 1px solid var(--doing);
    background: color-mix(in srgb, var(--doing) 15%, transparent);
    pointer-events: none;
+}
+
+/* ベロシティの段。グリッドの下に置き、縦にスクロールしても下端に残す */
+.pr-vel-corner,
+.pr-vel {
+   position: sticky;
+   bottom: 0;
+   z-index: 3;
+   height: var(--pr-vel-h);
+   border-top: 1px solid var(--border);
+   background: var(--surface);
+}
+
+.pr-vel-corner {
+   left: 0;
+   z-index: 4;
+   display: flex;
+   align-items: flex-end;
+   justify-content: flex-end;
+   padding: 0 3px 3px 0;
+   border-right: 1px solid var(--border);
+   color: var(--text-muted);
+   font-size: 9px;
+   font-variant-numeric: tabular-nums;
+   user-select: none;
+}
+
+.pr-vel {
+   cursor: ns-resize;
+   touch-action: none;
+   background-image:
+      linear-gradient(to right, color-mix(in srgb, var(--text-muted) 60%, transparent) 1px, transparent 1px),
+      linear-gradient(to right, var(--border) 1px, transparent 1px);
+   background-size: var(--pr-bar) 100%, var(--pr-beat) 100%;
+}
+
+.pr-vel-bars {
+   position: absolute;
+   inset: 0;
+   pointer-events: none;
+}
+
+/* ノートの頭の位置に立てる棒。上端に丸を付けて、重なっていても高さが読めるようにする */
+.pr-vel-bar {
+   position: absolute;
+   bottom: 0;
+   width: 2px;
+   background: var(--accent);
+}
+
+.pr-vel-bar::before {
+   content: "";
+   position: absolute;
+   top: -3px;
+   left: -2px;
+   width: 6px;
+   height: 6px;
+   border-radius: 50%;
+   background: inherit;
+}
+
+.pr-vel-bar.is-selected {
+   background: var(--doing);
+}
+
+.pr-vel-bar.is-outside {
+   opacity: 0.35;
 }
 
 .pr-playhead {

@@ -9,6 +9,9 @@
 // 同じ高さ・同じ位置で始まるノートが重なっていたら赤くする(気付いて片方を消せるように)。
 // オニオンスキン:ほかのトラックの、同じ時間に鳴るノートを薄く重ねて出せる(表示だけ。押せない)。
 // 全体の ON / OFF と、トラックごとの ON / OFF がある。覚えておかず、閉じた状態から開くたびに「全体 OFF・各トラック ON」に戻す。
+// ベロシティ:グリッドの下の段に、ノートの頭の位置で縦棒として出す(ノートの濃さにも映す)。段を押して上下になぞると、
+// なぞった位置の棒をその高さのベロシティにする(FL Studio と同じ。選んでいるノートがあれば、選んでいるものだけを変える)。
+// 新しく置くノートのベロシティは、最後に触ったノートのもの。
 //
 // 編集は手元の notes に反映してから、操作の区切り(ポインタを離したとき)ごとにクリップのノートを丸ごと保存する。
 // 表示の単位は px、ノートの単位は tick(midi.js)。
@@ -31,6 +34,10 @@ const ROW = 12; // 1音の高さ(px)
 const BEAT = 64; // 1拍の幅(px)
 const PX = BEAT / PPQ; // 1 tick の幅(px)
 const EDGE = 6; // ノートの右端の、掴むと長さを変えられる幅(px)
+const VEL_HEIGHT = 64; // ベロシティの段の高さ(px。CSS の --pr-vel-h に渡す)
+const VEL_PAD = 6; // ベロシティの段の上の余白(127 の棒が上端に付かないように)
+const VEL_HIT = 4; // ベロシティの段で、なぞった位置から棒を拾う幅(px)
+const DEFAULT_VELOCITY = 100;
 const DRAG_THRESHOLD = 3;
 // 3連は、元の音符の 2/3 の長さ(1/8 3連 = 4分音符を3つに分けた長さ)
 const SNAPS = [
@@ -82,6 +89,7 @@ export function createPianoRoll({
    let notes = []; // 編集中のノート(クリップの先頭からの相対)
    let selected = new Set(); // notes の要素
    let lastLength = PPQ;
+   let lastVelocity = DEFAULT_VELOCITY;
    let snap = loadSnap();
    let dragging = false;
    let pending = 0; // 保存を待っている数。その間は、読み直した(古いかもしれない)ノートで上書きしない
@@ -165,7 +173,17 @@ export function createPianoRoll({
       playButton.replaceChildren(icon(looping ? 'square' : 'play'));
    }
    updatePlayState();
-   const inner = h('div', { class: 'pr-inner' }, h('div', { class: 'pr-corner' }), ruler, keys, grid);
+   // ベロシティの段。横はグリッドと一緒にスクロールし、縦は下端に貼り付ける(CSS の sticky)
+   const velLabel = h('span', { class: 'pr-vel-label' }, 'ベロシティ');
+   const velBars = h('div', { class: 'pr-vel-bars' });
+   const vel = h('div', {
+      class: 'pr-vel',
+      title: '上下になぞって、ノートのベロシティを変える(選んでいるノートがあれば、それだけ)',
+      onpointerdown: (e) => onVelDown(e),
+      oncontextmenu: (e) => e.preventDefault(),
+   }, velBars);
+   const inner = h('div', { class: 'pr-inner', style: { '--pr-vel-h': `${VEL_HEIGHT}px` } },
+      h('div', { class: 'pr-corner' }), ruler, keys, grid, h('div', { class: 'pr-vel-corner' }, velLabel), vel);
    const scroller = h('div', { class: 'pr-scroll', tabIndex: -1, onkeydown: (e) => onKeydown(e) }, inner);
 
    const el = h('section', { class: 'pr', 'aria-label': 'ピアノロール', hidden: true },
@@ -210,11 +228,11 @@ export function createPianoRoll({
       return clipMidi(data.project, track(), { ...clip(), notes });
    }
 
-   function preview(pitch) {
+   function preview(pitch, velocity = DEFAULT_VELOCITY) {
       const t = track();
       if (!t) return;
       const channel = trackChannels(sortByOrder(data.tracks)).get(t.id);
-      previewNote(setupMessages(t, channel), channel, pitch);
+      previewNote(setupMessages(t, channel), channel, pitch, velocity);
    }
 
    // ---- 描画 ----
@@ -273,20 +291,30 @@ export function createPianoRoll({
    }
    renderGridLines();
 
+   const velocityOf = (n) => n.velocity ?? DEFAULT_VELOCITY;
+
    function renderNotes() {
       const end = clipTicks(clip());
       const onsets = new Map();
       for (const n of notes) onsets.set(onsetKey(n), (onsets.get(onsetKey(n)) ?? 0) + 1);
       const dup = (n) => onsets.get(onsetKey(n)) > 1;
+      const outside = (n) => n.start < 0 || n.start >= end;
       layer.replaceChildren(...notes.map((n, i) => h('div', {
-         class: `pr-note${selected.has(n) ? ' is-selected' : ''}${n.start < 0 || n.start >= end ? ' is-outside' : ''}${dup(n) ? ' is-dup' : ''}`,
+         class: `pr-note${selected.has(n) ? ' is-selected' : ''}${outside(n) ? ' is-outside' : ''}${dup(n) ? ' is-dup' : ''}`,
          style: {
             left: `${n.start * PX}px`,
             top: `${(127 - n.pitch) * ROW}px`,
             width: `${Math.max(3, n.length * PX)}px`,
+            '--vel': String(velocityOf(n) / 127),
          },
          dataset: { index: String(i) },
-         title: dup(n) ? `${pitchName(n.pitch)}(同じ位置に重なっているノートがあります)` : pitchName(n.pitch),
+         title: `${pitchName(n.pitch)} ベロシティ ${velocityOf(n)}${dup(n) ? '(同じ位置に重なっているノートがあります)' : ''}`,
+      })));
+      // 選んでいるノートの棒は、ほかの棒に隠れないよう後ろ(上)に描く
+      const order = [...notes.filter((n) => !selected.has(n)), ...notes.filter((n) => selected.has(n))];
+      velBars.replaceChildren(...order.map((n) => h('div', {
+         class: `pr-vel-bar${selected.has(n) ? ' is-selected' : ''}${outside(n) ? ' is-outside' : ''}`,
+         style: { left: `${n.start * PX}px`, height: `${(velocityOf(n) / 127) * (VEL_HEIGHT - VEL_PAD)}px` },
       })));
    }
 
@@ -409,11 +437,12 @@ export function createPianoRoll({
             selected = new Set([target]);
          }
          lastLength = target.length;
+         lastVelocity = velocityOf(target);
       } else {
          // 置くノートも、クリップの右端からはみ出さない長さにする
          const end = clipTicks(clip());
          const start = Math.max(0, Math.min(end - 1, snapFloor(at.tick, down.altKey)));
-         target = { pitch: at.pitch, start, length: Math.max(1, Math.min(lastLength, end - start)), velocity: 100 };
+         target = { pitch: at.pitch, start, length: Math.max(1, Math.min(lastLength, end - start)), velocity: lastVelocity };
          notes.push(target);
          selected = new Set([target]);
          created = true;
@@ -423,7 +452,7 @@ export function createPianoRoll({
          renderNotes();
          return;
       }
-      preview(target.pitch);
+      preview(target.pitch, velocityOf(target));
       renderNotes();
 
       const moving = [...selected].map((n) => ({ note: n, start: n.start, pitch: n.pitch, length: n.length }));
@@ -457,7 +486,7 @@ export function createPianoRoll({
             }
             if (target.pitch !== lastPitch) {
                lastPitch = target.pitch;
-               preview(target.pitch);
+               preview(target.pitch, velocityOf(target));
             }
          }
          renderNotes();
@@ -501,6 +530,50 @@ export function createPianoRoll({
       grid.addEventListener('pointermove', move);
       grid.addEventListener('pointerup', end);
       grid.addEventListener('pointercancel', end);
+   }
+
+   // ベロシティの段を押して、なぞる。前の位置から今の位置までの間にある棒を、今の高さのベロシティにする
+   // (速くなぞっても飛ばさない)。選んでいるノートがあれば、選んでいるものだけを変える
+   function onVelDown(down) {
+      if (!clipId || down.button !== 0) return;
+      down.preventDefault();
+      scroller.focus({ preventScroll: true });
+      const targets = selected.size ? [...selected] : notes;
+      const before = new Map(targets.map((n) => [n, velocityOf(n)]));
+      let lastX = null;
+      const paint = (e) => {
+         const rect = velBars.getBoundingClientRect();
+         const x = e.clientX - rect.left;
+         const value = Math.max(1, Math.min(127, Math.round(((rect.bottom - e.clientY) / (VEL_HEIGHT - VEL_PAD)) * 127)));
+         const from = Math.min(lastX ?? x, x) - VEL_HIT;
+         const to = Math.max(lastX ?? x, x) + VEL_HIT;
+         lastX = x;
+         let hit = false;
+         for (const n of targets) {
+            const at = n.start * PX;
+            if (at < from || at > to) continue;
+            n.velocity = value;
+            hit = true;
+         }
+         if (!hit) return;
+         lastVelocity = value;
+         velLabel.textContent = String(value);
+         renderNotes();
+      };
+      paint(down);
+      dragging = true;
+      vel.setPointerCapture(down.pointerId);
+      const end = () => {
+         vel.removeEventListener('pointermove', paint);
+         vel.removeEventListener('pointerup', end);
+         vel.removeEventListener('pointercancel', end);
+         dragging = false;
+         velLabel.textContent = 'ベロシティ';
+         if (targets.some((n) => velocityOf(n) !== before.get(n))) commit();
+      };
+      vel.addEventListener('pointermove', paint);
+      vel.addEventListener('pointerup', end);
+      vel.addEventListener('pointercancel', end);
    }
 
    // ---- コピー・貼り付け ----
@@ -630,7 +703,7 @@ export function createPianoRoll({
          const step = (e.key === 'ArrowUp' ? 1 : -1) * (e.shiftKey || e.ctrlKey || e.metaKey ? 12 : 1);
          if (list.some((n) => n.pitch + step < 0 || n.pitch + step > 127)) return;
          for (const n of list) n.pitch += step;
-         if (list.length === 1) preview(list[0].pitch);
+         if (list.length === 1) preview(list[0].pitch, velocityOf(list[0]));
          commit();
       } else if ((e.key === 'ArrowLeft' || e.key === 'ArrowRight') && list.length) {
          // 左右でグリッド1つ分(Shift か Ctrl で1小節)動かす
