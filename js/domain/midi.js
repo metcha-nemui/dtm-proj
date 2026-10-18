@@ -334,6 +334,28 @@ export const ticksToSeconds = (ticks, bpm) => (ticks * 60) / (normalizeBpm(bpm) 
 /** 秒を tick にする。 */
 export const secondsToTicks = (seconds, bpm) => (seconds * normalizeBpm(bpm) * PPQ) / 60;
 
+// ---- オーディオの書き出し ----
+
+/** オーディオの書き出しで、最後の音のあとに足す長さ(秒)。リバーブの残響と音の消え際を切らないため。 */
+export const RENDER_TAIL = 2;
+
+/**
+ * オーディオの書き出しで音源に送る中身。曲の頭から、再生(playbackInput の全体)と同じものを鳴らす(ミュート・ソロも効く)。
+ * 位置は tick の代わりにサンプルの番号(frame)にする。
+ * frames は書き出す長さ。再生の終わり(ミュートしたトラックの音も数える)に RENDER_TAIL を足す。
+ * 一部のトラックだけ(ソロ)で書き出しても長さが揃い、DAW で頭を合わせて並べられる。
+ * @returns {{ setup: { data: number[], port: number }[], events: { frame: number, data: number[], port: number }[], frames: number }}
+ */
+export function renderInput({ project, tracks, clips }, sampleRate) {
+   const input = playbackInput({ project, tracks, clips });
+   const frameOf = (tick) => Math.round(ticksToSeconds(tick, input.bpm) * sampleRate);
+   return {
+      setup: input.setup,
+      events: input.events.map((e) => ({ frame: frameOf(e.tick), data: e.data, port: e.port })),
+      frames: frameOf(input.endTick) + Math.round(RENDER_TAIL * sampleRate),
+   };
+}
+
 // ---- Standard MIDI File(.mid)の書き出し ----
 
 // 可変長数値(7ビットずつ、続きがあれば最上位ビットを立てる)
@@ -398,11 +420,16 @@ export function buildMidiFile({ title = '', bpm, tracks, clips, offsetBar = 1 })
    return new Uint8Array([...header, ...trackChunk(conductor), ...chunks.flat()]);
 }
 
-/** 書き出すファイルの名前。Windows で使えない文字を除く。 */
-export function midiFileName(...parts) {
-   const name = parts.filter(Boolean).join(' - ').replace(/[\\/:*?"<>|\u0000-\u001f]/g, '_').trim();
-   return `${name || 'clip'}.mid`;
+// 書き出すファイルの名前(拡張子なし)。Windows で使えない文字を除く
+function exportName(parts) {
+   return parts.filter(Boolean).join(' - ').replace(/[\\/:*?"<>|\u0000-\u001f]/g, '_').trim() || 'clip';
 }
+
+/** .mid のファイル名。 */
+export const midiFileName = (...parts) => `${exportName(parts)}.mid`;
+
+/** オーディオ(WAV)のファイル名。 */
+export const audioFileName = (...parts) => `${exportName(parts)}.wav`;
 
 // ---- 音色の名前(General MIDI) ----
 

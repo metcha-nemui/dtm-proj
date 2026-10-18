@@ -42,7 +42,7 @@
 
 ## 守ること
 
-- ビルドステップなしの素の HTML / CSS / JavaScript(ES Modules)。npm の依存は足さない。外部ライブラリは CDN から読む SortableJS、Lucide、spessasynth_lib(SoundFont / DLS の再生)だけ。版は固定する。
+- ビルドステップなしの素の HTML / CSS / JavaScript(ES Modules)。npm の依存は足さない。外部ライブラリは CDN から読む SortableJS、Lucide、spessasynth_lib(SoundFont / DLS の再生)と spessasynth_core(WAV の書き出し)だけ。版は固定する。
 - SoundFont / DLS のファイルはリポジトリに入れない(端末ごとに設定画面で選び、ブラウザの IndexedDB に置く)。
 - `js/domain/` は DOM にも repository にも依存しない。受け取ったレコードは変更せず、保存すべき新しいレコードを返す。
 - UI は repository を直接書き換えない。書き込みは `js/actions.js` の操作を通す(読む→計算→保存→通知を直列に実行している)。

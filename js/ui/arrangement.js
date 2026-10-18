@@ -13,7 +13,7 @@ import {
    arrangementBars, canPlace, canShiftSelection, clipEnd, clipSection, markerClips, markerSpans, UNTITLED_CLIP,
 } from '../domain/arrangement.js';
 import {
-   audibleNotes, audibleTrackIds, CENTER_PAN, clipTickRange, clipTicks, DEFAULT_VOLUME, MAX_BPM, MIN_BPM, playbackInput, PPQ,
+   audibleNotes, audibleTrackIds, audioFileName, CENTER_PAN, clipTickRange, clipTicks, DEFAULT_VOLUME, MAX_BPM, MIN_BPM, playbackInput, PPQ,
    projectBpm, projectScales, scaleLabel, soundLabel, TICKS_PER_BAR, trackMix, trackSound,
 } from '../domain/midi.js';
 import { sortByOrder } from '../domain/order.js';
@@ -25,10 +25,11 @@ import { knob } from './components/knob.js';
 import { openMenu } from './components/menu.js';
 import { drawMarquee, trackPointer } from './components/pointer.js';
 import { createSortable, domIndex } from './components/sortable.js';
-import { reportError, showToast } from './components/toast.js';
+import { reportError, showProgress, showToast } from './components/toast.js';
 import { addTrackDialog, deleteTrackDialog, openScaleMenu, renameTrackDialog, scaleDialog, trackSoundDialog } from './arrangementDialogs.js';
 import { barRange, createClipDrawer } from './clipDrawer.js';
-import { arrangementMidi, downloadMidi } from './midiExport.js';
+import { arrangementMidi, downloadBlob, downloadMidi } from './midiExport.js';
+import { renderWav } from '../audioExport.js';
 import * as sound from '../synth.js';
 import { createIdleTimer } from './idleTimer.js';
 import { createPianoRoll } from './pianoRoll.js';
@@ -802,10 +803,34 @@ export function mount(container, { id: projectId }) {
          h('button', {
             type: 'button',
             class: 'btn btn-icon',
-            title: 'アレンジ全体を .mid で書き出す',
-            'aria-label': 'アレンジ全体を .mid で書き出す',
-            onclick: () => downloadMidi(arrangementMidi(project, data.tracks, data.clips)),
+            title: 'アレンジ全体を書き出す',
+            'aria-label': 'アレンジ全体を書き出す',
+            onclick: (e) => openMenu(e.currentTarget, [
+               { label: '.mid で書き出す', onSelect: () => downloadMidi(arrangementMidi(project, data.tracks, data.clips)) },
+               { label: 'WAV で書き出す(音源で鳴らした音)', onSelect: () => { exportAudio(); } },
+            ]),
          }, icon('download')));
+   }
+
+   // アレンジ全体を、音源で鳴らした音(WAV)で書き出す。書き出している間は、もう一度押しても始めない
+   let exporting = false;
+   async function exportAudio() {
+      if (exporting) return;
+      exporting = true;
+      const { project } = data;
+      // 進み具合で出し直すたびに閉じる関数が変わるので、最後のものを持つ
+      let close = showProgress('WAV を書き出しています');
+      try {
+         const blob = await renderWav(data, (progress) => {
+            close = showProgress(`WAV を書き出しています(${Math.floor(progress * 100)}%)`);
+         });
+         downloadBlob(blob, audioFileName(project.title));
+      } catch (error) {
+         reportPlayError(error);
+      } finally {
+         close();
+         exporting = false;
+      }
    }
 
    function toolbar() {

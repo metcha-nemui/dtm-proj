@@ -5,9 +5,9 @@ import {
    shiftSelection, updateTrackMix, updateTrackSound,
 } from '../js/domain/arrangement.js';
 import {
-   audibleNotes, audibleTrackIds, buildMidiFile, clipTickRange, clipTicks, DRUM_CHANNEL, DRUM_KITS, filterPrograms, inScale, kitLabel, MAX_BPM,
+   audibleNotes, audibleTrackIds, audioFileName, buildMidiFile, clipTickRange, clipTicks, DRUM_CHANNEL, DRUM_KITS, filterPrograms, inScale, kitLabel, MAX_BPM,
    midiFileName, MIN_BPM, moveScale, normalizeBpm, normalizeNotes, normalizeScale, normalizeScales, noteEvents, playbackInput, playbackMessages, PPQ,
-   projectBpm, projectScales, removeScale, REVERB_SEND, scaleAt, scaleLabel, scaleSpans, secondsToTicks, setScaleAt, setupMessages, soundLabel,
+   projectBpm, projectScales, removeScale, RENDER_TAIL, renderInput, REVERB_SEND, scaleAt, scaleLabel, scaleSpans, secondsToTicks, setScaleAt, setupMessages, soundLabel,
    TICKS_PER_BAR, ticksToSeconds, trackChannels, trackMix, trackSound, varLen,
 } from '../js/domain/midi.js';
 import { createProject, updateProject } from '../js/domain/project.js';
@@ -313,9 +313,23 @@ test('buildMidiFile: フォーマット1。テンポのトラックと、トラ�
    equal(single[2].body.slice(name.length + 15, name.length + 19), [0, 0x90, 60, 100], 'offsetBar の小節を頭にする');
 });
 
-test('midiFileName: 使えない文字とコロンを除く', () => {
+test('midiFileName / audioFileName: 使えない文字とコロンを除く', () => {
    equal(midiFileName('曲: A', 'Lead/1'), '曲_ A - Lead_1.mid');
    equal(midiFileName('', ''), 'clip.mid');
+   equal(audioFileName('曲: A'), '曲_ A.wav');
+});
+
+test('renderInput: 再生と同じ中身を、曲の頭からのサンプル位置で。長さは再生の終わりに残響のぶんを足す', () => {
+   const { project, synth, drums, a } = arrangementFixture();
+   const muted = updateTrackMix(synth, { mute: true });
+   const drumClip = setClipNotes(addClip(drums, [], { startBar: 2, bars: 1 }), [note(36, 0, PPQ)]);
+   const clips = [setClipNotes(a, [note(60, 0, PPQ)]), drumClip];
+   const input = renderInput({ project: { ...project, bpm: 120 }, tracks: [muted, drums], clips }, 1000);
+   // 120 BPM では 4分音符が 0.5 秒、1小節が 2 秒
+   equal(input.events.map((e) => [e.frame, e.data[0] & 0xf0]), [[2000, 0x90], [2500, 0x80]], 'ミュートしたトラックは鳴らさない');
+   equal(input.setup, playbackInput({ project, tracks: [muted, drums], clips }).setup, '音色・音量・パン・リバーブは再生と同じ');
+   const end = ticksToSeconds(playbackInput({ project, tracks: [muted, drums], clips }).endTick, 120);
+   equal(input.frames, Math.round(end * 1000) + RENDER_TAIL * 1000, 'ミュートしたトラックの音まで数えて、残響のぶんを足す');
 });
 
 test('migrate: v7 のデータは、BPM 120・ピアノ・ノートなしとして読み込む', () => {

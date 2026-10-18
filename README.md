@@ -15,7 +15,7 @@ MVP、アレンジ(MIDI クリップとピアノロール)、Supabase への保�
 | ファイル | 内容 |
 |---|---|
 | [docs/board.md](docs/board.md) | プロジェクト一覧、締切パネル、ボード、タスク詳細、ガントチャート、リファレンス、セクションの色、設定 |
-| [docs/arrangement.md](docs/arrangement.md) | アレンジ画面(トラック、クリップ、セクションマーカー、連動タスク、スケール、再生、音源、.mid) |
+| [docs/arrangement.md](docs/arrangement.md) | アレンジ画面(トラック、クリップ、セクションマーカー、連動タスク、スケール、再生、音源、.mid と WAV の書き出し) |
 | [docs/pianoroll.md](docs/pianoroll.md) | ピアノロール(編集、ベロシティ、オニオンスキン、ループ再生) |
 | [docs/storage.md](docs/storage.md) | 保存先とログイン、通信の失敗、インポート・削除の連鎖、スキーマバージョン、PWA |
 
@@ -56,7 +56,7 @@ node -e "import('./test/domain.test.js').then(m => m.report()).then(ok => proces
 ## 技術方針
 
 - 素の HTML / CSS / JavaScript(ES Modules)。ビルドステップなし。そのまま GitHub Pages に置ける。
-- 外部依存は CDN から読む3つだけ。**SortableJS**(ドラッグ&ドロップ)、**Lucide**(アイコン)、**spessasynth_lib**(SoundFont / DLS の再生。版を固定し、使うときに動的に読む)。
+- 外部依存は CDN から読むものだけ。**SortableJS**(ドラッグ&ドロップ)、**Lucide**(アイコン)、**spessasynth_lib**(SoundFont / DLS の再生)と、その中身の **spessasynth_core**(WAV の書き出し。Worker の中で直接使う)。spessasynth は版を固定し、使うときに動的に読む。
 - 保存先は Supabase か IndexedDB。repository 層で抽象化してあり、UIとドメインロジックはどちらに保存しているかを知らない([docs/storage.md](docs/storage.md))。
 - ルーティングはハッシュ方式。IDは `crypto.randomUUID()`。
 - 並び順は小数の `order`(fractional indexing)。間に入れるときは前後の中間値を使い、他の行を書き換えない。精度が尽きたときだけ全体を振り直す。
@@ -118,6 +118,7 @@ js/
   pwa.js / session.js / theme.js   Service Worker の登録 / 擬似ログインの状態 / UIテーマ
   state.js                repository の参照と、変更通知(subscribe / notify)
   synth.js                ブラウザ内の音源(spessasynth_lib)と再生。何を鳴らすかは domain/midi.js で組み立てる
+  audioExport.js          WAV の書き出し。音を作るのは audioExportWorker.js(Worker の中で spessasynth_core を動かす)
   actions.js              画面から呼ぶ操作。読む→domainで計算→保存→notify
   domain/                 DOMにもrepositoryにも依存しない純粋なロジック
                           (record, order, date, project, task, stats, deadline, gantt, reference, arrangement, midi)
