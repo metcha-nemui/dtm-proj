@@ -55,6 +55,27 @@ const SNAPS = [
 ];
 const SNAP_KEY = 'dtm-proj:piano-roll-snap';
 
+// パネルの高さ(px)。上端のつまみをドラッグして変える。null なら既定(CSS)。
+// 上はアレンジ画面のツールバー(再生・BPM)の下端まで。それより高い値を覚えていても、CSS の flex で縮んでツールバーは隠れない。
+// gantt.js と同じく、このブラウザの localStorage に覚えておく
+const HEIGHT_KEY = 'dtm-proj:piano-roll-height';
+const MIN_HEIGHT = 140; // 見出し・ルーラー・数行・ベロシティの段が見える高さ
+const KEY_STEP = ROW * 4; // 矢印キーで動かす量
+// スマホの横持ち。縦が狭いので、開くたびに目一杯の高さで出す(ドラッグしても覚えない。縦持ちの高さを上書きしないように)
+const PHONE_LANDSCAPE = matchMedia('(orientation: landscape) and (max-height: 500px) and (pointer: coarse)');
+const FULL_HEIGHT = 10000; // 目一杯(CSS の flex で、ツールバーの下までに縮む)
+
+function loadHeight() {
+   try {
+      const value = Number(localStorage.getItem(HEIGHT_KEY));
+      return value >= MIN_HEIGHT ? value : null;
+   } catch {
+      return null; // localStorage を使えない環境では、その場かぎりにする
+   }
+}
+
+let savedHeight = loadHeight();
+
 function loadSnap() {
    try {
       const saved = localStorage.getItem(SNAP_KEY);
@@ -82,9 +103,11 @@ let clipboard = [];
  * @param {(clipId: string) => void} [options.onOpenDetail] クリップ詳細を開く
  * @param {(tick: number) => void} [options.onSeek] ルーラーを押して、再生を始める位置(曲の頭からの tick)を変えたとき
  * @param {() => boolean} [options.isPlaying] 再生中か(再生中は貼り付けさせない)
+ * @param {() => number} [options.topLimit] パネルの上端をここ(画面上の y 座標)より上へは広げない
  */
 export function createPianoRoll({
    projectId, onSelectionChange, onPlayClip, isLooping = () => false, onOpenDetail, onSeek, isPlaying = () => false,
+   topLimit = () => 0,
 }) {
    let data = null; // アレンジ画面が読み込んだもの(project / tracks / clips)
    let clipId = null;
@@ -189,6 +212,7 @@ export function createPianoRoll({
    const scroller = h('div', { class: 'pr-scroll', tabIndex: -1, onkeydown: (e) => onKeydown(e) }, inner);
 
    const el = h('section', { class: 'pr', 'aria-label': 'ピアノロール', hidden: true },
+      resizeHandle(),
       h('header', { class: 'pr-head' },
          icon('piano', 16),
          title,
@@ -221,6 +245,79 @@ export function createPianoRoll({
             preview(pitch);
          },
       }, isC ? pitchName(pitch) : ''));
+   }
+
+   // ---- 高さ ----
+
+   function setHeight(value) {
+      if (value) el.style.setProperty('--pr-h', `${value}px`);
+      else el.style.removeProperty('--pr-h');
+   }
+
+   // 覚えた高さ(スマホの横持ちなら目一杯)にする
+   function applyHeight() {
+      setHeight(PHONE_LANDSCAPE.matches ? FULL_HEIGHT : savedHeight);
+   }
+   applyHeight();
+   // 縦持ち・横持ちを切り替えたら合わせ直す(画面を離れたあとは外す)
+   const onOrientation = () => {
+      if (el.isConnected) applyHeight();
+      else PHONE_LANDSCAPE.removeEventListener('change', onOrientation);
+   };
+   PHONE_LANDSCAPE.addEventListener('change', onOrientation);
+
+   function saveHeight(value) {
+      if (PHONE_LANDSCAPE.matches) return;
+      savedHeight = value;
+      try {
+         if (value) localStorage.setItem(HEIGHT_KEY, String(value));
+         else localStorage.removeItem(HEIGHT_KEY);
+      } catch {
+         // 保存できなくても、開いている間は効く
+      }
+   }
+
+   // 上端のつまみ。ドラッグ(または上下の矢印キー)で高さを変え、ダブルクリックで既定に戻す(gantt.js のつまみと同じ操作)
+   function resizeHandle() {
+      const clamp = (height) => {
+         const max = el.getBoundingClientRect().bottom - topLimit();
+         return Math.round(Math.max(MIN_HEIGHT, Math.min(height, max)));
+      };
+      const handle = h('div', {
+         class: 'pr-resize',
+         role: 'separator',
+         'aria-orientation': 'horizontal',
+         'aria-label': 'ピアノロールの高さ',
+         title: 'ドラッグで高さを変える(ダブルクリックで元に戻す)',
+         tabIndex: 0,
+         onpointerdown: (down) => {
+            if (down.button !== 0) return;
+            down.preventDefault(); // ドラッグ中に文字が選択されないようにする
+            const startHeight = el.offsetHeight;
+            let height = startHeight;
+            trackPointer(handle, down, {
+               onMove: (e) => {
+                  height = clamp(startHeight + down.clientY - e.clientY);
+                  setHeight(height);
+               },
+               onEnd: () => {
+                  if (height !== startHeight) saveHeight(height);
+               },
+            });
+         },
+         ondblclick: () => {
+            saveHeight(null);
+            applyHeight();
+         },
+         onkeydown: (e) => {
+            if (e.key !== 'ArrowUp' && e.key !== 'ArrowDown') return;
+            e.preventDefault();
+            const height = clamp(el.offsetHeight + (e.key === 'ArrowUp' ? KEY_STEP : -KEY_STEP));
+            setHeight(height);
+            saveHeight(height);
+         },
+      });
+      return handle;
    }
 
    const clip = () => data?.clips.find((c) => c.id === clipId) ?? null;
@@ -742,9 +839,11 @@ export function createPianoRoll({
    function open(id) {
       const opening = id !== clipId;
       // 閉じた状態から開くときは、オニオンスキンを初めの状態(全体 OFF・各トラック ON)に戻す
+      // 高さも覚えた高さに戻す(スマホの横持ちなら目一杯)
       if (!clipId) {
          onion = false;
          onionOff = new Set();
+         applyHeight();
       }
       clipId = id;
       if (opening) {

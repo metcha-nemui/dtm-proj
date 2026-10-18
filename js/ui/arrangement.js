@@ -99,6 +99,8 @@ export function mount(container, { id: projectId }) {
       onSeek: (tick) => seek(tick, { keepLoop: true }),
       onOpenDetail: (clipId) => drawer.open(clipId),
       isPlaying: () => sound.isPlaying(),
+      // ツールバー(再生・BPM)は隠さない。複製の案内が出ていれば、その下まで
+      topLimit: () => (root.querySelector('.arr-placing') ?? root.querySelector('.board-toolbar'))?.getBoundingClientRect().bottom ?? 0,
    });
    root.append(view, pianoRoll.el);
 

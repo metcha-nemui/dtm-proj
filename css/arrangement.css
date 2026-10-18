@@ -57,8 +57,9 @@ button.project-tab {
 }
 
 /* 縦横にスクロールする本体。ルーラーとマーカーの段は上に、トラック名の列は左に貼り付ける */
+/* 基準の大きさは 0px と書く(flex: 1 の 0% だと、中身の高さが .arr-view の縮める下限に入り、ピアノロールの方が縮んでしまう) */
 .arr {
-   flex: 1;
+   flex: 1 1 0px;
    min-height: 0;
    overflow: auto;
    background: var(--bg);
@@ -586,11 +587,12 @@ button.project-tab {
 
 /* ---- 再生(ツールバー) ---- */
 
+/* ツールバー(再生・BPM)より小さくは縮まない(ピアノロールを高くしても、ツールバーは隠れない) */
 .arr-view {
    display: flex;
    flex: 1;
    flex-direction: column;
-   min-height: 0;
+   min-height: auto;
 }
 
 .arr-transport {

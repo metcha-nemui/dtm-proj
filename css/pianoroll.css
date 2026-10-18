@@ -1,16 +1,48 @@
 /* ピアノロール(アレンジ画面の下のパネル)。 */
 
+/* --pr-h は、上端のつまみをドラッグして決めた高さ。画面に入らなければ縮む(.arr-view はツールバーより小さくならないので、
+   ツールバーは隠れない) */
 .pr {
    display: flex;
-   flex: none;
+   flex: 0 1 auto;
    flex-direction: column;
-   height: min(52vh, 524px);
+   height: var(--pr-h, min(52vh, 524px));
+   min-height: 140px; /* pianoRoll.js の MIN_HEIGHT と揃える */
    border-top: 2px solid var(--border);
    background: var(--surface);
 }
 
 .pr[hidden] {
    display: none;
+}
+
+/* 上端のつまみ(ガントチャートのつまみと同じ見た目) */
+.pr-resize {
+   flex: none;
+   display: flex;
+   align-items: center;
+   justify-content: center;
+   height: 9px;
+   cursor: ns-resize;
+   touch-action: none;
+}
+
+.pr-resize::before {
+   content: "";
+   width: 36px;
+   height: 3px;
+   border-radius: 2px;
+   background: var(--border);
+}
+
+.pr-resize:hover,
+.pr-resize:focus-visible {
+   background: var(--surface-2);
+}
+
+.pr-resize:hover::before,
+.pr-resize:focus-visible::before {
+   background: var(--text-muted);
 }
 
 .pr-head {
@@ -382,7 +414,7 @@
 
 @media (max-width: 720px) {
    .pr {
-      height: 50dvh;
+      height: var(--pr-h, 50dvh);
    }
 
    .pr-snap-label {

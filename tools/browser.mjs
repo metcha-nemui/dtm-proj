@@ -10,6 +10,9 @@
 //   node tools/browser.mjs eval "<式>"               ページで式を評価して、結果を JSON で出す(await を使える)
 //   node tools/browser.mjs click <セレクタ> [2]      要素の中央を本物のマウスでクリックする(2 ならダブルクリック)
 //   node tools/browser.mjs drag <x1> <y1> <x2> <y2> [Shift,Ctrl,Alt]   ビューポート座標でドラッグする
+//   node tools/browser.mjs touch <x1> <y1> <x2> <y2> [押さえる ms]   指でなぞる(押さえる ms のあいだ止めてから動かす。長押しの確認に使う)
+//   node tools/browser.mjs emulate <幅x高さ> "<式>"   スマホ(タッチ・pointer: coarse)の画面にして、式を評価する。
+//                                                  CDP の接続を閉じると元に戻るので、確かめたいことは式の中で済ませる
 //   node tools/browser.mjs key <キー> [Shift,Ctrl,Alt]   キーを押す(例: "Delete"、"a" Ctrl、" ")
 //   node tools/browser.mjs shot <出力.png> [セレクタ]   スクリーンショット。セレクタがあればその要素だけを撮る
 //   node tools/browser.mjs stop                      起動したプロセスだけを終了し、プロファイルを消す
@@ -199,6 +202,35 @@ const commands = {
       return 'OK';
    },
 
+   async touch(x1, y1, x2, y2, hold = '0') {
+      const cdp = await connect();
+      const [ax, ay, bx, by] = [x1, y1, x2, y2].map(Number);
+      const point = (x, y) => [{ x, y, id: 1 }];
+      await cdp.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: point(ax, ay) });
+      await wait(Number(hold));
+      for (let i = 1; i <= 10; i++) {
+         await cdp.send('Input.dispatchTouchEvent', { type: 'touchMove', touchPoints: point(ax + ((bx - ax) * i) / 10, ay + ((by - ay) * i) / 10) });
+         await wait(16);
+      }
+      await cdp.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
+      await wait(300);
+      cdp.close();
+      return 'OK';
+   },
+
+   async emulate(size, expression) {
+      const cdp = await connect();
+      try {
+         const [width, height] = size.split('x').map(Number);
+         await cdp.send('Emulation.setDeviceMetricsOverride', { width, height, deviceScaleFactor: 1, mobile: true });
+         await cdp.send('Emulation.setTouchEmulationEnabled', { enabled: true, maxTouchPoints: 5 });
+         await wait(300); // メディアクエリの切り替わりと、描き直しを待つ
+         return await evaluate(cdp, expression);
+      } finally {
+         cdp.close();
+      }
+   },
+
    async key(key, modifiers) {
       const cdp = await connect();
       const bits = modifierBits(modifiers);
@@ -251,7 +283,7 @@ const commands = {
 
 const [name, ...args] = process.argv.slice(2);
 if (!commands[name]) {
-   console.error('使い方: node tools/browser.mjs start|open|eval|click|drag|key|shot|stop …(先頭のコメントを参照)');
+   console.error('使い方: node tools/browser.mjs start|open|eval|click|drag|touch|emulate|key|shot|stop …(先頭のコメントを参照)');
    process.exit(1);
 }
 try {
