@@ -170,6 +170,9 @@ export function scaleLabel(scale) {
 
 // ---- トラックの音 ----
 
+/** オーディオトラック(音声ファイルを1つ鳴らす。クリップもノートも持たない)か。項目がなければ MIDI のトラック。 */
+export const isAudioTrack = (track) => track?.kind === 'audio';
+
 /** トラックの音の設定。項目がない(v7 以前の)データでも既定値を返す。 */
 export function trackSound(track) {
    return {
@@ -214,6 +217,7 @@ const MELODIC_CHANNELS = Array.from({ length: 16 }, (_, i) => i).filter((ch) => 
  * wrap しない(ブラウザの音源で再生するとき)では、16ch の組(ポート)を足していき、どのトラックも別のチャンネルにする。
  * 番号は 16 以上にもなる(ポート × 16 + その中のチャンネル)。音源はどの組でも 10番目をドラムとして扱うので、
  * n 本目のドラムは n 組目の 10ch にする。
+ * オーディオトラックはチャンネルを使わないので、数えずに飛ばす(Map にも入らない)。
  * @param {object[]} tracks 並び順に並べたトラック
  * @returns {Map<string, number>}
  */
@@ -222,6 +226,7 @@ export function trackChannels(tracks, { wrap = true } = {}) {
    let melodic = 0;
    let drums = 0;
    for (const track of tracks) {
+      if (isAudioTrack(track)) continue;
       if (trackSound(track).drum) {
          result.set(track.id, (wrap ? 0 : drums++ * 16) + DRUM_CHANNEL);
          continue;
@@ -322,7 +327,7 @@ export function playbackInput({ project, tracks, clips }, loopClipId = null) {
    const all = noteEvents({ tracks, clips, wrap: false });
    return {
       bpm: projectBpm(project),
-      setup: tracks.flatMap((t) => withPort(t, channels.get(t.id))),
+      setup: tracks.filter((t) => channels.has(t.id)).flatMap((t) => withPort(t, channels.get(t.id))),
       events: noteEvents({ tracks, clips: clips.filter((c) => audible.has(c.trackId)), wrap: false }),
       endTick: all.at(-1)?.tick ?? 0,
    };
@@ -393,10 +398,11 @@ function trackChunk(events) {
  * .mid(SMF フォーマット1)のバイト列を作る。1本目はテンポと拍子だけのトラック、2本目以降が各トラック。
  * offsetBar を渡すと、その小節を頭(tick 0)にする(クリップ1つを書き出すとき。クリップの先頭から始まる)。
  * @param {{ title?: string, bpm: number, tracks: object[], clips: object[], offsetBar?: number }} input
- *   tracks は並び順に並べたもの。clips のないトラックも出す
+ *   tracks は並び順に並べたもの。clips のないトラックも出す。オーディオトラックは出さない
  * @returns {Uint8Array}
  */
-export function buildMidiFile({ title = '', bpm, tracks, clips, offsetBar = 1 }) {
+export function buildMidiFile({ title = '', bpm, tracks: allTracks, clips, offsetBar = 1 }) {
+   const tracks = allTracks.filter((t) => !isAudioTrack(t));
    const tempo = Math.round(60_000_000 / normalizeBpm(bpm)); // 4分音符あたりのマイクロ秒
    const conductor = [
       ...(title ? [{ tick: 0, data: metaText(0x03, title) }] : []),

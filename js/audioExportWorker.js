@@ -21,11 +21,12 @@ self.onmessage = async ({ data }) => {
 
 /**
  * @param {{ soundBank: ArrayBuffer, soundBankName: string, sampleRate: number,
- *   setup: { data: number[], port: number }[], events: { frame: number, data: number[], port: number }[], frames: number }} input
- *   setup・events・frames は domain/midi.js の renderInput の結果
+ *   setup: { data: number[], port: number }[], events: { frame: number, data: number[], port: number }[], frames: number,
+ *   audio: { left: Float32Array, right: Float32Array|null, frame: number, gain: number, matrix: object }[] }} input
+ *   setup・events・frames は domain/audio.js の arrangementRender の結果。audio は混ぜる音声(audioExport.js でデコードしたもの)
  * @returns {Promise<ArrayBuffer>} WAV(ステレオ)
  */
-async function render({ soundBank, soundBankName, sampleRate, setup, events, frames }) {
+async function render({ soundBank, soundBankName, sampleRate, setup, events, frames, audio = [] }) {
    const { SoundBankLoader, SpessaSynthProcessor, audioToWav } = await import(CORE_URL);
    const synth = new SpessaSynthProcessor(sampleRate, { eventsEnabled: false, effectsEnabled: true });
    try {
@@ -70,6 +71,20 @@ async function render({ soundBank, soundBankName, sampleRate, setup, events, fra
          self.postMessage({ type: 'progress', value: at / frames });
       }
    }
+   for (const track of audio) mixAudio(left, right, track);
    // 音量は再生と同じにする(大きさを揃える正規化はしない)
    return audioToWav([left, right], sampleRate, { normalizeAudio: false });
+}
+
+// 音声を、frame の位置から足し込む(負の位置なら、頭の分を飛ばす)。音量とパンは再生と同じ計算(domain/audio.js の panMatrix)
+function mixAudio(left, right, { left: inL, right: inR, frame, gain, matrix }) {
+   const { ll, rl, lr, rr } = matrix;
+   const from = Math.max(0, -frame);
+   const to = Math.min(inL.length, left.length - frame);
+   for (let i = from; i < to; i++) {
+      const l = inL[i] * gain;
+      const r = inR ? inR[i] * gain : 0;
+      left[frame + i] += l * ll + r * rl;
+      right[frame + i] += l * lr + r * rr;
+   }
 }

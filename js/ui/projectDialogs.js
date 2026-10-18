@@ -1,6 +1,7 @@
 // プロジェクトの作成・編集・削除のダイアログ。一覧とボード・アレンジから使う。
 
 import * as actions from '../actions.js';
+import { removeAudioFiles } from '../store/audioFileStore.js';
 import { confirmDialog, formDialog } from './components/dialog.js';
 import { showToast } from './components/toast.js';
 
@@ -41,6 +42,8 @@ export async function deleteProjectDialog(project) {
    });
    if (!ok) return false;
    await actions.deleteProject(project.id);
+   // オーディオトラックの音声(このブラウザの IndexedDB にあるもの)も消す。プロジェクトの削除は元に戻せないので、すぐに消してよい
+   removeAudioFiles(project.id).catch(() => {});
    showToast(`「${project.title}」を削除しました`);
    return true;
 }

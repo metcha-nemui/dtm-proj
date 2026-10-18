@@ -7,19 +7,25 @@
 //
 // クリップは MIDI クリップでもある。ダブルクリックで下にピアノロールを開き、ツールバーから OS の MIDI 音源で全体を再生する。
 // ピアノロールのパネルは再描画で作り直さない(編集中の状態を持っているため)。作り直すのは view の中だけ。
+//
+// オーディオトラックはクリップを置かず、音声ファイル1つの区間を出す(横にドラッグで、鳴らし始める位置を拍単位で動かす)。
+// ファイルの中身はこのブラウザの IndexedDB にあり、ない(別の端末で選んだ)ものは、トラック名の下と区間に印を出す。
 
 import * as actions from '../actions.js';
 import {
    arrangementBars, canPlace, canShiftSelection, clipEnd, clipSection, markerClips, markerSpans, UNTITLED_CLIP,
 } from '../domain/arrangement.js';
 import {
-   audibleNotes, audibleTrackIds, audioFileName, CENTER_PAN, clipTickRange, clipTicks, DEFAULT_VOLUME, MAX_BPM, MIN_BPM, playbackInput, PPQ,
+   arrangementPlayback, audioEndBar, audioTicks, clampAudioStart, snapToBeat, trackAudio,
+} from '../domain/audio.js';
+import {
+   audibleNotes, audibleTrackIds, audioFileName, CENTER_PAN, clipTickRange, clipTicks, DEFAULT_VOLUME, isAudioTrack, MAX_BPM, MIN_BPM, PPQ,
    projectBpm, projectScales, scaleLabel, soundLabel, TICKS_PER_BAR, trackMix, trackSound,
 } from '../domain/midi.js';
 import { sortByOrder } from '../domain/order.js';
 import { sectionColors } from '../domain/project.js';
 import { repo, subscribe } from '../state.js';
-import { choiceDialog } from './components/dialog.js';
+import { choiceDialog, confirmDialog } from './components/dialog.js';
 import { h, icon, keepFocus } from './components/dom.js';
 import { knob } from './components/knob.js';
 import { openMenu } from './components/menu.js';
@@ -30,6 +36,8 @@ import { addTrackDialog, deleteTrackDialog, openScaleMenu, renameTrackDialog, sc
 import { barRange, createClipDrawer } from './clipDrawer.js';
 import { arrangementMidi, downloadBlob, downloadMidi } from './midiExport.js';
 import { renderWav } from '../audioExport.js';
+import { removeAudioFiles } from '../store/audioFileStore.js';
+import { addAudioTrackFromFile, chooseTrackAudio, loadPeaks, presentAudioIds } from './audioImport.js';
 import * as sound from '../synth.js';
 import { createIdleTimer } from './idleTimer.js';
 import { createPianoRoll } from './pianoRoll.js';
@@ -133,7 +141,9 @@ export function mount(container, { id: projectId }) {
    let frame = null;
 
    const isLooping = (clipId) => sound.isPlaying() && loopClipId != null && loopClipId === clipId;
-   const playbackData = () => playbackInput(data, loopClipId);
+   const playbackData = () => arrangementPlayback(data, loopClipId);
+   // 中身がなくて鳴らせなかった音声のトラック(前に知らせたもの)。ルーラーを押すたびに同じことを知らせないため
+   let reportedMissing = '';
 
    // clipId を渡すと、そのクリップだけをループで鳴らす(fromTick はクリップの範囲に収める)
    async function startPlayback(fromTick, clipId = null) {
@@ -146,9 +156,16 @@ export function mount(container, { id: projectId }) {
       played = input;
       const { loop } = input;
       const from = loop ? (fromTick >= loop.fromTick && fromTick < loop.toTick ? fromTick : loop.fromTick) : Math.max(0, fromTick);
-      await sound.play({ ...input, fromTick: from });
+      const { missing } = await sound.play({ ...input, fromTick: from });
       follow();
+      const key = missing.join();
+      if (key && key !== reportedMissing) {
+         showToast(`このブラウザに音声がないトラックは鳴らしません(${trackNames(missing)})。トラック名の下を押すと、ファイルを選べます`);
+      }
+      reportedMissing = key;
    }
+
+   const trackNames = (ids) => ids.map((id) => `「${data.tracks.find((t) => t.id === id)?.name ?? ''}」`).join('');
 
    // 再生中に中身(ミュート・ソロ、音色・音量・パン、ノート)が変わったら、止めずに差し替える(伸びている音を途切れさせない)。
    // BPM が変わったときだけは、時刻の計算が変わるので、いまの位置から鳴らし直す。
@@ -172,10 +189,12 @@ export function mount(container, { id: projectId }) {
       }
       const sent = new Set(played.setup.map((m) => JSON.stringify(m)));
       const eventsChanged = JSON.stringify(input.events) !== JSON.stringify(played.events);
+      const audioChanged = JSON.stringify(input.audio) !== JSON.stringify(played.audio);
       sound.updatePlayback({
          messages: input.setup.filter((m) => !sent.has(JSON.stringify(m))),
          events: eventsChanged ? input.events : undefined,
          endTick: input.endTick,
+         audio: audioChanged ? input.audio : undefined,
       });
       played = input;
    }
@@ -336,8 +355,9 @@ export function mount(container, { id: projectId }) {
    }
 
    const sections = () => data.lanes.filter((l) => l.type === 'section');
-   // 置けるか(同じトラックのクリップと重ならず、セクションマーカーの範囲に入っている)
-   const placeable = (place, ignoreId = null) => canPlace(data.clips, place, ignoreId, data.markers);
+   // 置けるか(オーディオトラックでなく、同じトラックのクリップと重ならず、セクションマーカーの範囲に入っている)
+   const placeable = (place, ignoreId = null) => !isAudioTrack(data.tracks.find((t) => t.id === place.trackId))
+      && canPlace(data.clips, place, ignoreId, data.markers);
    // マーカーがないと、どこにもクリップを置けない。黙って何も起きないと分からないので知らせる
    const needMarker = () => {
       if (data.markers.length) return false;
@@ -566,6 +586,38 @@ export function mount(container, { id: projectId }) {
             setPlace(clipEl, place);
             if (laneEl !== fromLane) laneEl.append(clipEl);
             runPlaced(actions.placeClip(projectId, clip.id, place));
+         },
+      });
+   }
+
+   /**
+    * オーディオトラックの音声を横に動かす(鳴らし始める位置を変える)。拍の単位にスナップし、Shift を押している間は
+    * スナップしない(tick 単位)。頭は1小節目より前にも出せる(minAudioStart まで)。動かさずに離したら何もしない
+    */
+   function dragAudio(down, track, regionEl) {
+      const audio = trackAudio(track);
+      const laneEl = down.currentTarget;
+      const bpm = projectBpm(data.project);
+      const ticksPerPx = (TICKS_PER_BAR * data.bars) / laneEl.getBoundingClientRect().width;
+      const last = (data.bars - 1) * TICKS_PER_BAR; // 右へは、いま見えている最後の小節の頭まで
+      let startTick = audio.startTick;
+      drag(down, {
+         hold: true,
+         onHold: () => regionEl.classList.add('is-dragging'),
+         onMove: (e) => {
+            const raw = audio.startTick + (e.clientX - down.clientX) * ticksPerPx;
+            startTick = Math.min(last, clampAudioStart(audio, bpm, e.shiftKey ? raw : snapToBeat(raw)));
+            regionEl.style.setProperty('--start', String(1 + startTick / TICKS_PER_BAR));
+            regionEl.classList.add('is-dragging');
+            regionEl.title = audioTitle({ ...audio, startTick });
+         },
+         onEnd: (moved) => {
+            regionEl.classList.remove('is-dragging');
+            if (!moved || startTick === audio.startTick) {
+               render();
+               return;
+            }
+            runPlaced(actions.moveTrackAudio(projectId, track.id, startTick));
          },
       });
    }
@@ -816,12 +868,21 @@ export function mount(container, { id: projectId }) {
    let exporting = false;
    async function exportAudio() {
       if (exporting) return;
-      exporting = true;
       const { project } = data;
+      // このブラウザに中身がない音声は混ぜられない。知らずに足りないまま作らないよう、先に尋ねる
+      const audible = audibleTrackIds(data.tracks);
+      const missing = data.tracks.filter((t) => audible.has(t.id) && missingAudio(trackAudio(t)));
+      if (missing.length && !(await confirmDialog({
+         title: '音声がないトラックがあります',
+         message: `${trackNames(missing.map((t) => t.id))}の音声がこのブラウザにありません。そのトラックを入れずに書き出しますか?`,
+         okLabel: '書き出す',
+      }))) return;
+      if (exporting) return;
+      exporting = true;
       // 進み具合で出し直すたびに閉じる関数が変わるので、最後のものを持つ
       let close = showProgress('WAV を書き出しています');
       try {
-         const blob = await renderWav(data, (progress) => {
+         const { blob } = await renderWav(data, (progress) => {
             close = showProgress(`WAV を書き出しています(${Math.floor(progress * 100)}%)`);
          });
          downloadBlob(blob, audioFileName(project.title));
@@ -1002,8 +1063,88 @@ export function mount(container, { id: projectId }) {
       h('span', { class: 'clip-edge is-end', dataset: { edge: 'end' }, title: 'ドラッグで長さを変える' }));
    }
 
+   // 「3小節目から」「3小節目の2拍目から」。拍の途中なら小数で。1小節目より前なら「頭を1.5拍切って1小節目から」
+   function audioStartLabel(startTick) {
+      if (startTick < 0) return `頭を${Number((-startTick / PPQ).toFixed(2))}拍切って1小節目から`;
+      const bar = Math.floor(startTick / TICKS_PER_BAR) + 1;
+      const beat = Number(((startTick % TICKS_PER_BAR) / PPQ + 1).toFixed(2));
+      return beat === 1 ? `${bar}小節目から` : `${bar}小節目の${beat}拍目から`;
+   }
+
+   const missingAudio = (audio) => Boolean(audio) && !data.audioPresent.has(audio.fileId);
+   const audioTitle = (audio) => `${audio.name} ${audioStartLabel(audio.startTick)}`
+      + (missingAudio(audio) ? '(このブラウザにありません)' : '(ドラッグで移動。Shift を押すと拍に合わせない)');
+
+   // 波形の SVG。値は変わらないので、fileId ごとに作った要素を覚えて使い回す(作り直すと重いため)。
+   // 横は値の番号、縦は 0〜2(1 が真ん中)で描き、区間の大きさに引き伸ばす。値は1秒あたり一定の数なので、区間の幅(秒)と揃う
+   const waves = new Map();
+   function waveform(fileId) {
+      const peaks = data.peaks.get(fileId);
+      if (!peaks?.length) return null;
+      if (!waves.has(fileId)) {
+         const top = [];
+         const bottom = [];
+         peaks.forEach((p, i) => {
+            const y = p / 255;
+            top.push(`${i + 0.5},${(1 - y).toFixed(3)}`);
+            bottom.push(`${i + 0.5},${(1 + y).toFixed(3)}`);
+         });
+         const svg = document.createElementNS(SVG_NS, 'svg');
+         svg.setAttribute('class', 'audio-wave');
+         svg.setAttribute('viewBox', `0 0 ${peaks.length} 2`);
+         svg.setAttribute('preserveAspectRatio', 'none');
+         svg.setAttribute('aria-hidden', 'true');
+         const path = document.createElementNS(SVG_NS, 'path');
+         path.setAttribute('d', `M0,1L${top.join('L')}L${peaks.length},1L${bottom.reverse().join('L')}Z`);
+         svg.append(path);
+         waves.set(fileId, svg);
+      }
+      return waves.get(fileId);
+   }
+
+   // オーディオトラックの音声の区間。長さは秒なので、BPM で幅が変わる。←→ で1拍ずつ(Shift で1小節ずつ)動かす
+   function audioRegion(track) {
+      const audio = trackAudio(track);
+      if (!audio) return null;
+      const missing = missingAudio(audio);
+      const bpm = projectBpm(data.project);
+      return h('div', {
+         class: `audio-region${missing ? ' is-missing' : ''}`,
+         style: { '--start': String(1 + audio.startTick / TICKS_PER_BAR), '--len': String(audioTicks(audio, bpm) / TICKS_PER_BAR) },
+         dataset: { trackId: track.id, focusKey: `audio:${track.id}` },
+         tabIndex: 0,
+         title: audioTitle(audio),
+         'aria-label': `${track.name}の音声 ${audio.name} ${audioStartLabel(audio.startTick)}`,
+         onkeydown: (e) => {
+            if ((e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') || e.ctrlKey || e.metaKey || e.altKey) return;
+            e.preventDefault();
+            const step = (e.shiftKey ? TICKS_PER_BAR : PPQ) * (e.key === 'ArrowRight' ? 1 : -1);
+            const next = clampAudioStart(audio, bpm, snapToBeat(audio.startTick) + step);
+            if (next !== audio.startTick) runPlaced(actions.moveTrackAudio(projectId, track.id, next));
+         },
+      },
+      !missing && waveform(audio.fileId),
+      missing && icon('triangle-alert', 12),
+      h('span', { class: 'clip-name' }, missing ? `${audio.name}(このブラウザにありません)` : audio.name));
+   }
+
+   // オーディオトラックの、トラック名の下の音声ファイルの名前。押すとファイルを選ぶ(ないものは選び直し、あるものは入れ替え)
+   function audioFileButton(track) {
+      const audio = trackAudio(track);
+      const missing = !audio || missingAudio(audio);
+      return h('button', {
+         type: 'button',
+         class: `arr-head-sound${missing ? ' is-missing' : ''}`,
+         title: !audio ? '押して音声ファイルを選ぶ'
+            : missing ? `このブラウザに「${audio.name}」がありません。押してファイルを選ぶ` : `${audio.name}(押すと別のファイルを選ぶ)`,
+         dataset: { focusKey: `track-sound:${track.id}` },
+         onclick: () => run(chooseTrackAudio(projectId, track, missing)),
+      }, missing && icon('triangle-alert', 12), !audio ? 'ファイルを選ぶ' : missing ? '音声なし' : audio.name);
+   }
+
    // index はトラックの並び順(0 始まり)。見出しに番号として出す(保存はしない)
    function trackRow(track, index, boundaries, audible) {
+      const audioTrack = isAudioTrack(track);
       const menuButton = h('button', {
          type: 'button',
          class: 'btn btn-icon',
@@ -1011,12 +1152,34 @@ export function mount(container, { id: projectId }) {
          dataset: { focusKey: `track-menu:${track.id}` },
          onclick: () => openMenu(menuButton, [
             { label: '名前を変更', onSelect: () => run(renameTrackDialog(projectId, track)) },
+            ...(audioTrack ? [{
+               label: '音声ファイルを選び直す',
+               onSelect: () => run(chooseTrackAudio(projectId, track, !trackAudio(track) || missingAudio(trackAudio(track)))),
+            }] : []),
             { label: '削除', danger: true, onSelect: () => run(deleteTrackDialog(projectId, track, data)) },
          ]),
       }, icon('ellipsis-vertical'));
 
       const clips = data.clips.filter((c) => c.trackId === track.id);
-      const lane = h('div', {
+      const lane = audioTrack ? h('div', {
+         class: 'arr-lane is-audio',
+         dataset: { trackId: track.id },
+         onpointerdown: (e) => {
+            if (e.button === 0 && (e.ctrlKey || e.metaKey)) {
+               marqueeClips(e);
+               return;
+            }
+            if (e.button === 0 && picked.size) setPicked([]);
+            const regionEl = e.target.closest('.audio-region');
+            if (regionEl) dragAudio(e, track, regionEl);
+         },
+         // タッチの長押しで音声を掴んでいる間は、ブラウザのメニューを出さない
+         oncontextmenu: (e) => {
+            if (dragging) e.preventDefault();
+         },
+      },
+      boundaries.map((bar) => h('div', { class: 'arr-boundary', style: { '--start': String(bar) } })),
+      audioRegion(track)) : h('div', {
          class: 'arr-lane',
          dataset: { trackId: track.id },
          onpointerdown: (e) => {
@@ -1075,7 +1238,7 @@ export function mount(container, { id: projectId }) {
                   mixButton(track, 'solo', solo),
                   menuButton),
                h('span', { class: 'arr-head-bottom' },
-                  h('button', {
+                  audioTrack ? audioFileButton(track) : h('button', {
                      type: 'button',
                      class: 'arr-head-sound',
                      title: `${soundLabel(track)}(押すと音色を変える)`,
@@ -1084,7 +1247,8 @@ export function mount(container, { id: projectId }) {
                   }, soundLabel(track)),
                   soundKnob(track, 'volume'),
                   soundKnob(track, 'pan'),
-                  mixButton(track, 'reverb', reverb)))),
+                  // リバーブは音源(シンセ)の中で掛けるもので、音声には掛けられない
+                  audioTrack ? h('span', { class: 'arr-mix-spacer' }) : mixButton(track, 'reverb', reverb)))),
          lane);
    }
 
@@ -1198,8 +1362,9 @@ export function mount(container, { id: projectId }) {
          renderPending = true;
          return;
       }
-      // 転調の位置も、マーカーと同じく小節数に数える(右の端に置いた転調が見えなくならないように)
-      data.bars = arrangementBars(data.clips, [...data.markers, ...projectScales(data.project)]);
+      // 転調の位置と音声の終わりも、マーカーと同じく小節数に数える(右の端に置いたものが見えなくならないように)
+      const audioEnds = data.tracks.map(trackAudio).filter(Boolean).map((a) => ({ bar: audioEndBar(a, projectBpm(data.project)) }));
+      data.bars = arrangementBars(data.clips, [...data.markers, ...projectScales(data.project), ...audioEnds]);
       const colors = sectionColors(data.lanes);
       const spans = markerSpans(data.markers, data.lanes, data.bars);
       const boundaries = spans.map((s) => s.from).filter((bar) => bar > 1);
@@ -1221,12 +1386,20 @@ export function mount(container, { id: projectId }) {
                markerRow(spans, colors),
                h('div', { class: 'arr-tracks' }, data.tracks.map((track, i) => trackRow(track, i, boundaries, audible))),
                h('div', { class: 'arr-row arr-foot' },
-                  h('button', {
-                     type: 'button',
-                     class: 'arr-add',
-                     dataset: { focusKey: 'track-add' },
-                     onclick: () => run(addTrackDialog(projectId)),
-                  }, icon('plus'), 'トラックを追加'),
+                  h('div', { class: 'arr-adds' },
+                     h('button', {
+                        type: 'button',
+                        class: 'arr-add',
+                        dataset: { focusKey: 'track-add' },
+                        onclick: () => run(addTrackDialog(projectId)),
+                     }, icon('plus'), h('span', { class: 'arr-add-label' }, 'トラックを追加')),
+                     h('button', {
+                        type: 'button',
+                        class: 'arr-add',
+                        title: '音声ファイル(WAV・MP3 など)を選んで、それを鳴らすトラックを足す',
+                        dataset: { focusKey: 'audio-track-add' },
+                        onclick: () => run(addAudioTrack()),
+                     }, icon('file-audio'), h('span', { class: 'arr-add-label' }, 'オーディオトラックを追加'))),
                   (!data.tracks.length || !data.markers.length) && h('p', { class: 'arr-hint muted' },
                      !data.markers.length && 'クリップは、セクションマーカーの範囲に置きます。先に上の「セクション」の段を押して、マーカーを置いてください。',
                      !data.tracks.length && 'トラックを足したら、空いているところをドラッグ(またはダブルクリック)してクリップを作ります。'))))));
@@ -1237,18 +1410,43 @@ export function mount(container, { id: projectId }) {
       if (sound.isPlaying()) follow();
    }
 
+   async function addAudioTrack() {
+      const track = await addAudioTrackFromFile(projectId);
+      if (track) root.querySelector(`.arr-track[data-track-id="${CSS.escape(track.id)}"]`)?.scrollIntoView({ block: 'nearest' });
+   }
+
+   // 開いたときに一度だけ、このプロジェクトの音声のうち、どのトラックも使わなくなったもの(トラックを消した、
+   // ファイルを入れ替えた、別の端末で消した)を、このブラウザから消す。トラックの削除はトーストから戻せるので、その場では消さない
+   let cleaned = false;
+   function cleanAudioFiles(tracks) {
+      if (cleaned) return;
+      cleaned = true;
+      const used = new Set(tracks.map(trackAudio).filter(Boolean).map((a) => a.fileId));
+      removeAudioFiles(projectId, used).catch(() => {});
+   }
+
    async function refresh() {
-      const [project, lanes, tracks, clips, markers, tasks] = await Promise.all([
+      const [project, lanes, tracks, clips, markers, tasks, audioPresent] = await Promise.all([
          repo().getProject(projectId),
          repo().getLanes(projectId),
          repo().getTracks(projectId),
          repo().getClips(projectId),
          repo().getMarkers(projectId),
          repo().getTasks(projectId),
+         presentAudioIds(),
       ]);
       if (!alive) return;
+      // このブラウザにある音声の、波形の値(fileId → peaks)
+      const audioIds = tracks.map(trackAudio).filter(Boolean).map((a) => a.fileId).filter((id) => audioPresent.has(id));
+      const peaks = new Map(await Promise.all(audioIds.map(async (id) => [id, await loadPeaks(id)])));
+      if (!alive) return;
       // tasks は、トラックの削除の確認に出す連動タスクの数と、クリップの色(連動タスクのステータス)に使う
-      data = { project, lanes: sortByOrder(lanes), tracks: withLocal(sortByOrder(tracks)), clips, markers, tasks };
+      data = { project, lanes: sortByOrder(lanes), tracks: withLocal(sortByOrder(tracks)), clips, markers, tasks, audioPresent, peaks };
+      if (project) {
+         cleanAudioFiles(tracks);
+         // 再生を押したときに待たせないよう、音声を先にデコードしておく
+         sound.preloadAudio(audioIds);
+      }
       // 消えたクリップは選択から外す
       picked = new Set(clips.filter((c) => picked.has(c.id)).map((c) => c.id));
       render();

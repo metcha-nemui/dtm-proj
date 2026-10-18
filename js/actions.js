@@ -234,6 +234,32 @@ export const addTrack = serial(async (projectId, name = '') => {
    return track;
 });
 
+/**
+ * オーディオトラックを追加する。file は選んだファイル({ fileId, name, size, duration })で、中身は先に保存しておく。
+ * 連動タスクは作らない(クリップを持たないため)。
+ */
+export const addAudioTrack = serial(async (projectId, name, file) => {
+   const track = arrangementDomain.addAudioTrack(projectId, await repo().getTracks(projectId), name, file);
+   await repo().saveTrack(track);
+   await changed(projectId);
+   return track;
+});
+
+/** オーディオトラックのファイルを変える(選び直し)。file は { fileId, name, size, duration } */
+export const setTrackAudio = serial(async (projectId, trackId, file) => {
+   const tracks = await repo().getTracks(projectId);
+   await repo().saveTrack(arrangementDomain.setTrackAudio(find(tracks, trackId, 'トラック'), file));
+   await changed(projectId);
+});
+
+/** オーディオトラックの音声を鳴らし始める位置(曲の頭からの tick)を変える。 */
+export const moveTrackAudio = serial(async (projectId, trackId, startTick) => {
+   const [project, tracks] = await Promise.all([repo().getProject(projectId), repo().getTracks(projectId)]);
+   const track = find(tracks, trackId, 'トラック');
+   await repo().saveTrack(arrangementDomain.moveTrackAudio(track, startTick, midiDomain.projectBpm(project)));
+   await changed(projectId);
+});
+
 export const renameTrack = serial(async (projectId, trackId, name) => {
    const tracks = await repo().getTracks(projectId);
    await repo().saveTrack(arrangementDomain.renameTrack(find(tracks, trackId, 'トラック'), name));
@@ -307,7 +333,7 @@ export const duplicateClip = serial(async (projectId, clipId, { trackId, startBa
    const [tracks, clips, markers] = await Promise.all([
       repo().getTracks(projectId), repo().getClips(projectId), repo().getMarkers(projectId),
    ]);
-   find(tracks, trackId, 'トラック');
+   arrangementDomain.assertClipTrack(find(tracks, trackId, 'トラック'));
    const clip = arrangementDomain.duplicateClip(find(clips, clipId, 'クリップ'), clips, { trackId, startBar }, markers);
    await repo().saveClip(clip);
    // 連動タスクは、新しいクリップのものとして未着手で作られる(元のステータスは引き継がない)
@@ -354,7 +380,7 @@ export const placeClip = serial(async (projectId, clipId, patch) => {
    const [tracks, clips, markers] = await Promise.all([
       repo().getTracks(projectId), repo().getClips(projectId), repo().getMarkers(projectId),
    ]);
-   if (patch.trackId) find(tracks, patch.trackId, 'トラック');
+   if (patch.trackId) arrangementDomain.assertClipTrack(find(tracks, patch.trackId, 'トラック'));
    await repo().saveClip(arrangementDomain.placeClip(clips, clipId, patch, markers));
    await syncArrangement(projectId);
    await changed(projectId);

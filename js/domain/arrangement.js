@@ -2,7 +2,8 @@
 // DOMにもrepositoryにも依存しない。受け取ったレコードは変更せず、保存すべき新しいレコードを返す。
 // 小節は1始まりの整数。クリップは startBar から bars 小節ぶん(startBar + bars - 1 小節目まで)を占める。
 
-import { normalizeNotes, TICKS_PER_BAR, trackMix, trackSound } from './midi.js';
+import { clampAudioStart } from './audio.js';
+import { isAudioTrack, normalizeNotes, TICKS_PER_BAR, trackMix, trackSound } from './midi.js';
 import { assertSection } from './project.js';
 import { orderAtEnd, reorder, sortByOrder } from './order.js';
 import { newRecord, touch } from './record.js';
@@ -38,6 +39,43 @@ export function addTrack(projectId, tracks, name = '') {
       ...trackSound(null),
       ...trackMix(null),
    });
+}
+
+/**
+ * オーディオトラックを末尾に追加する。名前の決め方は addTrack と同じ。音声は鳴らし始める位置を曲の頭(1小節目)にする。
+ * @param {{ fileId: string, name: string, size: number, duration: number }} file 選んだファイル(中身は別に保存する)
+ */
+export function addAudioTrack(projectId, tracks, name, file) {
+   return { ...addTrack(projectId, tracks, name), kind: 'audio', audio: audioFile(file, 0) };
+}
+
+const audioFile = ({ fileId, name, size, duration }, startTick) => ({
+   fileId: String(fileId), name: String(name ?? ''), size: Number(size) || 0, duration: Number(duration) || 0, startTick,
+});
+
+/**
+ * オーディオトラックのファイルを変える(選び直し。別の端末で中身がないファイルを選び直すときも)。鳴らし始める位置はそのまま。
+ * @param {{ fileId: string, name: string, size: number, duration: number }} file
+ */
+export function setTrackAudio(track, file) {
+   assertAudioTrack(track);
+   return touch(track, { audio: audioFile(file, track.audio?.startTick ?? 0) });
+}
+
+/** オーディオトラックの音声を鳴らし始める位置(tick)を変える。前に出しすぎた位置は、置ける範囲に収める。 */
+export function moveTrackAudio(track, startTick, bpm) {
+   assertAudioTrack(track);
+   if (!track.audio) throw new Error('音声ファイルが選ばれていません');
+   return touch(track, { audio: { ...track.audio, startTick: clampAudioStart(track.audio, bpm, startTick) } });
+}
+
+function assertAudioTrack(track) {
+   if (!isAudioTrack(track)) throw new Error('オーディオトラックではありません');
+}
+
+/** クリップを置けるトラックか(オーディオトラックには置けない)。置けなければ例外。 */
+export function assertClipTrack(track) {
+   if (isAudioTrack(track)) throw new Error('オーディオトラックにはクリップを置けません');
 }
 
 /**
@@ -108,6 +146,7 @@ function assertPlaceable(clips, place, ignoreId, markers) {
  * @param {object[]|null} [markers] 渡すと、セクションマーカーの区間の外には作らせない
  */
 export function addClip(track, clips, { startBar, bars = 1, name = '' }, markers = null) {
+   assertClipTrack(track);
    const place = { trackId: track.id, startBar, bars };
    assertPlaceable(clips, place, null, markers);
    return newRecord({ projectId: track.projectId, ...place, name: String(name ?? '').trim(), memo: '', notes: [] });

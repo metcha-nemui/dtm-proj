@@ -174,7 +174,8 @@ button.project-tab {
 .arr-flag,
 .arr-boundary,
 .clip,
-.clip-ghost {
+.clip-ghost,
+.audio-region {
    position: absolute;
    left: calc((var(--start) - 1) * var(--bar));
 }
@@ -529,23 +530,30 @@ button.project-tab {
    cursor: copy;
 }
 
-/* トラックの追加 */
+/* トラックの追加(MIDI のトラックと、オーディオトラック) */
 .arr-foot {
    align-items: center;
    gap: var(--space-3);
 }
 
-.arr-add {
+.arr-adds {
    position: sticky;
    left: 0;
+   display: flex;
+   flex: none;
+   flex-direction: column;
+   align-self: stretch;
+   width: var(--arr-head);
+   border-right: 1px solid var(--border);
+   background: var(--surface);
+}
+
+.arr-add {
    display: inline-flex;
    align-items: center;
    gap: var(--space-1);
-   flex: none;
-   width: var(--arr-head);
    padding: var(--space-2) var(--space-3);
    border: 0;
-   border-right: 1px solid var(--border);
    background: var(--surface);
    color: var(--text-muted);
    cursor: pointer;
@@ -581,10 +589,16 @@ button.project-tab {
    }
 
    .arr-add {
-      overflow: hidden;
       padding: var(--space-2);
       font-size: 13px;
       white-space: nowrap;
+   }
+
+   /* 列が狭いので、入り切らない名前は … で切る */
+   .arr-add-label {
+      min-width: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
    }
 }
 
@@ -841,8 +855,98 @@ button.project-tab {
 }
 
 /* 鳴らさないトラック(ミュート、またはほかのトラックがソロ)は、クリップを薄くする */
-.arr-track.is-silent .clip {
+.arr-track.is-silent .clip,
+.arr-track.is-silent .audio-region {
    opacity: 0.4;
+}
+
+/* ---- オーディオトラック ---- */
+
+/* クリップは置かないので十字にしない。頭を1小節目より前に出した音声が、トラック名の列へはみ出さないよう切る */
+.arr-lane.is-audio {
+   overflow: hidden;
+   cursor: default;
+}
+
+/* 音声の区間。--start は小数にもなる(拍の途中から鳴らせる)。横にドラッグで動かす */
+.audio-region {
+   top: 5px;
+   bottom: 5px;
+   z-index: 1;
+   display: flex;
+   align-items: flex-start;
+   gap: var(--space-1);
+   width: calc(var(--len) * var(--bar));
+   padding: 1px 6px;
+   overflow: hidden;
+   border: 1px solid var(--done);
+   border-radius: var(--radius-sm);
+   background: color-mix(in srgb, var(--done) 14%, var(--surface));
+   color: var(--text);
+   font-size: 11px;
+   cursor: grab;
+   user-select: none;
+   -webkit-touch-callout: none;
+}
+
+.audio-region:focus-visible {
+   outline: 2px solid var(--accent);
+   outline-offset: 1px;
+}
+
+.audio-region.is-dragging {
+   cursor: grabbing;
+   box-shadow: var(--shadow-1);
+}
+
+.audio-region .clip-name {
+   flex: none;
+   max-width: 100%;
+   font-weight: 600;
+}
+
+/* このブラウザに中身がない(別の端末で選んだ)音声。長さは分かるので場所は出し、点線で見分ける */
+.audio-region.is-missing {
+   border-style: dashed;
+   border-color: var(--doing);
+   background: transparent;
+   color: var(--doing);
+}
+
+.audio-region .icon {
+   flex: none;
+   margin-top: 1px;
+}
+
+/* 波形(表示だけ)。真ん中を軸に、上下へ振れ幅を描く */
+.audio-wave {
+   position: absolute;
+   top: 2px;
+   left: 0;
+   width: 100%;
+   height: calc(100% - 4px);
+   fill: var(--done);
+   opacity: 0.55;
+   pointer-events: none;
+}
+
+/* トラック名の下の、音声ファイルの名前(押すと選び直す)。ないときは目に付く色で */
+.arr-head-sound.is-missing {
+   display: inline-flex;
+   align-items: center;
+   gap: 2px;
+   color: var(--doing);
+   font-weight: 600;
+}
+
+.arr-head-sound .icon {
+   flex: none;
+}
+
+/* リバーブのボタンの代わりに空けておく(つまみの位置を MIDI のトラックと揃える) */
+.arr-mix-spacer {
+   flex: none;
+   width: 24px;
 }
 
 /* クリップの中のノートの並び(表示だけ) */

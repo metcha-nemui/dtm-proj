@@ -9,6 +9,7 @@ import './reference.test.js';
 import './schedule.test.js';
 import './arrangement.test.js';
 import './midi.test.js';
+import './audio.test.js';
 import './store.test.js';
 
 export { report, run } from './helpers.js';

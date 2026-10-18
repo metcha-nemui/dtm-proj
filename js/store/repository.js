@@ -83,9 +83,23 @@ const UNTRACKED_VERSION = 6;
  * @property {number} kit ドラムキット(10ch のプログラム番号。0〜127。GS の並び)。drum でなければ使わない
  * @property {boolean} [mute] ミュート(再生で鳴らさない。書き出しには入れる)。項目がなければ false
  * @property {boolean} [solo] ソロ(ソロのトラックがあれば、それだけを鳴らす)。項目がなければ false
- * @property {boolean} [reverb] リバーブを掛ける(再生だけに効く。書き出しには入れない)。項目がなければ true
+ * @property {boolean} [reverb] リバーブを掛ける(再生だけに効く。書き出しには入れない)。項目がなければ true。オーディオトラックでは使わない
+ * @property {'midi'|'audio'} [kind] オーディオトラック(音声ファイルを1つ鳴らす。クリップは置かない)なら 'audio'。項目がなければ MIDI。
+ *    オーディオトラックが使う音の設定は volume と pan だけ
+ * @property {TrackAudio|null} [audio] オーディオトラックの音声。MIDI のトラックにはない
  * @property {string} createdAt
  * @property {string} updatedAt
+ */
+
+/**
+ * オーディオトラックの音声。ファイルの中身は端末ごとの IndexedDB(store/audioFileStore.js)に fileId で入れ、ここには持たない。
+ * 別の端末やインポートした先では中身がないことがある(画面で選び直す)。
+ * @typedef {Object} TrackAudio
+ * @property {string} fileId 中身を探すための id。ファイルを選び直すと新しくなる(中身がないものを選び直すときは同じまま)
+ * @property {string} name ファイル名
+ * @property {number} size バイト数
+ * @property {number} duration 長さ(秒)
+ * @property {number} startTick 鳴らし始める位置(曲の頭からの tick。負なら頭を1小節目より前に出している)
  */
 
 /**

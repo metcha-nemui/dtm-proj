@@ -49,6 +49,7 @@ node -e "import('./test/domain.test.js').then(m => m.report()).then(ok => proces
 | 締切 | プロジェクトごとに任意で1つ(日付のみ) |
 | 「全体」レーン | すべてのプロジェクトに必ず1本ある。名前変更・複製・削除・並べ替えはできない |
 | アレンジ | プロジェクトごとの、DAW のアレンジ画面のような別ページ。クリップは MIDI のノートを持つ最低限の下書き用。再生はブラウザ内で、端末ごとに選んだ SoundFont / DLS を鳴らす |
+| オーディオトラック | 1本につき音声ファイル1つ。クリップは置かず、鳴らし始める位置だけを動かせる。ファイルは端末ごとの IndexedDB に置き、Supabase には入れない(中身のない端末では印を出し、選び直してもらう)。伸び縮みはさせない(BPM とずれても割り切る)。録音はしない |
 | アレンジとボード | クリップは、属するセクションのレーンに連動タスク(`clipId` を持つ Task)として出る |
 | テンプレート | 持たない(廃止)。狙いが曖昧なまま保守コストが掛かるのでやめた。ボードとアレンジの仕様が固まった頃に、何のために持つかから考え直す |
 | 色 | 選ばせない。セクションの並び順で固定パレット(18色)を1色ずつ割り振る。保存しない |
@@ -81,7 +82,9 @@ Task     { id, projectId, laneId, title, memo, status: 'todo' | 'doing' | 'done'
 Track    { id, projectId, name, order,
            program, volume, pan, drum,               // GM の音色(0〜127)、音量・パン(0〜127。パンは64が中央)、ドラムか
            kit,                                      // ドラムキット(10ch のプログラム番号。GS の並び)。ドラムでなければ使わない
-           mute, solo, reverb }                      // 再生だけに効く。reverb は項目がなければ true
+           mute, solo, reverb,                       // 再生だけに効く。reverb は項目がなければ true
+           kind, audio }                             // kind はオーディオトラックなら 'audio'(項目がなければ MIDI)。
+                                                     // audio は { fileId, name, size, duration(秒), startTick }。中身は端末ごとの IndexedDB
 Clip     { id, projectId, trackId, name, memo, startBar, bars,   // 小節は1始まりの整数。bars は1以上
            notes: [{ pitch, start, length, velocity }] }        // 位置はクリップの先頭からの相対で、単位は tick(4分音符 = 480)
 Marker   { id, projectId, laneId, bar }              // セクションマーカー。名前と色は指しているレーンのもの
@@ -117,16 +120,17 @@ js/
   main.js                 起動(ログイン状態を見て保存先を決める)、ルーター
   pwa.js / session.js / theme.js   Service Worker の登録 / 擬似ログインの状態 / UIテーマ
   state.js                repository の参照と、変更通知(subscribe / notify)
-  synth.js                ブラウザ内の音源(spessasynth_lib)と再生。何を鳴らすかは domain/midi.js で組み立てる
+  synth.js                ブラウザ内の音源(spessasynth_lib)と再生(オーディオトラックの音声も)。何を鳴らすかは domain/midi.js・audio.js で組み立てる
   audioExport.js          WAV の書き出し。音を作るのは audioExportWorker.js(Worker の中で spessasynth_core を動かす)
   actions.js              画面から呼ぶ操作。読む→domainで計算→保存→notify
   domain/                 DOMにもrepositoryにも依存しない純粋なロジック
-                          (record, order, date, project, task, stats, deadline, gantt, reference, arrangement, midi)
+                          (record, order, date, project, task, stats, deadline, gantt, reference, arrangement, midi, audio)
   store/
     repository.js         インターフェース定義(JSDoc)、createRepository、migrate、upgradeStorage / checkSchema
     indexeddb.js          文書ストアの IndexedDB 実装
     supabase.js           文書ストアの Supabase 実装
     soundFontStore.js     音源ファイルの保存(このブラウザの IndexedDB。repository とは別)
+    audioFileStore.js     オーディオトラックの音声ファイルの保存(同上)
   ui/                     画面。各ファイルの先頭のコメントに役割がある
     components/           dom(h, icon, keepFocus)、dialog、menu、toast、sortable、knob、pointer(ドラッグの共通部分)、slowNotice、autoGrow
 ```
