@@ -243,9 +243,7 @@ button.project-tab {
    cursor: grabbing;
 }
 
-/* 選んでいる旗(点線の枠)でも、置けないときは赤い枠にする */
-.arr-flag.is-invalid,
-.arr-flag.is-picked.is-invalid {
+.arr-flag.is-invalid {
    outline: 2px solid var(--danger);
 }
 
@@ -371,15 +369,14 @@ button.project-tab {
    outline-offset: 1px;
 }
 
-.arr-flag.is-picked {
-   outline: 2px dashed var(--text);
-   outline-offset: 1px;
+/* Ctrl+ドラッグで囲む範囲 */
+.arr-tracks {
+   position: relative;
 }
 
-/* Ctrl+ドラッグで囲む範囲(.arr-inner に置く)。上の段まで伸ばしたときも見えるよう、貼り付いた段や列より前に出す */
 .arr-marquee {
    position: absolute;
-   z-index: 6;
+   z-index: 3;
    border: 1px solid var(--accent);
    background: color-mix(in srgb, var(--accent) 12%, transparent);
    pointer-events: none;

@@ -251,7 +251,25 @@ export function markerSpans(markers, lanes, totalBars) {
 // マーカーの区間(小節順)。最後の区間は終わりがない(画面の小節数に左右されないように)
 function sectionSpans(markers) {
    const sorted = [...markers].sort((a, b) => a.bar - b.bar);
-   return sorted.map((m, i) => ({ laneId: m.laneId, from: m.bar, to: (sorted[i + 1]?.bar ?? Infinity) - 1 }));
+   return sorted.map((m, i) => ({ markerId: m.id, laneId: m.laneId, from: m.bar, to: (sorted[i + 1]?.bar ?? Infinity) - 1 }));
+}
+
+/**
+ * マーカーの区間に入っているクリップ(マーカーを動かすときに、一緒に動かすか尋ねるためのもの)。
+ * 区間をまたぐクリップは、重なる小節数がいちばん多い区間に入れる(同数なら先の区間)。
+ * clipSection と違って同じセクションの区間を合計しないので、同じセクションを何度か使っていても、その区間のものだけ。
+ */
+export function markerClips(clips, markers, markerId) {
+   const spans = sectionSpans(markers);
+   return clips.filter((clip) => {
+      let best = null;
+      let most = 0;
+      for (const span of spans) {
+         const bars = overlapBars(span, clip);
+         if (bars > most) [best, most] = [span.markerId, bars];
+      }
+      return best === markerId;
+   });
 }
 
 const overlapBars = (span, { startBar, bars }) => (

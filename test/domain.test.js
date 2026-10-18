@@ -2,7 +2,7 @@
 // Node でも動く: node -e "import('./test/domain.test.js').then(m => m.report()).then(ok => process.exit(ok ? 0 : 1))"
 
 import {
-   addClip, addMarker, addTrack, arrangementBars, canPlace, canShiftSelection, clipEnd, clipSection, duplicateClip, markerSpans, moveTrack,
+   addClip, addMarker, addTrack, arrangementBars, canPlace, canShiftSelection, clipEnd, clipSection, duplicateClip, markerClips, markerSpans, moveTrack,
    placeClip, renameTrack, setClipNotes, shiftSelection, syncClipTasks, updateClip, updateMarker, updateTrackMix, updateTrackSound,
 } from '../js/domain/arrangement.js';
 import {
@@ -874,6 +874,23 @@ test('shiftSelection: 選んだクリップをまとめて横にずらす。1つ
    equal(can([b.id], -1, markers), true, '8〜9小節は区間に掛かる');
    equal(can([b.id, a.id], 4, markers), false, 'a(5〜8)が区間の外');
    equal(can(['none'], 1), false, 'ないクリップ');
+});
+
+test('markerClips: マーカーの区間に入っているクリップ。またぐものは重なりの多い区間', () => {
+   const { project, lane, drums, clips, a, b } = arrangementFixture(); // シンセ 1〜4 と 9〜10
+   const c = addClip(drums, [], { startBar: 7, bars: 4 }); // 7〜10
+   const d = addClip(drums, [c], { startBar: 11, bars: 4 }); // 11〜14
+   const e = addClip(drums, [c, d], { startBar: 30, bars: 2 }); // 30〜31
+   const all = [...clips, c, d, e];
+   const verse = addMarker(project.id, [], lane('Aメロ'), 1);
+   const chorus = addMarker(project.id, [verse], lane('サビ'), 9);
+   const verse2 = addMarker(project.id, [verse, chorus], lane('Aメロ'), 14);
+   const markers = [verse, chorus, verse2];
+   const ids = (markerId) => markerClips(all, markers, markerId).map((x) => x.id);
+   equal(ids(verse.id), [a.id, c.id], 'c は 7〜8 と 9〜10 で同数なので、先の区間');
+   equal(ids(chorus.id), [b.id, d.id], 'd は 11〜13 と 14 で、多い方');
+   equal(ids(verse2.id), [e.id], '同じセクションの別の区間のものは入れない(最後の区間は右端まで続く)');
+   equal(markerClips(all, [], verse.id), [], 'マーカーがない');
 });
 
 test('shiftSelection: マーカーも一緒にずらす。区間は動かした後のマーカーで判定する', () => {

@@ -49,6 +49,31 @@ export function confirmDialog({ title, message, okLabel = 'OK', danger = false }
 }
 
 /**
+ * いくつかのやり方から1つを選ぶダイアログ。押したボタンの value で解決する(キャンセル・Esc・背景クリックなら null)。
+ * disabled のボタンは押せない(なぜ押せないかは note に書いて、ボタンの下に出す)。primary のボタンに最初のフォーカスを置く
+ * @param {{ title: string, message?: string,
+ *   choices: Array<{ value: string, label: string, primary?: boolean, disabled?: boolean, note?: string }> }} options
+ * @returns {Promise<string|null>}
+ */
+export function choiceDialog({ title, message, choices }) {
+   return showDialog((close) => h('div', { class: 'dialog-form' },
+      h('h2', { class: 'dialog-title' }, title),
+      message && h('p', { class: 'dialog-message' }, message),
+      h('div', { class: 'dialog-choices' }, choices.map((choice) => h('div', { class: 'dialog-choice' },
+         h('button', {
+            type: 'button',
+            class: `btn${choice.primary ? ' btn-primary' : ''}`,
+            disabled: Boolean(choice.disabled),
+            autofocus: Boolean(choice.primary && !choice.disabled),
+            onclick: () => close(choice.value),
+         }, choice.label),
+         choice.note && h('p', { class: 'dialog-choice-note muted' }, choice.note)))),
+      h('div', { class: 'dialog-actions' },
+         h('button', { type: 'button', class: 'btn', onclick: () => close(null) }, 'キャンセル')),
+   ));
+}
+
+/**
  * 見るだけのダイアログ。ボタンは「閉じる」だけ。
  * @param {{ title: string, body: Node }} options
  * @returns {Promise<void>}

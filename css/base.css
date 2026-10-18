@@ -341,6 +341,22 @@ textarea {
    margin-top: var(--space-4);
 }
 
+/* 選ぶダイアログ(choiceDialog)のボタン。横幅いっぱいに縦に並べ、押せない理由はボタンの下に出す */
+.dialog-choices {
+   display: flex;
+   flex-direction: column;
+   gap: var(--space-2);
+}
+
+.dialog-choice .btn {
+   width: 100%;
+}
+
+.dialog-choice-note {
+   margin-top: var(--space-1);
+   font-size: 12px;
+}
+
 /* ---- メニュー ---- */
 
 .menu {
