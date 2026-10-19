@@ -49,6 +49,8 @@ const EDGE = 6; // ノートの右端の、掴むと長さを変えられる幅(
 const VEL_HEIGHT = 64; // ベロシティの段の高さ(px。CSS の --pr-vel-h に渡す)
 const VEL_PAD = 6; // ベロシティの段の上の余白(127 の棒が上端に付かないように)
 const VEL_HIT = 4; // ベロシティの段で、なぞった位置から棒を拾う幅(px)
+const VEL_TAP_HIT = 16; // タッチのダブルタップで既定値にするとき、棒を拾う幅(px)と、1回目からずれてよい幅
+const DOUBLE_TAP_MS = 350; // ダブルタップとみなす間隔
 const DEFAULT_VELOCITY = 100;
 const DRAG_THRESHOLD = 3;
 // タッチで、空いているところをこれだけ押さえたら、囲んで選ぶ。アレンジ画面のクリップの長押しと揃える
@@ -241,14 +243,18 @@ export function createPianoRoll({
    const pasteButton = sideButton('clipboard-paste', '貼り付け', '赤い印の位置(クリップの外ならクリップの頭)に貼り付ける', () => paste());
    const deleteButton = sideButton('trash-2', '削除', '選んだノートを消す', () => deleteSelected());
    deleteButton.classList.add('is-danger');
+   // 選んだノートのベロシティを既定値にする(PC の Alt を押しながらなぞるのと同じ。タッチには Alt がないため)
+   const velResetButton = sideButton('chart-no-axes-column', 'ベロ 100', `選んだノートのベロシティを ${DEFAULT_VELOCITY} にする`,
+      () => resetVelocity());
    const side = h('div', { class: 'pr-side pr-touch-only' },
-      undoButton, redoButton, cutButton, copyButton, pasteButton, deleteButton);
+      undoButton, redoButton, cutButton, copyButton, pasteButton, velResetButton, deleteButton);
 
    // 選んでいるノートとコピーしたノートがあるかで、編集のボタンを押せるようにする
    function renderEditButtons() {
       cutButton.disabled = !selected.size;
       copyButton.disabled = !selected.size;
       deleteButton.disabled = !selected.size;
+      velResetButton.disabled = !selected.size;
       pasteButton.disabled = !clipboard.length;
    }
    // タッチの伸縮モード。ON の間は、ノートをドラッグすると(どこを掴んでも)長さが変わる。置く・動かすはしない
@@ -286,6 +292,30 @@ export function createPianoRoll({
       pinchExit.hidden = !pinchMode;
       if (clipId) renderNotes(); // 十字キーを出し入れする
    }
+   // タッチのベロシティ編集モード。ON の間だけベロシティの段を出す(OFF の間は出さない)。
+   // 段は指が触れた瞬間に塗るので、スクロールやほかの操作のつもりで触れて変えてしまわないように。PC ではいつも出す
+   let velMode = false;
+   const coarse = matchMedia('(pointer: coarse)');
+   const velToggle = h('button', {
+      type: 'button',
+      class: 'btn btn-icon pr-mode-toggle pr-touch-only',
+      title: 'ベロシティ(ON の間だけ、グリッドの下にベロシティの段を出して編集できる)',
+      'aria-label': 'ベロシティ',
+      'aria-pressed': 'false',
+      onclick: () => setVelMode(!velMode),
+   }, icon('chart-no-axes-column'));
+   function setVelMode(on) {
+      velMode = on;
+      velToggle.setAttribute('aria-pressed', String(velMode));
+      applyVelMode();
+   }
+   // 段を出さない間は、段の高さを 0 にする(グリッドの行の高さと、十字キーの位置に使う)
+   function applyVelMode() {
+      const hidden = coarse.matches && !velMode;
+      el.classList.toggle('is-vel-hidden', hidden);
+      el.style.setProperty('--pr-vel-h', `${hidden ? 0 : VEL_HEIGHT}px`);
+   }
+   coarse.addEventListener('change', () => applyVelMode());
    // 十字キー(矢印キーと同じ。←→ でグリッド1つ分、↓↑ で半音)。タッチの画面で、ノートを選んでいる間だけ右端に出す。
    // 押し続けるとくり返し動かし、離したときにまとめて保存する
    const padButton = (name, label, area, step) => {
@@ -398,8 +428,8 @@ export function createPianoRoll({
       onpointerdown: (e) => onHbarDown(e),
    }, hbarThumb);
 
-   // ベロシティの段の高さは、十字キーの位置にも使う
-   const el = h('section', { class: 'pr', 'aria-label': 'ピアノロール', hidden: true, style: { '--pr-vel-h': `${VEL_HEIGHT}px` } },
+   // ベロシティの段の高さ(--pr-vel-h)は、十字キーの位置にも使う。applyVelMode で決める
+   const el = h('section', { class: 'pr', 'aria-label': 'ピアノロール', hidden: true },
       resizeHandle(),
       h('header', { class: 'pr-head' },
          icon('piano', 16),
@@ -410,6 +440,7 @@ export function createPianoRoll({
          h('span', { class: 'pr-onion-tools' }, onionToggle, onionTracks),
          resizeToggle,
          pinchToggle,
+         velToggle,
          h('span', { class: 'pr-spacer' }),
          playAllButton,
          playButton,
@@ -459,6 +490,7 @@ export function createPianoRoll({
       setHeight(savedHeight);
    }
    applyHeight();
+   applyVelMode();
 
    function saveHeight(value) {
       savedHeight = value;
@@ -1195,16 +1227,23 @@ export function createPianoRoll({
    // ベロシティの段を押して、なぞる。前の位置から今の位置までの間にある棒を、今の高さのベロシティにする
    // (速くなぞっても飛ばさない)。選んでいるノートがあれば、選んでいるものだけを変える。
    // FL Studio と同じく、Alt を押している間は既定値(100)にし、Shift を押して始めると、押した位置から今の位置まで直線で描く
+   // タッチでは Alt の代わりに、ダブルタップ(2回目の指)で既定値にする。2回目の指のまま、なぞった棒も既定値にする
+   let lastVelTap = null; // 前に段に触れた指 { time, x }
    function onVelDown(down) {
       if (!clipId || down.button !== 0) return;
       down.preventDefault();
       scroller.focus({ preventScroll: true });
+      const reset = down.pointerType === 'touch' && lastVelTap !== null
+         && down.timeStamp - lastVelTap.time < DOUBLE_TAP_MS && Math.abs(down.clientX - lastVelTap.x) < VEL_TAP_HIT;
+      lastVelTap = down.pointerType === 'touch' && !reset ? { time: down.timeStamp, x: down.clientX } : null;
+      // 指は細かく狙えないので、ダブルタップは広めに拾う
+      const hitWidth = reset ? VEL_TAP_HIT : VEL_HIT;
       const targets = selected.size ? [...selected] : notes;
       const before = new Map(targets.map((n) => [n, velocityOf(n)]));
       const raw = new Map(targets.map((n) => [n, n.velocity]));
       const pointAt = (e) => {
          const rect = velBars.getBoundingClientRect();
-         const value = e.altKey ? DEFAULT_VELOCITY
+         const value = e.altKey || reset ? DEFAULT_VELOCITY
             : Math.max(1, Math.min(127, Math.round(((rect.bottom - e.clientY) / (VEL_HEIGHT - VEL_PAD)) * 127)));
          return { x: e.clientX - rect.left, value };
       };
@@ -1228,8 +1267,8 @@ export function createPianoRoll({
                hit = true;
             }
          } else {
-            const from = Math.min(lastX ?? x, x) - VEL_HIT;
-            const to = Math.max(lastX ?? x, x) + VEL_HIT;
+            const from = Math.min(lastX ?? x, x) - hitWidth;
+            const to = Math.max(lastX ?? x, x) + hitWidth;
             lastX = x;
             for (const n of targets) {
                const at = n.start * px;
@@ -1253,6 +1292,15 @@ export function createPianoRoll({
             if (targets.some((n) => velocityOf(n) !== before.get(n))) commit();
          },
       });
+   }
+
+   // 選んでいるノートのベロシティを既定値にする(右の列のボタン)
+   function resetVelocity() {
+      const list = [...selected];
+      if (!list.some((n) => velocityOf(n) !== DEFAULT_VELOCITY)) return;
+      for (const n of list) n.velocity = DEFAULT_VELOCITY;
+      lastVelocity = DEFAULT_VELOCITY;
+      commit();
    }
 
    // ---- コピー・切り取り・貼り付け ----

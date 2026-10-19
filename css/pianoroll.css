@@ -505,6 +505,12 @@
    }
 }
 
+/* タッチでベロシティの編集モードが OFF の間は、ベロシティの段を出さない(高さの --pr-vel-h は pianoRoll.js が 0 にする) */
+.pr.is-vel-hidden .pr-vel,
+.pr.is-vel-hidden .pr-vel-corner {
+   display: none;
+}
+
 /* ピンチモードの間は、ルーラーなども含めて、指の動きをすべて pianoRoll.js で扱う */
 .pr.is-pinch-mode .pr-scroll {
    touch-action: none;
