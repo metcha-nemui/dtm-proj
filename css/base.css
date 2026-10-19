@@ -180,6 +180,37 @@ textarea {
    line-height: 1;
 }
 
+/* ボタングループ。働きの近いボタンを1つの枠にまとめ、間を区切り線にする(角は両端だけ丸める) */
+.btn-group {
+   display: inline-flex;
+   flex: none;
+}
+
+.btn-group > .btn {
+   border-color: var(--border);
+   border-radius: 0;
+   background: var(--surface);
+}
+
+.btn-group > .btn + .btn {
+   margin-left: -1px; /* 隣り合う枠線を1本に重ねる */
+}
+
+.btn-group > .btn:first-child {
+   border-radius: var(--radius-sm) 0 0 var(--radius-sm);
+}
+
+.btn-group > .btn:last-child {
+   border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
+}
+
+/* 押している・フォーカスしているボタンの枠線は、隣の枠線より上に出す */
+.btn-group > .btn[aria-pressed="true"],
+.btn-group > .btn:focus-visible {
+   position: relative;
+   z-index: 1;
+}
+
 .input,
 .select,
 .textarea {

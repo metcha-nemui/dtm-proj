@@ -284,13 +284,9 @@
    background: color-mix(in srgb, var(--text-muted) 30%, transparent);
 }
 
-.pr-onion-tools {
-   display: inline-flex;
-   gap: 2px;
-}
-
 .pr-head .pr-onion-toggle[aria-pressed="true"],
 .pr-head .pr-mode-toggle[aria-pressed="true"] {
+   border-color: var(--accent);
    background: var(--accent);
    color: var(--accent-contrast);
 }

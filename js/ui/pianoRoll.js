@@ -419,13 +419,12 @@ export function createPianoRoll({
          range,
          h('label', { class: 'pr-snap-label muted' }, 'グリッド', snapSelect),
          scaleText,
-         h('span', { class: 'pr-onion-tools' }, onionToggle, onionTracks),
-         resizeToggle,
-         pinchToggle,
-         velToggle,
+         // 働きの近いボタンは、ボタングループにまとめる
+         h('span', { class: 'btn-group', role: 'group', 'aria-label': 'オニオンスキンの操作' }, onionToggle, onionTracks),
+         h('span', { class: 'btn-group pr-touch-only', role: 'group', 'aria-label': 'タッチのモード' },
+            resizeToggle, pinchToggle, velToggle),
          h('span', { class: 'pr-spacer' }),
-         playAllButton,
-         playButton,
+         h('span', { class: 'btn-group', role: 'group', 'aria-label': '再生' }, playAllButton, playButton),
          h('button', {
             type: 'button', class: 'btn btn-icon', title: '.mid の読み込み・書き出し', 'aria-label': '.mid の読み込み・書き出し',
             onclick: (e) => openMenu(e.currentTarget, [
