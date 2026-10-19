@@ -882,7 +882,7 @@ export function mount(container, { id: projectId }) {
                { label: '.wav で書き出す', onSelect: () => { exportAudio(); } },
             ]),
          }, icon('download')),
-         // ブラウザで開いたタッチの端末で、通知バーを隠して高さを確保する(アプリとして開いたときは最初から全画面なので出さない)
+         // スマホで、通知バーを隠して高さを確保する。タブから開いたときは自動で入るが、再読み込みや戻るジェスチャーで外れたときに使う
          canFullscreen() && h('button', {
             type: 'button',
             class: 'btn btn-icon',
