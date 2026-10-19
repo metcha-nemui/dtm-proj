@@ -18,6 +18,11 @@
 // Alt を押している間は既定値(100)にし、Shift を押して始めると直線で描く。
 // 新しく置くノートのベロシティは、最後に触ったノートのもの。
 //
+// 元に戻す / やり直す(Ctrl+Z / Ctrl+Y・Ctrl+Shift+Z。タッチではヘッダーのボタン)は、クリップごとに、保存したノートの写しを積んで行う。
+// ピアノロールの外でノートや長さが変わったとき(.mid の読み込み、クリップの伸縮、ほかの端末)、保存に失敗したとき、
+// クリップを消したときは、古い写しを戻すと位置がずれたりはみ出したりするので、そのクリップの履歴を捨てる。
+// 履歴は覚えておかない(アレンジ画面を離れると消える)。
+//
 // 編集は手元の notes に反映してから、操作の区切り(ポインタを離したとき)ごとにクリップのノートを丸ごと保存する。
 // 表示の単位は px、ノートの単位は tick(midi.js)。
 
@@ -53,6 +58,7 @@ const RULER_H = 20; // ルーラーの高さ(px。CSS の --pr-ruler-h と揃え
 // 十字キーを押し続けたとき、くり返し動かし始めるまでと、その間隔(ms)
 const REPEAT_DELAY = 400;
 const REPEAT_MS = 90;
+const HISTORY_LIMIT = 100; // 元に戻せる回数(クリップごと)
 // 3連は、元の音符の 2/3 の長さ(1/8 3連 = 4分音符を3つに分けた長さ)
 const SNAPS = [
    { value: String(PPQ), label: '1/4' },
@@ -149,6 +155,8 @@ export function createPianoRoll({
    let onion = false; // オニオンスキンを出すか
    let onionOff = new Set(); // オニオンスキンに出さないトラックの id
    let resizeMode = false; // タッチで、ノートのドラッグを「長さを変える」にする(置く・動かすはしない)
+   // 元に戻す履歴。clipId → { saved: 保存したノート, bars: そのときの長さ, undo: [ノート…], redo: [ノート…] }
+   const history = new Map();
 
    const title = h('span', { class: 'pr-title' });
    const range = h('span', { class: 'pr-range muted' });
@@ -199,6 +207,15 @@ export function createPianoRoll({
       type: 'button', class: 'btn btn-icon', title: '選んだノートを消す', 'aria-label': '選んだノートを消す', hidden: true,
       onclick: () => deleteSelected(),
    }, icon('trash-2'));
+   // 元に戻す / やり直す(Ctrl+Z / Ctrl+Y と同じ。キーのないタッチの画面のため)
+   const undoButton = h('button', {
+      type: 'button', class: 'btn btn-icon pr-touch-only', title: '元に戻す', 'aria-label': '元に戻す', disabled: true,
+      onclick: () => undo(),
+   }, icon('undo-2'));
+   const redoButton = h('button', {
+      type: 'button', class: 'btn btn-icon pr-touch-only', title: 'やり直す', 'aria-label': 'やり直す', disabled: true,
+      onclick: () => redo(),
+   }, icon('redo-2'));
    // タッチの伸縮モード。ON の間は、ノートをドラッグすると(どこを掴んでも)長さが変わる。置く・動かすはしない
    const resizeToggle = h('button', {
       type: 'button',
@@ -323,6 +340,8 @@ export function createPianoRoll({
          resizeToggle,
          h('span', { class: 'pr-onion-tools' }, onionToggle, onionTracks),
          h('span', { class: 'pr-spacer' }),
+         undoButton,
+         redoButton,
          deleteButton,
          playButton,
          h('button', {
@@ -751,6 +770,8 @@ export function createPianoRoll({
       actions.setClipNotes(projectId, clipId, notes.map((n) => ({ ...n })))
          .catch((error) => {
             reportError(error);
+            history.delete(clipId); // 保存できなかった内容の写しが積まれているので捨てる
+            renderHistory();
             pending = 0;
             sync({ force: true }); // 保存できなかったので、保存済みのノートに戻す
          })
@@ -1119,8 +1140,62 @@ export function createPianoRoll({
          .sort((a, b) => a.note.start - b.note.start || a.note.pitch - b.note.pitch);
       notes = pairs.map((p) => p.note);
       selected = new Set(pairs.filter((p) => p.isSelected).map((p) => p.note));
+      record();
       renderNotes();
       save();
+   }
+
+   // ---- 元に戻す / やり直す ----
+
+   const copyNotes = (list) => list.map((n) => ({ ...n }));
+
+   // commit の直前の状態(最後に保存したノート)を積む。やり直しの履歴は捨てる
+   function record() {
+      const entry = history.get(clipId);
+      if (!entry) {
+         history.set(clipId, { saved: copyNotes(notes), bars: clip()?.bars, undo: [], redo: [] });
+      } else {
+         entry.undo.push(entry.saved);
+         if (entry.undo.length > HISTORY_LIMIT) entry.undo.shift();
+         entry.redo = [];
+         entry.saved = copyNotes(notes);
+      }
+      renderHistory();
+   }
+
+   function undo() {
+      step('undo', 'redo');
+   }
+
+   function redo() {
+      step('redo', 'undo');
+   }
+
+   // from の最後の写しに戻して保存する。いまの状態は to に積む。選択は外す(戻したノートとの対応が分からないため)
+   function step(from, to) {
+      const entry = history.get(clipId);
+      if (dragging || !entry?.[from].length) return;
+      entry[to].push(entry.saved);
+      entry.saved = entry[from].pop();
+      notes = copyNotes(entry.saved);
+      selected = new Set();
+      renderNotes();
+      renderHistory();
+      save();
+   }
+
+   function renderHistory() {
+      const entry = clipId ? history.get(clipId) : null;
+      undoButton.disabled = !entry?.undo.length;
+      redoButton.disabled = !entry?.redo.length;
+   }
+
+   // 保存済みのクリップが、履歴の前提(最後に保存したノートと長さ)と違っていれば、ピアノロールの外で変わったので履歴を捨てる。
+   // 履歴がなければ、いまの状態を起点にする
+   function checkHistory(c) {
+      const entry = history.get(c.id);
+      if (entry && (entry.bars !== c.bars || !sameNotes(entry.saved, c.notes))) history.delete(c.id);
+      if (!history.has(c.id)) history.set(c.id, { saved: normalizeNotes(c.notes), bars: c.bars, undo: [], redo: [] });
    }
 
    function onKeydown(e) {
@@ -1135,6 +1210,12 @@ export function createPianoRoll({
       } else if (e.key.toLowerCase() === 'v' && (e.ctrlKey || e.metaKey) && clipboard.length) {
          e.preventDefault();
          paste();
+      } else if (e.key.toLowerCase() === 'z' && (e.ctrlKey || e.metaKey) && !e.shiftKey) {
+         e.preventDefault();
+         undo();
+      } else if ((e.key.toLowerCase() === 'y' || (e.key.toLowerCase() === 'z' && e.shiftKey)) && (e.ctrlKey || e.metaKey)) {
+         e.preventDefault();
+         redo();
       } else if (e.key === 'a' && (e.ctrlKey || e.metaKey)) {
          e.preventDefault();
          selected = new Set(notes);
@@ -1190,6 +1271,9 @@ export function createPianoRoll({
       }
       renderHead();
       renderOnion();
+      // 保存待ち・編集中は、読み直したノートが自分の保存より古いことがあるので比べない
+      if (!dragging && pending === 0) checkHistory(c);
+      renderHistory();
       if (!force && (dragging || pending > 0 || sameNotes(c.notes, notes))) {
          renderNotes();
          return;
@@ -1251,6 +1335,10 @@ export function createPianoRoll({
       /** アレンジ画面が読み直すたびに呼ぶ。 */
       update(next) {
          data = next;
+         // 消したクリップの履歴は捨てる(「元に戻す」で戻ったクリップは、戻った状態を起点にする)
+         for (const id of history.keys()) {
+            if (!data.clips.some((c) => c.id === id)) history.delete(id);
+         }
          if (clipId) sync();
       },
       /** 再生を始める位置(曲の頭からの tick)。 */
