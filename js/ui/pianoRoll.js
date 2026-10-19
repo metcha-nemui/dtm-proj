@@ -1586,7 +1586,8 @@ export function createPianoRoll({
          const rel = c && tick != null ? tick - (c.startBar - 1) * TICKS_PER_BAR : -1;
          const visible = c && rel >= 0 && rel <= clipTicks(c);
          playhead.hidden = !visible;
-         if (visible) playhead.style.left = `${rel * px}px`;
+         // 毎フレーム呼ばれるので、left ではなく transform で動かす(レイアウトをやり直させない)
+         if (visible) playhead.style.transform = `translateX(${rel * px}px)`;
       },
    };
 }

@@ -730,7 +730,9 @@ button.project-tab {
 
 .arr-playhead {
    z-index: 2;
-   left: calc(var(--arr-head) + (var(--start) - 1) * var(--bar));
+   /* 再生中は毎フレーム動かすので、left ではなく transform で動かす(レイアウトをやり直させず、音の合成に CPU を回す) */
+   left: var(--arr-head);
+   transform: translateX(calc((var(--start) - 1) * var(--bar)));
 }
 
 /* トラックの音色(押すと変えられる) */

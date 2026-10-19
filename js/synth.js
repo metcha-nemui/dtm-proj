@@ -18,6 +18,8 @@
 // スマホ(主な入力がタッチの端末)では、合成が締め切りに間に合わずブツブツ途切れやすいので、軽く鳴らす。
 // 出力のバッファを大きくし(試し弾きの音が少し遅れるだけで、再生は先読みで予約しているのでずれない)、
 // 波形の補間を軽いもの(linear。spessasynth の既定は hermite)にする。
+// 合成の重さは同時に鳴っている音(ボイス)の数に比例するので、ボイスの上限も下げる(既定は 350)。
+// 上限を超えると、古い音・余韻の小さい音から止めて使い回す(和音や余韻が重なる場面でも、途切れるよりはよい)。
 
 import { DRUM_CHANNEL, secondsToTicks, ticksToSeconds } from './domain/midi.js';
 import { loadAudioFile } from './store/audioFileStore.js';
@@ -33,6 +35,7 @@ const AUDIO_DELAY = 0.03; // 再生中に音声を鳴らし直すときの間(�
 const RAMP = 0.01; // 再生中に音量・パンを変えるときに、なめらかに移る時間(秒)。いきなり変えるとプツッと鳴る
 const LIGHT = matchMedia('(pointer: coarse)').matches;
 const LINEAR_INTERPOLATION = 0; // spessasynth_core の InterpolationTypes.linear
+const LIGHT_VOICE_CAP = 64;
 
 /** Windows で MSGS と同じ音色を持つファイル。ブラウザからは自動では読めないので、選ぶときの案内に使う。 */
 export const WINDOWS_GM_DLS = 'C:\\Windows\\System32\\drivers\\gm.dls';
@@ -93,7 +96,10 @@ export function prepareSynth() {
       await ctx.audioWorklet.addModule(PROCESSOR_URL);
       const created = new WorkletSynthesizer(ctx);
       created.connect(ctx.destination);
-      if (LIGHT) created.setSystemParameter('interpolationType', LINEAR_INTERPOLATION);
+      if (LIGHT) {
+         created.setSystemParameter('interpolationType', LINEAR_INTERPOLATION);
+         created.setSystemParameter('voiceCap', LIGHT_VOICE_CAP);
+      }
       try {
          await created.soundBankManager.addSoundBank(await stored.blob.arrayBuffer(), 'main');
          await created.isReady;
