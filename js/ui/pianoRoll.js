@@ -6,7 +6,7 @@
 // 横のスクロールは下端の太いスクロールバー、縦のスクロールとノートの高さ(縦のピンチ)は鍵盤の上の指で行う。
 // ノートのドラッグは「置く・動かす」が基本で、ヘッダーの「伸縮モード」を ON にした間だけ「長さを変える」にする(端を狙わずに済むように)。
 // 選んでいるノートは、右端に出す十字キーでも動かせる。
-// 選んだノートは Ctrl+C でコピーし、Ctrl+V で再生を始める位置(クリップの外ならクリップの頭)に貼り付ける。
+// 選んだノートは Ctrl+C でコピー(Ctrl+X で切り取り)し、Ctrl+V で再生を始める位置(クリップの外ならクリップの頭)に貼り付ける。
 // 行の塗り分けは鍵盤の白黒ではなく、プロジェクトのスケール(キーとメジャー / マイナー)に合わせる。
 // スケールはアレンジ画面の「スケール」の段で決め、クリップの途中で転調していれば、転調の位置から塗り分けを変える。
 // ノートはクリップの範囲(左端〜右端)からはみ出すようには動かせない。
@@ -1060,13 +1060,20 @@ export function createPianoRoll({
       });
    }
 
-   // ---- コピー・貼り付け ----
+   // ---- コピー・切り取り・貼り付け ----
 
    function copy() {
       const list = [...selected];
       if (!list.length) return;
       const from = Math.min(...list.map((n) => n.start));
       clipboard = normalizeNotes(list).map((n) => ({ ...n, start: n.start - from }));
+   }
+
+   // コピーしてから消す。消すのは1回の保存なので、元に戻すも1回で戻る
+   function cut() {
+      if (!selected.size) return;
+      copy();
+      deleteSelected();
    }
 
    // 再生を始める位置(赤い印)に貼り付ける。印がクリップの外なら、クリップの頭に貼り付ける。
@@ -1207,6 +1214,9 @@ export function createPianoRoll({
       } else if (e.key.toLowerCase() === 'c' && (e.ctrlKey || e.metaKey) && list.length) {
          e.preventDefault();
          copy();
+      } else if (e.key.toLowerCase() === 'x' && (e.ctrlKey || e.metaKey) && list.length) {
+         e.preventDefault();
+         cut();
       } else if (e.key.toLowerCase() === 'v' && (e.ctrlKey || e.metaKey) && clipboard.length) {
          e.preventDefault();
          paste();
