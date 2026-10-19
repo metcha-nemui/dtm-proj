@@ -2,7 +2,10 @@
 // 操作は FL Studio に寄せている:空いているところを押すとノートを置き(そのままドラッグで動かせる)、
 // ノートを掴むと移動、右端を掴むと長さを変える。右クリックで消す(押したままなぞると続けて消す)。
 // ノートを置く長さは、最後に触ったノートの長さ。Ctrl+ドラッグで囲んだノートを選ぶ(Shift も押すと選択に足す)。
-// タッチでは、指を動かすとスクロールにする。タップで置く(ノートならタップで選択に足す / 外す)、長押ししてから動かす。
+// タッチでは、グリッドの上の指はスクロールに使わず、すぐノートの操作にする(スクロールと取り合うと、操作の起点が長押しに頼ることになり使いにくいため)。
+// 横のスクロールは下端の太いスクロールバー、縦のスクロールとノートの高さ(縦のピンチ)は鍵盤の上の指で行う。
+// ノートのドラッグは「置く・動かす」が基本で、ヘッダーの「伸縮モード」を ON にした間だけ「長さを変える」にする(端を狙わずに済むように)。
+// 選んでいるノートは、右端に出す十字キーでも動かせる。
 // 選んだノートは Ctrl+C でコピーし、Ctrl+V で再生を始める位置(クリップの外ならクリップの頭)に貼り付ける。
 // 行の塗り分けは鍵盤の白黒ではなく、プロジェクトのスケール(キーとメジャー / マイナー)に合わせる。
 // スケールはアレンジ画面の「スケール」の段で決め、クリップの途中で転調していれば、転調の位置から塗り分けを変える。
@@ -42,10 +45,14 @@ const VEL_PAD = 6; // ベロシティの段の上の余白(127 の棒が上端�
 const VEL_HIT = 4; // ベロシティの段で、なぞった位置から棒を拾う幅(px)
 const DEFAULT_VELOCITY = 100;
 const DRAG_THRESHOLD = 3;
-// タッチで、これだけ押さえたらノートを掴む(空いているところなら囲んで選ぶ)。それより先に指が動いたらスクロール。
-// アレンジ画面のクリップの長押しと揃える
+// タッチで、空いているところをこれだけ押さえたら、囲んで選ぶ。アレンジ画面のクリップの長押しと揃える
 const HOLD_MS = 350;
-const TOUCH_EDGE = 14; // タッチで、ノートの右端の、掴むと長さを変える幅(px)
+// タッチで、これだけ動いたらドラッグとみなす(px)。指は少し揺れるので、マウスより広くとる(タップで選ぶつもりが動かさないように)
+const TOUCH_SLOP = 8;
+const RULER_H = 20; // ルーラーの高さ(px。CSS の --pr-ruler-h と揃える)
+// 十字キーを押し続けたとき、くり返し動かし始めるまでと、その間隔(ms)
+const REPEAT_DELAY = 400;
+const REPEAT_MS = 90;
 // 3連は、元の音符の 2/3 の長さ(1/8 3連 = 4分音符を3つに分けた長さ)
 const SNAPS = [
    { value: String(PPQ), label: '1/4' },
@@ -78,15 +85,17 @@ function loadHeight() {
 
 let savedHeight = loadHeight();
 
-// 1音の高さ(px)。見出しのボタンで段階的に変える。指で押すスマホ(pointer: coarse)は、既定を広めにする。
-// パネルの高さと同じく、このブラウザの localStorage に覚えておく
+// 1音の高さ(px)。タッチでは鍵盤の上の縦のピンチ、マウスではホイールを押しながら回して変える。
+// 指で押すスマホ(pointer: coarse)は、既定を広めにする。パネルの高さと同じく、このブラウザの localStorage に覚えておく
 const ROW_KEY = 'dtm-proj:piano-roll-row';
-const ROWS = [8, 10, 12, 14, 16, 20, 24, 28, 32];
+const MIN_ROW = 8;
+const MAX_ROW = 32;
+const WHEEL_ROW_STEP = 2; // ホイール1目盛りで変える量(px)
 
 function loadRow() {
    try {
       const saved = Number(localStorage.getItem(ROW_KEY));
-      if (ROWS.includes(saved)) return saved;
+      if (Number.isInteger(saved) && saved >= MIN_ROW && saved <= MAX_ROW) return saved;
    } catch {
       // 覚えていなければ既定
    }
@@ -139,6 +148,7 @@ export function createPianoRoll({
    let pending = 0; // 保存を待っている数。その間は、読み直した(古いかもしれない)ノートで上書きしない
    let onion = false; // オニオンスキンを出すか
    let onionOff = new Set(); // オニオンスキンに出さないトラックの id
+   let resizeMode = false; // タッチで、ノートのドラッグを「長さを変える」にする(置く・動かすはしない)
 
    const title = h('span', { class: 'pr-title' });
    const range = h('span', { class: 'pr-range muted' });
@@ -184,23 +194,70 @@ export function createPianoRoll({
       onpointerdown: (e) => onGridDown(e),
       oncontextmenu: (e) => e.preventDefault(),
    }, rows, onionLayer, layer, playhead);
-   // 選んでいるノートを動かす・消す(矢印キー・Delete キーと同じ。キーのないタッチの画面のため。選んでいるときだけ出す)
-   const editButton = (name, label, onclick) => h('button', {
-      type: 'button', class: 'btn btn-icon', title: label, 'aria-label': label, onclick,
-   }, icon(name));
-   // ノートの高さ(縦のズーム)。広げると押しやすく、狭めると多くの音域が見える
-   const rowButton = (name, label, dir) => h('button', {
-      type: 'button', class: 'btn btn-icon', title: label, 'aria-label': label, onclick: () => zoomRow(dir),
-   }, icon(name));
-   const rowTools = h('span', { class: 'pr-row-tools' },
-      rowButton('fold-vertical', 'ノートの高さを狭める', -1),
-      rowButton('unfold-vertical', 'ノートの高さを広げる', 1));
-   const editTools = h('span', { class: 'pr-edit-tools', hidden: true },
-      editButton('arrow-left', '選んだノートをグリッド1つ分左へ', () => nudge(-snap, 0)),
-      editButton('arrow-right', '選んだノートをグリッド1つ分右へ', () => nudge(snap, 0)),
-      editButton('arrow-down', '選んだノートを半音下げる', () => nudge(0, -1)),
-      editButton('arrow-up', '選んだノートを半音上げる', () => nudge(0, 1)),
-      editButton('trash-2', '選んだノートを消す', () => deleteSelected()));
+   // 選んでいるノートを消す(Delete キーと同じ。キーのないタッチの画面のため。選んでいるときだけ出す)
+   const deleteButton = h('button', {
+      type: 'button', class: 'btn btn-icon', title: '選んだノートを消す', 'aria-label': '選んだノートを消す', hidden: true,
+      onclick: () => deleteSelected(),
+   }, icon('trash-2'));
+   // タッチの伸縮モード。ON の間は、ノートをドラッグすると(どこを掴んでも)長さが変わる。置く・動かすはしない
+   const resizeToggle = h('button', {
+      type: 'button',
+      class: 'btn btn-icon pr-mode-toggle pr-touch-only',
+      title: '伸縮モード(ON の間は、ノートをドラッグして長さを変える。置く・動かすはできない)',
+      'aria-label': '伸縮モード',
+      'aria-pressed': 'false',
+      onclick: () => {
+         resizeMode = !resizeMode;
+         resizeToggle.setAttribute('aria-pressed', String(resizeMode));
+      },
+   }, icon('unfold-horizontal'));
+   // 十字キー(矢印キーと同じ。←→ でグリッド1つ分、↓↑ で半音)。タッチの画面で、ノートを選んでいる間だけ右端に出す。
+   // 押し続けるとくり返し動かし、離したときにまとめて保存する
+   const padButton = (name, label, area, step) => {
+      let timer = null;
+      let moved = false;
+      const stop = () => {
+         if (timer === null) return;
+         clearTimeout(timer);
+         timer = null;
+         dragging = false;
+         if (moved) commit();
+         moved = false;
+      };
+      const once = () => {
+         if (shift(...step())) moved = true;
+      };
+      return h('button', {
+         type: 'button',
+         class: 'btn btn-icon pr-dpad-button',
+         style: { 'grid-area': area },
+         title: label,
+         'aria-label': label,
+         onpointerdown: (e) => {
+            if (e.button !== 0) return;
+            e.preventDefault(); // フォーカスを移さない(グリッドのキー操作を続けられるように)
+            e.currentTarget.setPointerCapture(e.pointerId);
+            dragging = true; // 動かしている間は、読み直したノートで上書きしない
+            once();
+            const repeat = () => {
+               once();
+               timer = setTimeout(repeat, REPEAT_MS);
+            };
+            timer = setTimeout(repeat, REPEAT_DELAY);
+         },
+         onpointerup: stop,
+         onpointercancel: stop,
+         // キーボード(Enter / スペース)で押したとき
+         onclick: (e) => {
+            if (e.detail === 0) nudge(...step());
+         },
+      }, icon(name));
+   };
+   const dpad = h('div', { class: 'pr-dpad pr-touch-only', hidden: true },
+      padButton('arrow-up', '選んだノートを半音上げる', 'up', () => [0, 1]),
+      padButton('arrow-left', '選んだノートをグリッド1つ分左へ', 'left', () => [-snap, 0]),
+      padButton('arrow-right', '選んだノートをグリッド1つ分右へ', 'right', () => [snap, 0]),
+      padButton('arrow-down', '選んだノートを半音下げる', 'down', () => [0, -1]));
    const onionToggle = h('button', {
       type: 'button',
       class: 'btn btn-icon pr-onion-toggle',
@@ -243,11 +300,19 @@ export function createPianoRoll({
       onpointerdown: (e) => onVelDown(e),
       oncontextmenu: (e) => e.preventDefault(),
    }, velBars);
-   const inner = h('div', { class: 'pr-inner', style: { '--pr-vel-h': `${VEL_HEIGHT}px` } },
+   const inner = h('div', { class: 'pr-inner' },
       h('div', { class: 'pr-corner' }), ruler, keys, grid, h('div', { class: 'pr-vel-corner' }, velLabel), vel);
    const scroller = h('div', { class: 'pr-scroll', tabIndex: -1, onkeydown: (e) => onKeydown(e) }, inner);
+   // 横のスクロールバー(タッチの画面だけ)。グリッドの上の指ではスクロールしないので、指で掴める太さで出す
+   const hbarThumb = h('div', { class: 'pr-hbar-thumb' });
+   const hbar = h('div', {
+      class: 'pr-hbar pr-touch-only',
+      'aria-hidden': 'true',
+      onpointerdown: (e) => onHbarDown(e),
+   }, hbarThumb);
 
-   const el = h('section', { class: 'pr', 'aria-label': 'ピアノロール', hidden: true },
+   // ベロシティの段の高さは、十字キーの位置にも使う
+   const el = h('section', { class: 'pr', 'aria-label': 'ピアノロール', hidden: true, style: { '--pr-vel-h': `${VEL_HEIGHT}px` } },
       resizeHandle(),
       h('header', { class: 'pr-head' },
          icon('piano', 16),
@@ -255,10 +320,10 @@ export function createPianoRoll({
          range,
          h('label', { class: 'pr-snap-label muted' }, 'グリッド', snapSelect),
          scaleText,
-         rowTools,
+         resizeToggle,
          h('span', { class: 'pr-onion-tools' }, onionToggle, onionTracks),
          h('span', { class: 'pr-spacer' }),
-         editTools,
+         deleteButton,
          playButton,
          h('button', {
             type: 'button', class: 'btn btn-icon', title: '.mid を読み込む(ノートを置き換える)', 'aria-label': '.mid を読み込む',
@@ -273,23 +338,23 @@ export function createPianoRoll({
             onclick: () => { if (clipId) onOpenDetail?.(clipId); },
          }, icon('notebook-text')),
          h('button', { type: 'button', class: 'btn btn-icon', 'aria-label': 'ピアノロールを閉じる', onclick: () => close() }, icon('x'))),
-      scroller);
+      scroller,
+      hbar,
+      dpad);
 
    // 鍵盤は、上が高い音(127)。128音ぶんを一度だけ作る。グリッドの行は、転調の区間ごとに renderScale で作る。
-   // タッチでは、鍵盤の上から始めたスクロールで鳴らさないよう、押したときではなくタップ(click)で鳴らす
+   // マウスは押したときに鳴らす。タッチは鍵盤の上でスクロールとピンチもするので、動かさずに離したときに鳴らす(鍵盤の指)
    for (let pitch = 127; pitch >= 0; pitch--) {
       const black = isBlackKey(pitch);
       const isC = pitch % 12 === 0;
       keys.append(h('div', {
          class: `pr-key${black ? ' is-black' : ''}${isC ? ' is-c' : ''}`,
          title: pitchName(pitch),
+         dataset: { pitch: String(pitch) },
          onpointerdown: (e) => {
             if (e.pointerType === 'touch') return;
             e.preventDefault();
             preview(pitch);
-         },
-         onclick: (e) => {
-            if (e.pointerType === 'touch') preview(pitch);
          },
       }, isC ? pitchName(pitch) : ''));
    }
@@ -386,6 +451,7 @@ export function createPianoRoll({
       inner.style.setProperty('--pr-beat', `${BEAT}px`);
       inner.style.setProperty('--pr-row', `${row}px`);
       renderScale();
+      updateHbar();
       ruler.replaceChildren(...Array.from({ length: c.bars * BEATS_PER_BAR }, (_, i) => h('span', {
          class: `pr-beat${i % BEATS_PER_BAR === 0 ? ' is-bar' : ''}`,
       }, i % BEATS_PER_BAR === 0 ? String(c.startBar + i / BEATS_PER_BAR) : '')), cursor);
@@ -424,12 +490,12 @@ export function createPianoRoll({
       }));
    }
 
-   // いちばん細い縦線は、グリッドの細かさに合わせる(「なし」なら 1/16)
-   // ノートの高さを1段階変える。見ている音域の真ん中を保つ
-   function zoomRow(dir) {
-      const next = ROWS[ROWS.indexOf(row) + dir];
-      if (!next) return;
-      const center = (scroller.scrollTop + scroller.clientHeight / 2) / row;
+   // ノートの高さを変える。anchorY(画面上の y 座標。指の間やポインタの位置)にある音は、同じ位置に残す
+   function setRow(value, anchorY) {
+      const next = Math.max(MIN_ROW, Math.min(MAX_ROW, Math.round(value)));
+      if (next === row) return;
+      const offset = anchorY - scroller.getBoundingClientRect().top;
+      const at = (scroller.scrollTop + offset - RULER_H) / row; // anchorY にある行(小数)
       row = next;
       try {
          localStorage.setItem(ROW_KEY, String(row));
@@ -439,17 +505,134 @@ export function createPianoRoll({
       inner.style.setProperty('--pr-row', `${row}px`);
       renderNotes();
       renderOnion();
-      scroller.scrollTop = center * row - scroller.clientHeight / 2;
-      updateRowTools();
+      scroller.scrollTop = at * row + RULER_H - offset;
    }
 
-   function updateRowTools() {
-      const [narrow, wide] = rowTools.children;
-      narrow.disabled = row === ROWS[0];
-      wide.disabled = row === ROWS[ROWS.length - 1];
-   }
-   updateRowTools();
+   // マウスでは、ホイールを押しながら回すとノートの高さを変える(押すだけで始まる自動スクロールは止める)
+   scroller.addEventListener('mousedown', (e) => {
+      if (e.button === 1) e.preventDefault();
+   });
+   scroller.addEventListener('wheel', (e) => {
+      if (!(e.buttons & 4) || !e.deltaY) return;
+      e.preventDefault();
+      setRow(row + (e.deltaY < 0 ? WHEEL_ROW_STEP : -WHEEL_ROW_STEP), e.clientY);
+   }, { passive: false });
 
+   // ---- タッチのスクロール ----
+
+   // 鍵盤の上の指。1本なら縦にスクロール(離したあとも少し滑らせる)、2本なら縦のピンチでノートの高さを変える。
+   // 動かさずに離したら、その鍵盤を鳴らす。鍵盤は touch-action: none なので、ブラウザのスクロールとは取り合わない
+   const keyTouches = new Map(); // pointerId → 今の y 座標
+   let keyGesture = null;
+   let glide = 0; // 慣性で滑らせている requestAnimationFrame の id
+
+   function stopGlide() {
+      cancelAnimationFrame(glide);
+      glide = 0;
+   }
+
+   // 1本指のスクロールを、今の指の位置から始め直す(ピンチから1本に戻ったときも)。tap は、離したら鳴らす音(動かしたら null)
+   function startKeyScroll(y, tap) {
+      keyGesture = { kind: 'scroll', y, top: scroller.scrollTop, tap, samples: [{ y, t: performance.now() }] };
+   }
+
+   keys.addEventListener('pointerdown', (e) => {
+      if (e.pointerType !== 'touch') return;
+      stopGlide();
+      keys.setPointerCapture(e.pointerId);
+      keyTouches.set(e.pointerId, e.clientY);
+      if (keyTouches.size === 1) {
+         const pitch = e.target.closest?.('.pr-key')?.dataset.pitch;
+         startKeyScroll(e.clientY, pitch == null ? null : Number(pitch));
+      } else if (keyTouches.size === 2) {
+         const [a, b] = [...keyTouches.values()];
+         keyGesture = { kind: 'pinch', distance: Math.max(20, Math.abs(a - b)), row };
+      }
+   });
+   keys.addEventListener('pointermove', (e) => {
+      if (!keyTouches.has(e.pointerId) || !keyGesture) return;
+      keyTouches.set(e.pointerId, e.clientY);
+      if (keyGesture.kind === 'pinch') {
+         const [a, b] = [...keyTouches.values()];
+         setRow(keyGesture.row * (Math.max(20, Math.abs(a - b)) / keyGesture.distance), (a + b) / 2);
+         return;
+      }
+      if (keyGesture.tap != null && Math.abs(e.clientY - keyGesture.y) < TOUCH_SLOP) return;
+      keyGesture.tap = null;
+      scroller.scrollTop = keyGesture.top - (e.clientY - keyGesture.y);
+      const now = performance.now();
+      keyGesture.samples = [...keyGesture.samples.filter((s) => now - s.t < 100), { y: e.clientY, t: now }];
+   });
+   const endKeyTouch = (e) => {
+      if (!keyTouches.has(e.pointerId)) return;
+      keyTouches.delete(e.pointerId);
+      if (keyTouches.size === 1) {
+         // ピンチの指が1本離れたら、残った指でスクロールを続ける
+         startKeyScroll([...keyTouches.values()][0], null);
+         return;
+      }
+      if (keyTouches.size) return;
+      const gesture = keyGesture;
+      keyGesture = null;
+      if (gesture?.kind !== 'scroll') return;
+      if (gesture.tap != null) {
+         if (e.type === 'pointerup') preview(gesture.tap);
+         return;
+      }
+      // 最後の 100ms の動きの速さで滑らせ、だんだん止める
+      const first = gesture.samples[0];
+      const last = gesture.samples[gesture.samples.length - 1];
+      let speed = last.t > first.t ? (last.y - first.y) / (last.t - first.t) : 0; // px/ms
+      let time = performance.now();
+      const step = (now) => {
+         const dt = Math.max(0, now - time);
+         time = now;
+         scroller.scrollTop -= speed * dt;
+         speed *= 0.95 ** (dt / 16);
+         glide = Math.abs(speed) > 0.02 ? requestAnimationFrame(step) : 0;
+      };
+      if (Math.abs(speed) > 0.1) glide = requestAnimationFrame(step);
+   };
+   keys.addEventListener('pointerup', endKeyTouch);
+   keys.addEventListener('pointercancel', endKeyTouch);
+
+   // 横のスクロールバーのつまみの大きさと位置を、スクロールの位置に合わせる
+   function updateHbar() {
+      const track = hbar.clientWidth;
+      if (!track) return; // 出していない(PC)か、閉じている
+      const view = scroller.clientWidth;
+      const content = scroller.scrollWidth;
+      const max = content - view;
+      const width = max > 0 ? Math.max(48, (track * view) / content) : track;
+      hbarThumb.style.width = `${width}px`;
+      hbarThumb.style.transform = `translateX(${max > 0 ? ((track - width) * scroller.scrollLeft) / max : 0}px)`;
+   }
+   scroller.addEventListener('scroll', updateHbar, { passive: true });
+   new ResizeObserver(updateHbar).observe(scroller);
+
+   // スクロールバーを押す。つまみの外なら、押した位置につまみの真ん中を持ってくる。そのままなぞって動かす
+   function onHbarDown(down) {
+      if (down.button !== 0) return;
+      down.preventDefault();
+      const rect = hbar.getBoundingClientRect();
+      const thumb = hbarThumb.getBoundingClientRect();
+      const range = rect.width - thumb.width; // つまみが動ける幅
+      const max = scroller.scrollWidth - scroller.clientWidth;
+      if (range <= 0 || max <= 0) return;
+      if (down.clientX < thumb.left || down.clientX > thumb.right) {
+         scroller.scrollLeft = ((down.clientX - rect.left - thumb.width / 2) / range) * max;
+      }
+      const from = scroller.scrollLeft;
+      hbar.classList.add('is-dragging');
+      trackPointer(hbar, down, {
+         onMove: (e) => {
+            scroller.scrollLeft = from + ((e.clientX - down.clientX) / range) * max;
+         },
+         onEnd: () => hbar.classList.remove('is-dragging'),
+      });
+   }
+
+   // いちばん細い縦線は、グリッドの細かさに合わせる(「なし」なら 1/16)
    function renderGridLines() {
       inner.style.setProperty('--pr-snap', `${(snap > 1 ? snap : PPQ / 4) * PX}px`);
    }
@@ -474,7 +657,8 @@ export function createPianoRoll({
          dataset: { index: String(i) },
          title: `${pitchName(n.pitch)} ベロシティ ${velocityOf(n)}${dup(n) ? '(同じ位置に重なっているノートがあります)' : ''}`,
       })));
-      editTools.hidden = !selected.size;
+      deleteButton.hidden = !selected.size;
+      dpad.hidden = !selected.size;
       // 選んでいるノートの棒は、ほかの棒に隠れないよう後ろ(上)に描く
       const order = [...notes.filter((n) => !selected.has(n)), ...notes.filter((n) => selected.has(n))];
       velBars.replaceChildren(...order.map((n) => h('div', {
@@ -599,7 +783,9 @@ export function createPianoRoll({
       if (!clipId) return;
       scroller.focus({ preventScroll: true });
       if (down.pointerType === 'touch') {
-         onTouchDown(down);
+         stopGlide();
+         // 指でのドラッグは1本ずつ(2本目の指は無視する)
+         if (!dragging) onTouchDown(down);
          return;
       }
       if (down.button === 2) {
@@ -638,15 +824,12 @@ export function createPianoRoll({
       follow(down, dragNotes(down, target, { created }));
    }
 
-   // ノートの右端の、掴むと長さを変える幅(px)。指では EDGE だと狭すぎるので広げる(短いノートは半分まで)
-   const edgeOf = (n, touch) => (touch ? Math.min(TOUCH_EDGE, (n.length * PX) / 2) : EDGE);
-
-   // 選んでいるノートを、target を掴んだものとしてまとめて動かす(右端を掴んでいれば長さを変える)。
+   // 選んでいるノートを、target を掴んだものとしてまとめて動かす。mode('move' / 'resize')を渡さなければ、
+   // 右端(EDGE)を掴んでいれば長さを変える(タッチでは伸縮モードかどうかで決めて渡す)。
    // created は、押したときに置いたノート(動かさなくても保存する)
-   function dragNotes(down, target, { created = false } = {}) {
+   function dragNotes(down, target, { created = false, mode: given } = {}) {
       const at = pointAt(down);
-      const mode = !created && (target.start + target.length) * PX - at.x <= edgeOf(target, down.pointerType === 'touch')
-         ? 'resize' : 'move';
+      const mode = given ?? (!created && (target.start + target.length) * PX - at.x <= EDGE ? 'resize' : 'move');
       preview(target.pitch, velocityOf(target));
       renderNotes();
 
@@ -693,49 +876,61 @@ export function createPianoRoll({
       };
    }
 
-   // タッチ。グリッドはスクロールを許しているので、指を動かせばスクロールになる(ブラウザが pointercancel を送ってくる)。
-   // 動かさずに離したらタップ(tap)、HOLD_MS 押さえたら、ノートの上なら掴んで動かし、空いているところなら囲んで選ぶ。
-   // 長押しが成立したあとは、指を動かしてもスクロールさせない(arrangement.js のクリップと同じ)
+   // タッチ。グリッドは touch-action: none なので、指の動きはスクロールにならず、すべてノートの操作になる。
+   // 指が TOUCH_SLOP 動くか、離すか、空いているところを HOLD_MS 押さえるまで待ってから、何をするかを決める:
+   // 動かしたらドラッグ(startTouchDrag)、空いているところの長押しは囲んで選ぶ、動かさずに離したらタップ(tap)
    function onTouchDown(down) {
       const target = noteAtTarget(down.target);
-      let handlers = null; // 長押しが成立してからの動き
-      let gaveUp = false; // 長押しの前に指が動いた(スクロールに任せる)
-      // 長押しが成立したら、指を動かしてもスクロールさせない(touch-action ではスクロールを許しているので、touchmove で止める)。
-      // リスナーは押した要素に付ける(押したノートの要素は描き直しで外れ、外れた要素の touchmove はグリッドまで届かない)
-      const touched = down.target;
-      const blockScroll = (e) => {
-         if (handlers) e.preventDefault();
+      let handlers = null; // 何をするかが決まってからの動き
+      let timer = null;
+      const begin = (make) => {
+         clearTimeout(timer);
+         handlers = make();
       };
-      touched.addEventListener('touchmove', blockScroll, { passive: false });
-      const timer = setTimeout(() => {
-         if (!target) {
-            handlers = marquee(down, { add: true });
-            return;
-         }
-         if (!selected.has(target)) selected = new Set([target]);
-         lastLength = target.length;
-         lastVelocity = velocityOf(target);
-         handlers = dragNotes(down, target);
-      }, HOLD_MS);
+      if (!target) timer = setTimeout(() => begin(() => marquee(down, { add: true })), HOLD_MS);
       follow(down, {
          onMove: (e) => {
-            if (handlers) handlers.onMove(e);
-            else if (!gaveUp && Math.hypot(e.clientX - down.clientX, e.clientY - down.clientY) >= DRAG_THRESHOLD) {
-               gaveUp = true;
-               clearTimeout(timer);
+            if (!handlers) {
+               if (Math.hypot(e.clientX - down.clientX, e.clientY - down.clientY) < TOUCH_SLOP) return;
+               begin(() => startTouchDrag(down, target));
             }
+            handlers.onMove(e);
          },
          onEnd: (e) => {
             clearTimeout(timer);
-            touched.removeEventListener('touchmove', blockScroll);
             if (handlers) handlers.onEnd(e);
-            else if (!gaveUp && e.type === 'pointerup') tap(down, target);
+            else if (e.type === 'pointerup') tap(down, target);
          },
       });
    }
 
+   // タッチのドラッグを始める。ノートなら掴んで(選んでいなければ、それだけを選んで)動かし、伸縮モードなら長さを変える。
+   // 空いているところなら、ノートを置いて動かす(伸縮モードでは置かず、囲んで選ぶ)
+   function startTouchDrag(down, target) {
+      if (target) {
+         if (!selected.has(target)) selected = new Set([target]);
+         lastLength = target.length;
+         lastVelocity = velocityOf(target);
+         return dragNotes(down, target, { mode: resizeMode ? 'resize' : 'move' });
+      }
+      if (resizeMode) return marquee(down, { add: true });
+      const note = newNoteAt(pointAt(down), false);
+      notes.push(note);
+      selected = new Set([note]);
+      const handlers = dragNotes(down, note, { created: true, mode: 'move' });
+      return {
+         onMove: handlers.onMove,
+         onEnd: (e) => {
+            handlers.onEnd(e);
+            // 続けて置けるよう、置いたノートは選ばない(タップで置いたときと同じ)
+            selected = new Set();
+            renderNotes();
+         },
+      };
+   }
+
    // タッチのタップ。ノートなら選択に足す / 外す(Shift+クリックと同じ)。空いているところなら、
-   // 選んでいるノートがあれば選択を外し、なければノートを置く(続けて置けるよう、置いたノートは選ばない)
+   // 選んでいるノートがあれば選択を外し、なければノートを置く(続けて置けるよう、置いたノートは選ばない。伸縮モードでは置かない)
    function tap(down, target) {
       if (target) {
          if (selected.has(target)) {
@@ -750,7 +945,7 @@ export function createPianoRoll({
       } else if (selected.size) {
          selected = new Set();
          renderNotes();
-      } else {
+      } else if (!resizeMode) {
          const note = newNoteAt(pointAt(down), false);
          notes.push(note);
          preview(note.pitch, velocityOf(note));
@@ -963,19 +1158,25 @@ export function createPianoRoll({
       }
    }
 
-   // 選んでいるノートをまとめて tick 分右へ、pitch 分上へ動かす。1つでも鍵盤やクリップの範囲を出るなら動かさない
+   // 選んでいるノートをまとめて tick 分右へ、pitch 分上へ動かして保存する
    function nudge(tick, pitch) {
+      if (shift(tick, pitch)) commit();
+   }
+
+   // 選んでいるノートをまとめて動かす(保存はしない)。1つでも鍵盤やクリップの範囲を出るなら動かさない。動かしたかを返す
+   function shift(tick, pitch) {
       const list = [...selected];
-      if (!list.length) return;
-      if (list.some((n) => n.pitch + pitch < 0 || n.pitch + pitch > 127)) return;
+      if (!list.length) return false;
+      if (list.some((n) => n.pitch + pitch < 0 || n.pitch + pitch > 127)) return false;
       const range = shiftRange(list);
-      if (tick < range.min || tick > range.max) return;
+      if (tick < range.min || tick > range.max) return false;
       for (const n of list) {
          n.start += tick;
          n.pitch += pitch;
       }
       if (pitch && list.length === 1) preview(list[0].pitch, velocityOf(list[0]));
-      commit();
+      renderNotes();
+      return true;
    }
 
    // ---- 読み込み ----
@@ -1022,6 +1223,7 @@ export function createPianoRoll({
          const center = pitches.length ? (Math.min(...pitches) + Math.max(...pitches)) / 2 : 60;
          scroller.scrollTop = (127 - center) * row - scroller.clientHeight / 2;
          scroller.scrollLeft = 0;
+         updateHbar();
       }
       scroller.focus({ preventScroll: true });
       updatePlayState();

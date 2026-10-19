@@ -3,6 +3,9 @@
 /* --pr-h は、上端のつまみをドラッグして決めた高さ。画面に入らなければ縮む(.arr-view はツールバーより小さくならないので、
    ツールバーは隠れない) */
 .pr {
+   --pr-keys: 52px;
+
+   position: relative; /* 十字キーの位置の基準 */
    display: flex;
    flex: 0 1 auto;
    flex-direction: column;
@@ -108,8 +111,7 @@
 }
 
 .pr-inner {
-   --pr-keys: 52px;
-   --pr-ruler-h: 20px;
+   --pr-ruler-h: 20px; /* pianoRoll.js の RULER_H と揃える */
 
    display: grid;
    grid-template-columns: var(--pr-keys) var(--pr-width);
@@ -176,12 +178,15 @@
    border-top: 7px solid var(--danger);
 }
 
-/* 鍵盤。上が高い音 */
+/* 鍵盤。上が高い音。タッチでは、縦のスクロールとピンチを pianoRoll.js で扱う(ブラウザのスクロールと取り合わない) */
 .pr-keys {
    position: sticky;
    left: 0;
    z-index: 2;
    border-right: 1px solid var(--border);
+   touch-action: none;
+   user-select: none;
+   -webkit-touch-callout: none;
 }
 
 .pr-key {
@@ -213,9 +218,9 @@
    position: relative;
    overflow: hidden;
    cursor: crosshair;
-   /* タッチでは、指を動かせばスクロールにする(タップで置き、長押ししてから動かす。pianoRoll.js の onTouchDown)。
-      長押しで文字の選択や OS のメニューが出ないようにする */
-   touch-action: pan-x pan-y;
+   /* タッチでは、指の動きをスクロールにせず、すべてノートの操作にする(pianoRoll.js の onTouchDown)。
+      スクロールは鍵盤と、下端のスクロールバーで行う。長押しで文字の選択や OS のメニューが出ないようにする */
+   touch-action: none;
    user-select: none;
    -webkit-touch-callout: none;
 }
@@ -278,14 +283,13 @@
    background: color-mix(in srgb, var(--text-muted) 30%, transparent);
 }
 
-.pr-row-tools,
-.pr-onion-tools,
-.pr-edit-tools {
+.pr-onion-tools {
    display: inline-flex;
    gap: 2px;
 }
 
-.pr-head .pr-onion-toggle[aria-pressed="true"] {
+.pr-head .pr-onion-toggle[aria-pressed="true"],
+.pr-head .pr-mode-toggle[aria-pressed="true"] {
    background: var(--accent);
    color: var(--accent-contrast);
 }
@@ -416,6 +420,75 @@
    width: 0;
    border-left: 2px solid var(--danger);
    pointer-events: none;
+}
+
+/* タッチの画面だけに出すもの(伸縮モード、横のスクロールバー、十字キー) */
+@media not (pointer: coarse) {
+   .pr-touch-only {
+      display: none !important;
+   }
+}
+
+/* タッチの画面では、ブラウザのスクロールバーは出さない(細くて指で掴めない。下の横のスクロールバーと鍵盤で動かす) */
+@media (pointer: coarse) {
+   .pr-scroll {
+      scrollbar-width: none;
+   }
+}
+
+/* 横のスクロールバー。グリッドの下に、鍵盤の列を除いた幅で出す。指で掴めるよう太くする */
+.pr-hbar {
+   flex: none;
+   position: relative;
+   height: 32px;
+   margin-left: var(--pr-keys);
+   border-top: 1px solid var(--border);
+   background: var(--surface-2);
+   touch-action: none;
+}
+
+.pr-hbar-thumb {
+   position: absolute;
+   top: 5px;
+   bottom: 5px;
+   left: 0;
+   border-radius: 11px;
+   background: color-mix(in srgb, var(--text-muted) 55%, var(--surface-2));
+}
+
+.pr-hbar.is-dragging .pr-hbar-thumb {
+   background: var(--accent);
+}
+
+/* 十字キー。ノートを選んでいる間、グリッドの右端(ベロシティの段とスクロールバーの上)に重ねて出す */
+.pr-dpad {
+   position: absolute;
+   right: var(--space-3);
+   bottom: calc(var(--pr-vel-h) + 32px + var(--space-3));
+   z-index: 5;
+   display: grid;
+   grid-template-areas:
+      ". up ."
+      "left . right"
+      ". down .";
+   grid-template-columns: repeat(3, 44px);
+   grid-template-rows: repeat(3, 44px);
+   pointer-events: none;
+}
+
+.pr-dpad-button {
+   width: 44px;
+   height: 44px;
+   border: 1px solid var(--border);
+   border-radius: var(--radius-sm);
+   background: color-mix(in srgb, var(--surface) 88%, transparent);
+   box-shadow: var(--shadow-1);
+   pointer-events: auto;
+   touch-action: none;
+}
+
+.pr-dpad-button:active {
+   background: var(--accent-soft);
 }
 
 @media (max-width: 720px) {
