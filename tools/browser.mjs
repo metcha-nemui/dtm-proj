@@ -10,13 +10,20 @@
 //   node tools/browser.mjs eval "<式>"               ページで式を評価して、結果を JSON で出す(await を使える)
 //   node tools/browser.mjs click <セレクタ> [2]      要素の中央を本物のマウスでクリックする(2 ならダブルクリック)
 //   node tools/browser.mjs drag <x1> <y1> <x2> <y2> [Shift,Ctrl,Alt]   ビューポート座標でドラッグする
-//   node tools/browser.mjs touch <x1> <y1> <x2> <y2> [押さえる ms]   指でなぞる(押さえる ms のあいだ止めてから動かす。長押しの確認に使う)
+//   node tools/browser.mjs touch <x1> <y1> <x2> <y2> [押さえる ms] [幅x高さ]   指でなぞる(押さえる ms のあいだ止めてから動かす。長押しの確認に使う)。
+//                                                  幅x高さ があれば、emulate と同じスマホの画面にしてからなぞる
+//   node tools/browser.mjs touch <場所> <dx> <dy> [押さえる ms] [幅x高さ]   場所(下記)から dx, dy だけなぞる(0 0 ならタップ)
+//   node tools/browser.mjs pinch <場所> <指の間 前> <指の間 後> [幅x高さ]   場所を真ん中に、縦に並べた2本の指の間を広げる / 狭める
+//                                                  場所は「セレクタ」か「セレクタ@dx,dy」(要素の中央からずらした位置)。
+//                                                  スマホの画面にすると(emulate も)レイアウトが変わってスクロールの位置がずれるので、
+//                                                  座標を別のコマンドで調べて渡すより、場所で指す方が確か
 //   node tools/browser.mjs emulate <幅x高さ> "<式>"   スマホ(タッチ・pointer: coarse)の画面にして、式を評価する。
 //                                                  CDP の接続を閉じると元に戻るので、確かめたいことは式の中で済ませる
 //   node tools/browser.mjs key <キー> [Shift,Ctrl,Alt]   キーを押す(例: "Delete"、"a" Ctrl、" ")
 //   node tools/browser.mjs file <セレクタ> <パス>     ファイルを選ぶ欄(input[type=file])に、ファイルを選んだことにする
 //                                                  (例: 設定画面で音源に C:\Windows\System32\drivers\gm.dls を選ぶ)
-//   node tools/browser.mjs shot <出力.png> [セレクタ]   スクリーンショット。セレクタがあればその要素だけを撮る
+//   node tools/browser.mjs shot <出力.png> [セレクタ] [幅x高さ]   スクリーンショット。セレクタがあればその要素だけを撮る
+//                                                  (画面全体なら "")。幅x高さ があれば、スマホの画面にしてから撮る
 //   node tools/browser.mjs stop                      起動したプロセスだけを終了し、プロファイルを消す
 //
 // - プロファイルは %TEMP%\dtmcs に置く。深い場所だと Cache Storage のパスが 260 文字を超え、
@@ -131,6 +138,27 @@ async function mouse(cdp, type, x, y, modifiers = 0, clickCount = 1) {
    await cdp.send('Input.dispatchMouseEvent', { type, x, y, modifiers, button: 'left', buttons: type === 'mouseReleased' ? 0 : 1, clickCount });
 }
 
+/** スマホ(タッチ・pointer: coarse)の画面にする。CDP の接続を閉じると元に戻る */
+async function emulatePhone(cdp, size) {
+   const [width, height] = size.split('x').map(Number);
+   await cdp.send('Emulation.setDeviceMetricsOverride', { width, height, deviceScaleFactor: 1, mobile: true });
+   await cdp.send('Emulation.setTouchEmulationEnabled', { enabled: true, maxTouchPoints: 5 });
+   await wait(300); // メディアクエリの切り替わりと、描き直しを待つ
+}
+
+/** 「セレクタ」か「セレクタ@dx,dy」の位置(ビューポート座標)。要素の中央から dx, dy ずらす */
+async function locate(cdp, place) {
+   const [, selector, dx = '0', dy = '0'] = /^(.*?)(?:@(-?[\d.]+),(-?[\d.]+))?$/.exec(place);
+   const center = await evaluate(cdp, `(() => {
+      const el = document.querySelector(${JSON.stringify(selector)});
+      if (!el) return null;
+      const r = el.getBoundingClientRect();
+      return [r.left + r.width / 2, r.top + r.height / 2];
+   })()`);
+   if (!center) throw new Error(`見つかりません: ${selector}`);
+   return [center[0] + Number(dx), center[1] + Number(dy)];
+}
+
 const commands = {
    async start(route, size = '1280x800') {
       if (!CHROME) throw new Error('Chrome / Edge が見つかりません');
@@ -208,9 +236,17 @@ const commands = {
       return 'OK';
    },
 
-   async touch(x1, y1, x2, y2, hold = '0') {
+   async touch(...args) {
       const cdp = await connect();
-      const [ax, ay, bx, by] = [x1, y1, x2, y2].map(Number);
+      // 先頭が数字でなければ、場所で指す形(場所 dx dy [ms] [幅x高さ])
+      const byPlace = Number.isNaN(Number(args[0]));
+      const [hold = '0', size] = args.slice(byPlace ? 3 : 4);
+      if (size) await emulatePhone(cdp, size);
+      let [ax, ay, bx, by] = args.slice(0, 4).map(Number);
+      if (byPlace) {
+         [ax, ay] = await locate(cdp, args[0]);
+         [bx, by] = [ax + Number(args[1]), ay + Number(args[2])];
+      }
       const point = (x, y) => [{ x, y, id: 1 }];
       await cdp.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: point(ax, ay) });
       await wait(Number(hold));
@@ -224,13 +260,28 @@ const commands = {
       return 'OK';
    },
 
+   async pinch(place, from, to, size) {
+      const cdp = await connect();
+      if (size) await emulatePhone(cdp, size);
+      const [x, y] = await locate(cdp, place);
+      const gap = (t) => (Number(from) + (Number(to) - Number(from)) * t) / 2;
+      const points = (t) => [{ x, y: y - gap(t), id: 1 }, { x, y: y + gap(t), id: 2 }];
+      await cdp.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: points(0) });
+      await wait(50);
+      for (let i = 1; i <= 10; i++) {
+         await cdp.send('Input.dispatchTouchEvent', { type: 'touchMove', touchPoints: points(i / 10) });
+         await wait(16);
+      }
+      await cdp.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
+      await wait(300);
+      cdp.close();
+      return 'OK';
+   },
+
    async emulate(size, expression) {
       const cdp = await connect();
       try {
-         const [width, height] = size.split('x').map(Number);
-         await cdp.send('Emulation.setDeviceMetricsOverride', { width, height, deviceScaleFactor: 1, mobile: true });
-         await cdp.send('Emulation.setTouchEmulationEnabled', { enabled: true, maxTouchPoints: 5 });
-         await wait(300); // メディアクエリの切り替わりと、描き直しを待つ
+         await emulatePhone(cdp, size);
          return await evaluate(cdp, expression);
       } finally {
          cdp.close();
@@ -264,8 +315,9 @@ const commands = {
       }
    },
 
-   async shot(out, selector) {
+   async shot(out, selector, size) {
       const cdp = await connect();
+      if (size) await emulatePhone(cdp, size);
       let clip;
       if (selector) {
          clip = await evaluate(cdp, `(() => {
@@ -304,7 +356,7 @@ const commands = {
 
 const [name, ...args] = process.argv.slice(2);
 if (!commands[name]) {
-   console.error('使い方: node tools/browser.mjs start|open|eval|click|drag|touch|emulate|key|shot|stop …(先頭のコメントを参照)');
+   console.error('使い方: node tools/browser.mjs start|open|eval|click|drag|touch|pinch|emulate|key|shot|stop …(先頭のコメントを参照)');
    process.exit(1);
 }
 try {
