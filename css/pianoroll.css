@@ -4,6 +4,7 @@
    ツールバーは隠れない) */
 .pr {
    --pr-keys: 52px;
+   --pr-side: 0px; /* 右の編集のボタンの列の幅(タッチの画面だけ出す) */
 
    position: relative; /* 十字キーの位置の基準 */
    display: flex;
@@ -422,7 +423,64 @@
    pointer-events: none;
 }
 
-/* タッチの画面だけに出すもの(伸縮モード、横のスクロールバー、十字キー) */
+/* グリッドと横のスクロールバー(.pr-main)の右に、編集のボタンの列(.pr-side)を置く */
+.pr-body {
+   display: flex;
+   flex: 1;
+   min-height: 0;
+}
+
+.pr-main {
+   display: flex;
+   flex: 1;
+   flex-direction: column;
+   min-width: 0;
+}
+
+/* 編集のボタン(元に戻す・やり直す・切り取り・コピー・貼り付け・削除)。正方形に近い大きさで縦に並べ、
+   高さが足りなければ均等に縮める(それでも入らなければ列の中でスクロールする) */
+.pr-side {
+   display: flex;
+   flex: none;
+   flex-direction: column;
+   width: var(--pr-side);
+   overflow-y: auto;
+   border-left: 1px solid var(--border);
+   background: var(--surface-2);
+   scrollbar-width: none;
+}
+
+.pr-side-button {
+   display: flex;
+   flex: 1 1 0;
+   flex-direction: column;
+   align-items: center;
+   justify-content: center;
+   gap: 2px;
+   min-height: 44px;
+   max-height: var(--pr-side);
+   padding: 0;
+   border: 0;
+   border-bottom: 1px solid var(--border);
+   background: var(--surface);
+   color: var(--text);
+   font-size: 10px;
+   line-height: 1.2;
+   cursor: pointer;
+   touch-action: manipulation;
+}
+
+.pr-side-button:active:not(:disabled) {
+   background: var(--accent-soft);
+}
+
+.pr-side-button:disabled {
+   color: var(--text-muted);
+   opacity: 0.45;
+   cursor: default;
+}
+
+/* タッチの画面だけに出すもの(伸縮モード、横のスクロールバー、十字キー、編集のボタンの列) */
 @media not (pointer: coarse) {
    .pr-touch-only {
       display: none !important;
@@ -434,6 +492,7 @@
 @media (pointer: coarse) {
    .pr {
       --pr-keys: 72px;
+      --pr-side: 60px;
    }
 
    .pr-scroll {
@@ -449,7 +508,7 @@
 /* ピンチモードを終えるボタン。十字キーと同じ場所(ピンチモードの間は十字キーを出さない)に重ねる */
 .pr-pinch-exit {
    position: absolute;
-   right: var(--space-3);
+   right: calc(var(--pr-side) + var(--space-3));
    bottom: calc(var(--pr-vel-h) + 32px + var(--space-3));
    z-index: 5;
    display: inline-flex;
@@ -491,7 +550,7 @@
 /* 十字キー。ノートを選んでいる間、グリッドの右端(ベロシティの段とスクロールバーの上)に重ねて出す */
 .pr-dpad {
    position: absolute;
-   right: var(--space-3);
+   right: calc(var(--pr-side) + var(--space-3));
    bottom: calc(var(--pr-vel-h) + 32px + var(--space-3));
    z-index: 5;
    display: grid;

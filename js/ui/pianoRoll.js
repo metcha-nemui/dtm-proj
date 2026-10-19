@@ -8,7 +8,7 @@
 // ヘッダーの「ピンチモード」を ON にした間は、グリッドのどこでもピンチでき(指の並びの向きで縦横を決める)、1本の指でスクロールする。
 // その間はノートの操作をしない(スクロールバーは画面の下端にあり、OS のジェスチャーと取り合ってピンチしにくいため)。
 // ノートのドラッグは「置く・動かす」が基本で、ヘッダーの「伸縮モード」を ON にした間だけ「長さを変える」にする(端を狙わずに済むように)。
-// 選んでいるノートは、右端に出す十字キーでも動かせる。
+// 選んでいるノートは、右端に出す十字キーでも動かせる。タッチの画面では、グリッドの右に編集のボタン(元に戻す・切り取り・コピー・貼り付け・削除など)を縦に並べる。
 // 選んだノートは Ctrl+C でコピー(Ctrl+X で切り取り)し、Ctrl+V で再生を始める位置(クリップの外ならクリップの頭)に貼り付ける。
 // 行の塗り分けは鍵盤の白黒ではなく、プロジェクトのスケール(キーとメジャー / マイナー)に合わせる。
 // スケールはアレンジ画面の「スケール」の段で決め、クリップの途中で転調していれば、転調の位置から塗り分けを変える。
@@ -21,7 +21,7 @@
 // Alt を押している間は既定値(100)にし、Shift を押して始めると直線で描く。
 // 新しく置くノートのベロシティは、最後に触ったノートのもの。
 //
-// 元に戻す / やり直す(Ctrl+Z / Ctrl+Y・Ctrl+Shift+Z。タッチではヘッダーのボタン)は、クリップごとに、保存したノートの写しを積んで行う。
+// 元に戻す / やり直す(Ctrl+Z / Ctrl+Y・Ctrl+Shift+Z。タッチではグリッドの右のボタン)は、クリップごとに、保存したノートの写しを積んで行う。
 // ピアノロールの外でノートや長さが変わったとき(.mid の読み込み、クリップの伸縮、ほかの端末)、保存に失敗したとき、
 // クリップを消したときは、古い写しを戻すと位置がずれたりはみ出したりするので、そのクリップの履歴を捨てる。
 // 履歴は覚えておかない(アレンジ画面を離れると消える)。
@@ -228,20 +228,27 @@ export function createPianoRoll({
       onpointerdown: (e) => onGridDown(e),
       oncontextmenu: (e) => e.preventDefault(),
    }, rows, onionLayer, layer, playhead);
-   // 選んでいるノートを消す(Delete キーと同じ。キーのないタッチの画面のため。選んでいるときだけ出す)
-   const deleteButton = h('button', {
-      type: 'button', class: 'btn btn-icon', title: '選んだノートを消す', 'aria-label': '選んだノートを消す', hidden: true,
-      onclick: () => deleteSelected(),
-   }, icon('trash-2'));
-   // 元に戻す / やり直す(Ctrl+Z / Ctrl+Y と同じ。キーのないタッチの画面のため)
-   const undoButton = h('button', {
-      type: 'button', class: 'btn btn-icon pr-touch-only', title: '元に戻す', 'aria-label': '元に戻す', disabled: true,
-      onclick: () => undo(),
-   }, icon('undo-2'));
-   const redoButton = h('button', {
-      type: 'button', class: 'btn btn-icon pr-touch-only', title: 'やり直す', 'aria-label': 'やり直す', disabled: true,
-      onclick: () => redo(),
-   }, icon('redo-2'));
+   // 編集のボタン(キーのないタッチの画面のため。キー操作と同じ)。グリッドの右に縦に並べる。
+   // ヘッダーに置くと、ボタンの数で折り返したり、選んだときだけ出るボタンで段がずれたりするため
+   const sideButton = (name, label, title, onclick) => h('button', {
+      type: 'button', class: 'pr-side-button', title, 'aria-label': title, disabled: true, onclick,
+   }, icon(name, 20), h('span', {}, label));
+   const undoButton = sideButton('undo-2', '戻す', '元に戻す', () => undo());
+   const redoButton = sideButton('redo-2', 'やり直す', 'やり直す', () => redo());
+   const cutButton = sideButton('scissors', '切り取り', '選んだノートを切り取る', () => cut());
+   const copyButton = sideButton('copy', 'コピー', '選んだノートをコピー', () => copy());
+   const pasteButton = sideButton('clipboard-paste', '貼り付け', '赤い印の位置(クリップの外ならクリップの頭)に貼り付ける', () => paste());
+   const deleteButton = sideButton('trash-2', '削除', '選んだノートを消す', () => deleteSelected());
+   const side = h('div', { class: 'pr-side pr-touch-only' },
+      undoButton, redoButton, cutButton, copyButton, pasteButton, deleteButton);
+
+   // 選んでいるノートとコピーしたノートがあるかで、編集のボタンを押せるようにする
+   function renderEditButtons() {
+      cutButton.disabled = !selected.size;
+      copyButton.disabled = !selected.size;
+      deleteButton.disabled = !selected.size;
+      pasteButton.disabled = !clipboard.length;
+   }
    // タッチの伸縮モード。ON の間は、ノートをドラッグすると(どこを掴んでも)長さが変わる。置く・動かすはしない
    const resizeToggle = h('button', {
       type: 'button',
@@ -402,26 +409,22 @@ export function createPianoRoll({
          resizeToggle,
          pinchToggle,
          h('span', { class: 'pr-spacer' }),
-         undoButton,
-         redoButton,
-         deleteButton,
          playAllButton,
          playButton,
          h('button', {
-            type: 'button', class: 'btn btn-icon', title: '.mid を読み込む(ノートを置き換える)', 'aria-label': '.mid を読み込む',
-            onclick: () => { if (clipId) importMidiToClip(projectId, clipId); },
-         }, icon('upload')),
-         h('button', {
-            type: 'button', class: 'btn btn-icon', title: '.mid を書き出す', 'aria-label': '.mid を書き出す',
-            onclick: () => downloadMidi(currentMidi()),
-         }, icon('download')),
+            type: 'button', class: 'btn btn-icon', title: '.mid の読み込み・書き出し', 'aria-label': '.mid の読み込み・書き出し',
+            onclick: (e) => openMenu(e.currentTarget, [
+               { label: '.mid を読み込む(ノートを置き換える)', onSelect: () => { if (clipId) importMidiToClip(projectId, clipId); } },
+               { label: '.mid を書き出す', onSelect: () => downloadMidi(currentMidi()) },
+            ]),
+         }, icon('ellipsis-vertical')),
          h('button', {
             type: 'button', class: 'btn btn-icon', title: 'クリップ詳細', 'aria-label': 'クリップ詳細',
             onclick: () => { if (clipId) onOpenDetail?.(clipId); },
          }, icon('notebook-text')),
          h('button', { type: 'button', class: 'btn btn-icon', 'aria-label': 'ピアノロールを閉じる', onclick: () => close() }, icon('x'))),
-      scroller,
-      hbar,
+      // グリッド(とその下のスクロールバー)の右に、編集のボタンの列を置く
+      h('div', { class: 'pr-body' }, h('div', { class: 'pr-main' }, scroller, hbar), side),
       dpad,
       pinchExit);
 
@@ -842,7 +845,7 @@ export function createPianoRoll({
          dataset: { index: String(i) },
          title: `${pitchName(n.pitch)} ベロシティ ${velocityOf(n)}${dup(n) ? '(同じ位置に重なっているノートがあります)' : ''}`,
       })));
-      deleteButton.hidden = !selected.size;
+      renderEditButtons();
       dpad.hidden = !selected.size || pinchMode;
       // 選んでいるノートの棒は、ほかの棒に隠れないよう後ろ(上)に描く
       const order = [...notes.filter((n) => !selected.has(n)), ...notes.filter((n) => selected.has(n))];
@@ -1253,6 +1256,7 @@ export function createPianoRoll({
       if (!list.length) return;
       const from = Math.min(...list.map((n) => n.start));
       clipboard = normalizeNotes(list).map((n) => ({ ...n, start: n.start - from }));
+      renderEditButtons();
    }
 
    // コピーしてから消す。消すのは1回の保存なので、元に戻すも1回で戻る
