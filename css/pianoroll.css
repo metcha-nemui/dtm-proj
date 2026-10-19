@@ -516,24 +516,6 @@
    touch-action: none;
 }
 
-/* ピンチモードを終えるボタン。十字キーと同じ場所(ピンチモードの間は十字キーを出さない)に重ねる */
-.pr-pinch-exit {
-   position: absolute;
-   right: calc(var(--pr-side) + var(--space-3));
-   bottom: calc(var(--pr-vel-h) + 32px + var(--space-3));
-   z-index: 5;
-   display: inline-flex;
-   align-items: center;
-   gap: var(--space-1);
-   background: var(--accent);
-   color: var(--accent-contrast);
-   box-shadow: var(--shadow-1);
-}
-
-.pr-pinch-exit[hidden] {
-   display: none;
-}
-
 /* 横のスクロールバー。グリッドの下に、鍵盤の列を除いた幅で出す。指で掴めるよう太くする */
 .pr-hbar {
    flex: none;

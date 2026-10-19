@@ -182,8 +182,6 @@ export function createPianoRoll({
    let pending = 0; // 保存を待っている数。その間は、読み直した(古いかもしれない)ノートで上書きしない
    let onion = false; // オニオンスキンを出すか
    let onionOff = new Set(); // オニオンスキンに出さないトラックの id
-   let resizeMode = false; // タッチで、ノートのドラッグを「長さを変える」にする(置く・動かすはしない)
-   let pinchMode = false; // タッチで、グリッドのどこでもピンチ・スクロールする(ノートの操作はしない)
    // 元に戻す履歴。clipId → { saved: 保存したノート, bars: そのときの長さ, undo: [ノート…], redo: [ノート…] }
    const history = new Map();
 
@@ -257,61 +255,45 @@ export function createPianoRoll({
       velResetButton.disabled = !selected.size;
       pasteButton.disabled = !clipboard.length;
    }
-   // タッチの伸縮モード。ON の間は、ノートをドラッグすると(どこを掴んでも)長さが変わる。置く・動かすはしない
-   const resizeToggle = h('button', {
+   // タッチのモード(伸縮・ピンチ・ベロシティ)の切り替えボタン。どれか1つだけが ON になる(ラジオボタンのように。
+   // ON のボタンをもう一度押すと OFF)。PC では出さない
+   const modeToggle = (name, iconName, label, title) => h('button', {
       type: 'button',
       class: 'btn btn-icon pr-mode-toggle pr-touch-only',
-      title: '伸縮モード(ON の間は、ノートをドラッグして長さを変える。置く・動かすはできない)',
-      'aria-label': '伸縮モード',
+      title,
+      'aria-label': label,
       'aria-pressed': 'false',
-      onclick: () => setModes({ resize: !resizeMode, pinch: false }),
-   }, icon('unfold-horizontal'));
-   // タッチのピンチモード。ON の間は、グリッドのどこでも2本の指でピンチし、1本の指でスクロールする。ノートの操作はしない
-   const pinchToggle = h('button', {
-      type: 'button',
-      class: 'btn btn-icon pr-mode-toggle pr-touch-only',
-      title: 'ピンチモード(ON の間は、どこでも2本の指で拡大・縮小し、1本の指でスクロールする。ノートは操作できない)',
-      'aria-label': 'ピンチモード',
-      'aria-pressed': 'false',
-      onclick: () => setModes({ resize: false, pinch: !pinchMode }),
-   }, icon('zoom-in'));
-   // ピンチモードを終えるボタン。ON の間、グリッドの右下に重ねて出す(ヘッダーのボタンより押しやすいように)
-   const pinchExit = h('button', {
-      type: 'button',
-      class: 'btn pr-pinch-exit pr-touch-only',
-      hidden: true,
-      onclick: () => setModes({ resize: false, pinch: false }),
-   }, icon('x', 16), 'ピンチモードを終える');
-   // 伸縮モードとピンチモードは、どちらか一方だけ
-   function setModes({ resize, pinch: pinchOn }) {
-      resizeMode = resize;
-      pinchMode = pinchOn;
-      resizeToggle.setAttribute('aria-pressed', String(resizeMode));
-      pinchToggle.setAttribute('aria-pressed', String(pinchMode));
+      dataset: { mode: name },
+      onclick: () => setMode(mode === name ? null : name),
+   }, icon(iconName));
+   // 伸縮モード:ノートをドラッグすると(どこを掴んでも)長さが変わる。置く・動かすはしない
+   const resizeToggle = modeToggle('resize', 'unfold-horizontal', '伸縮モード',
+      '伸縮モード(ON の間は、ノートをドラッグして長さを変える。置く・動かすはできない)');
+   // ピンチモード:グリッドのどこでも2本の指でピンチし、1本の指でスクロールする。ノートの操作はしない
+   const pinchToggle = modeToggle('pinch', 'zoom-in', 'ピンチモード',
+      'ピンチモード(ON の間は、どこでも2本の指で拡大・縮小し、1本の指でスクロールする。ノートは操作できない)');
+   // ベロシティモード:この間だけベロシティの段を出す(OFF の間は出さない)。
+   // 段は指が触れた瞬間に塗るので、スクロールやほかの操作のつもりで触れて変えてしまわないように。PC ではいつも出す
+   const velToggle = modeToggle('velocity', 'chart-no-axes-column', 'ベロシティ',
+      'ベロシティ(ON の間だけ、グリッドの下にベロシティの段を出して編集できる)');
+   let mode = null; // 'resize' | 'pinch' | 'velocity' | null
+   let resizeMode = false;
+   let pinchMode = false;
+   const coarse = matchMedia('(pointer: coarse)');
+   function setMode(next) {
+      mode = next;
+      resizeMode = mode === 'resize';
+      pinchMode = mode === 'pinch';
+      for (const button of [resizeToggle, pinchToggle, velToggle]) {
+         button.setAttribute('aria-pressed', String(button.dataset.mode === mode));
+      }
       el.classList.toggle('is-pinch-mode', pinchMode);
-      pinchExit.hidden = !pinchMode;
+      applyVelMode();
       if (clipId) renderNotes(); // 十字キーを出し入れする
    }
-   // タッチのベロシティ編集モード。ON の間だけベロシティの段を出す(OFF の間は出さない)。
-   // 段は指が触れた瞬間に塗るので、スクロールやほかの操作のつもりで触れて変えてしまわないように。PC ではいつも出す
-   let velMode = false;
-   const coarse = matchMedia('(pointer: coarse)');
-   const velToggle = h('button', {
-      type: 'button',
-      class: 'btn btn-icon pr-mode-toggle pr-touch-only',
-      title: 'ベロシティ(ON の間だけ、グリッドの下にベロシティの段を出して編集できる)',
-      'aria-label': 'ベロシティ',
-      'aria-pressed': 'false',
-      onclick: () => setVelMode(!velMode),
-   }, icon('chart-no-axes-column'));
-   function setVelMode(on) {
-      velMode = on;
-      velToggle.setAttribute('aria-pressed', String(velMode));
-      applyVelMode();
-   }
-   // 段を出さない間は、段の高さを 0 にする(グリッドの行の高さと、十字キーの位置に使う)
+   // ベロシティの段を出さない間は、段の高さを 0 にする(グリッドの行の高さと、十字キーの位置に使う)
    function applyVelMode() {
-      const hidden = coarse.matches && !velMode;
+      const hidden = coarse.matches && mode !== 'velocity';
       el.classList.toggle('is-vel-hidden', hidden);
       el.style.setProperty('--pr-vel-h', `${hidden ? 0 : VEL_HEIGHT}px`);
    }
@@ -458,8 +440,7 @@ export function createPianoRoll({
          h('button', { type: 'button', class: 'btn btn-icon', 'aria-label': 'ピアノロールを閉じる', onclick: () => close() }, icon('x'))),
       // グリッド(とその下のスクロールバー)の右に、編集のボタンの列を置く
       h('div', { class: 'pr-body' }, h('div', { class: 'pr-main' }, scroller, hbar), side),
-      dpad,
-      pinchExit);
+      dpad);
 
    // 鍵盤は、上が高い音(127)。128音ぶんを一度だけ作る。グリッドの行は、転調の区間ごとに renderScale で作る。
    // マウスは押したときに鳴らす。タッチは鍵盤の上でスクロールとピンチもするので、動かさずに離したときに鳴らす(鍵盤の指)
