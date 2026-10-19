@@ -5,6 +5,8 @@
 // タッチでは、グリッドの上の指はスクロールに使わず、すぐノートの操作にする(スクロールと取り合うと、操作の起点が長押しに頼ることになり使いにくいため)。
 // 横のスクロールは下端の太いスクロールバー、縦のスクロールは鍵盤の上の指で行う。
 // 2本の指のピンチは、鍵盤の上ならノートの高さ、横のスクロールバーの上なら1拍の幅を変える。
+// ヘッダーの「ピンチモード」を ON にした間は、グリッドのどこでもピンチでき(指の並びの向きで縦横を決める)、1本の指でスクロールする。
+// その間はノートの操作をしない(スクロールバーは画面の下端にあり、OS のジェスチャーと取り合ってピンチしにくいため)。
 // ノートのドラッグは「置く・動かす」が基本で、ヘッダーの「伸縮モード」を ON にした間だけ「長さを変える」にする(端を狙わずに済むように)。
 // 選んでいるノートは、右端に出す十字キーでも動かせる。
 // 選んだノートは Ctrl+C でコピー(Ctrl+X で切り取り)し、Ctrl+V で再生を始める位置(クリップの外ならクリップの頭)に貼り付ける。
@@ -155,14 +157,16 @@ let clipboard = [];
  * @param {(clipId: string|null) => void} [options.onSelectionChange] 開いているクリップが変わったとき
  * @param {(clip: object) => void} [options.onPlayClip] 「このクリップだけをループ再生」(ループ中なら止める)
  * @param {(clipId: string) => boolean} [options.isLooping] そのクリップをループで鳴らしているか(再生ボタンを停止の形にする)
+ * @param {() => void} [options.onPlayAll] 「全体を再生」(全体を再生中なら止める)
+ * @param {() => boolean} [options.isPlayingAll] 全体を再生しているか
  * @param {(clipId: string) => void} [options.onOpenDetail] クリップ詳細を開く
  * @param {(tick: number) => void} [options.onSeek] ルーラーを押して、再生を始める位置(曲の頭からの tick)を変えたとき
  * @param {() => boolean} [options.isPlaying] 再生中か(再生中は貼り付けさせない)
  * @param {() => number} [options.topLimit] パネルの上端をここ(画面上の y 座標)より上へは広げない
  */
 export function createPianoRoll({
-   projectId, onSelectionChange, onPlayClip, isLooping = () => false, onOpenDetail, onSeek, isPlaying = () => false,
-   topLimit = () => 0,
+   projectId, onSelectionChange, onPlayClip, isLooping = () => false, onPlayAll, isPlayingAll = () => false, onOpenDetail, onSeek,
+   isPlaying = () => false, topLimit = () => 0,
 }) {
    let data = null; // アレンジ画面が読み込んだもの(project / tracks / clips)
    let clipId = null;
@@ -176,6 +180,7 @@ export function createPianoRoll({
    let onion = false; // オニオンスキンを出すか
    let onionOff = new Set(); // オニオンスキンに出さないトラックの id
    let resizeMode = false; // タッチで、ノートのドラッグを「長さを変える」にする(置く・動かすはしない)
+   let pinchMode = false; // タッチで、グリッドのどこでもピンチ・スクロールする(ノートの操作はしない)
    // 元に戻す履歴。clipId → { saved: 保存したノート, bars: そのときの長さ, undo: [ノート…], redo: [ノート…] }
    const history = new Map();
 
@@ -206,7 +211,7 @@ export function createPianoRoll({
       title: '押した位置(グリッドの単位)から再生します',
       onclick: (e) => {
          const c = clip();
-         if (!c) return;
+         if (!c || (pinchMode && e.pointerType === 'touch')) return; // ピンチモードの指では動かさない
          const unit = snap > 1 ? snap : PPQ / 4;
          const last = Math.floor((clipTicks(c) - 1) / unit) * unit;
          const at = Math.floor((e.clientX - ruler.getBoundingClientRect().left) / px / unit) * unit;
@@ -244,11 +249,34 @@ export function createPianoRoll({
       title: '伸縮モード(ON の間は、ノートをドラッグして長さを変える。置く・動かすはできない)',
       'aria-label': '伸縮モード',
       'aria-pressed': 'false',
-      onclick: () => {
-         resizeMode = !resizeMode;
-         resizeToggle.setAttribute('aria-pressed', String(resizeMode));
-      },
+      onclick: () => setModes({ resize: !resizeMode, pinch: false }),
    }, icon('unfold-horizontal'));
+   // タッチのピンチモード。ON の間は、グリッドのどこでも2本の指でピンチし、1本の指でスクロールする。ノートの操作はしない
+   const pinchToggle = h('button', {
+      type: 'button',
+      class: 'btn btn-icon pr-mode-toggle pr-touch-only',
+      title: 'ピンチモード(ON の間は、どこでも2本の指で拡大・縮小し、1本の指でスクロールする。ノートは操作できない)',
+      'aria-label': 'ピンチモード',
+      'aria-pressed': 'false',
+      onclick: () => setModes({ resize: false, pinch: !pinchMode }),
+   }, icon('zoom-in'));
+   // ピンチモードを終えるボタン。ON の間、グリッドの右下に重ねて出す(ヘッダーのボタンより押しやすいように)
+   const pinchExit = h('button', {
+      type: 'button',
+      class: 'btn pr-pinch-exit pr-touch-only',
+      hidden: true,
+      onclick: () => setModes({ resize: false, pinch: false }),
+   }, icon('x', 16), 'ピンチモードを終える');
+   // 伸縮モードとピンチモードは、どちらか一方だけ
+   function setModes({ resize, pinch: pinchOn }) {
+      resizeMode = resize;
+      pinchMode = pinchOn;
+      resizeToggle.setAttribute('aria-pressed', String(resizeMode));
+      pinchToggle.setAttribute('aria-pressed', String(pinchMode));
+      el.classList.toggle('is-pinch-mode', pinchMode);
+      pinchExit.hidden = !pinchMode;
+      if (clipId) renderNotes(); // 十字キーを出し入れする
+   }
    // 十字キー(矢印キーと同じ。←→ でグリッド1つ分、↓↑ で半音)。タッチの画面で、ノートを選んでいる間だけ右端に出す。
    // 押し続けるとくり返し動かし、離したときにまとめて保存する
    const padButton = (name, label, area, step) => {
@@ -314,19 +342,31 @@ export function createPianoRoll({
       'aria-label': 'オニオンスキンに出すトラック',
       onclick: () => openOnionMenu(),
    }, icon('list-checks'));
-   // このクリップだけを頭からループで鳴らす。ループ中は停止のボタンになる(updatePlayState で切り替える)
+   // このクリップだけをループで鳴らす(再生を始める位置の印がクリップの中ならそこから、外なら頭から。ループは頭に戻る)。
+   // ループ中は停止のボタンになる(updatePlayState で切り替える)
    const playButton = h('button', {
       type: 'button',
       class: 'btn btn-icon',
       onclick: () => { const c = clip(); if (c) onPlayClip?.(c); },
    });
+   // 全体を再生する(アレンジのツールバーの再生ボタンと同じ。スマホの横持ちでは、ツールバーが隠れるため)
+   const playAllButton = h('button', {
+      type: 'button',
+      class: 'btn btn-icon',
+      onclick: () => onPlayAll?.(),
+   });
    function updatePlayState() {
       const looping = Boolean(clipId && isLooping(clipId));
-      const label = looping ? 'ループ再生を止める' : 'このクリップだけをループ再生(ミュート・ソロに関わらず、このトラックだけを鳴らす)';
-      playButton.title = label;
+      playButton.title = looping ? 'ループ再生を止める'
+         : 'このクリップだけをループ再生(赤い印がクリップの中ならそこから。ミュート・ソロに関わらず、このトラックだけを鳴らす)';
       playButton.setAttribute('aria-label', looping ? 'ループ再生を止める' : 'このクリップだけをループ再生');
       playButton.classList.toggle('is-playing', looping);
-      playButton.replaceChildren(icon(looping ? 'square' : 'play'));
+      playButton.replaceChildren(icon(looping ? 'square' : 'repeat'));
+      const all = isPlayingAll();
+      playAllButton.title = all ? '停止' : '全体を再生(赤い印から)';
+      playAllButton.setAttribute('aria-label', all ? '停止' : '全体を再生');
+      playAllButton.classList.toggle('is-playing', all);
+      playAllButton.replaceChildren(icon(all ? 'square' : 'play'));
    }
    updatePlayState();
    // ベロシティの段。横はグリッドと一緒にスクロールし、縦は下端に貼り付ける(CSS の sticky)
@@ -358,12 +398,14 @@ export function createPianoRoll({
          range,
          h('label', { class: 'pr-snap-label muted' }, 'グリッド', snapSelect),
          scaleText,
-         resizeToggle,
          h('span', { class: 'pr-onion-tools' }, onionToggle, onionTracks),
+         resizeToggle,
+         pinchToggle,
          h('span', { class: 'pr-spacer' }),
          undoButton,
          redoButton,
          deleteButton,
+         playAllButton,
          playButton,
          h('button', {
             type: 'button', class: 'btn btn-icon', title: '.mid を読み込む(ノートを置き換える)', 'aria-label': '.mid を読み込む',
@@ -380,7 +422,8 @@ export function createPianoRoll({
          h('button', { type: 'button', class: 'btn btn-icon', 'aria-label': 'ピアノロールを閉じる', onclick: () => close() }, icon('x'))),
       scroller,
       hbar,
-      dpad);
+      dpad,
+      pinchExit);
 
    // 鍵盤は、上が高い音(127)。128音ぶんを一度だけ作る。グリッドの行は、転調の区間ごとに renderScale で作る。
    // マウスは押したときに鳴らす。タッチは鍵盤の上でスクロールとピンチもするので、動かさずに離したときに鳴らす(鍵盤の指)
@@ -638,6 +681,57 @@ export function createPianoRoll({
    const pinchAxis = (target) => (keys.contains(target) ? 'y' : hbar.contains(target) ? 'x' : null);
    const spread = (a, b, axis) => Math.max(20, Math.abs(axis === 'x' ? a.x - b.x : a.y - b.y));
 
+   // ピンチモード。鍵盤・グリッド・ルーラー・ベロシティの段・スクロールバーのどこでも、2本の指でピンチし、1本の指でスクロールする。
+   // ピンチの向きは、2本目を置いたときの指の並び(横に離れていれば1拍の幅、縦ならノートの高さ)で決める。
+   // ここで先に受け取り、下の要素(ノートの操作や、鍵盤・スクロールバーのピンチ)には渡さない。
+   // 1本離したら、残った指は離すまで何もしない(ふつうのピンチと同じ)
+   const zoomTouches = new Map(); // pointerId → { x, y }
+   let zoomPan = null; // 1本の指のスクロール { id, x, y, left, top }
+   let zoomPinch = null; // { ids, axis, distance, value, done }
+
+   el.addEventListener('pointerdown', (e) => {
+      if (!pinchMode || e.pointerType !== 'touch' || !(scroller.contains(e.target) || hbar.contains(e.target))) return;
+      e.stopImmediatePropagation();
+      e.preventDefault();
+      zoomTouches.set(e.pointerId, { x: e.clientX, y: e.clientY });
+      el.setPointerCapture(e.pointerId);
+      if (zoomPinch) return;
+      if (zoomTouches.size === 1) {
+         zoomPan = { id: e.pointerId, x: e.clientX, y: e.clientY, left: scroller.scrollLeft, top: scroller.scrollTop };
+         return;
+      }
+      if (zoomTouches.size !== 2 || !clipId) return;
+      zoomPan = null;
+      const ids = [...zoomTouches.keys()];
+      const [a, b] = ids.map((id) => zoomTouches.get(id));
+      const axis = Math.abs(a.x - b.x) >= Math.abs(a.y - b.y) ? 'x' : 'y';
+      zoomPinch = { ids, axis, distance: spread(a, b, axis), value: axis === 'x' ? beat : row, done: false };
+   }, true);
+   el.addEventListener('pointermove', (e) => {
+      if (!zoomTouches.has(e.pointerId)) return;
+      e.stopImmediatePropagation();
+      zoomTouches.set(e.pointerId, { x: e.clientX, y: e.clientY });
+      if (zoomPinch) {
+         if (zoomPinch.done || !zoomPinch.ids.includes(e.pointerId)) return;
+         const [a, b] = zoomPinch.ids.map((id) => zoomTouches.get(id));
+         const scale = spread(a, b, zoomPinch.axis) / zoomPinch.distance;
+         if (zoomPinch.axis === 'x') setBeat(zoomPinch.value * scale, (a.x + b.x) / 2);
+         else setRow(zoomPinch.value * scale, (a.y + b.y) / 2);
+      } else if (zoomPan?.id === e.pointerId) {
+         scroller.scrollLeft = zoomPan.left - (e.clientX - zoomPan.x);
+         scroller.scrollTop = zoomPan.top - (e.clientY - zoomPan.y);
+      }
+   }, true);
+   const endZoomTouch = (e) => {
+      if (!zoomTouches.delete(e.pointerId)) return;
+      e.stopImmediatePropagation();
+      if (zoomPan?.id === e.pointerId) zoomPan = null;
+      if (zoomPinch?.ids.includes(e.pointerId)) zoomPinch.done = true;
+      if (!zoomTouches.size) zoomPinch = null;
+   };
+   el.addEventListener('pointerup', endZoomTouch, true);
+   el.addEventListener('pointercancel', endZoomTouch, true);
+
    el.addEventListener('pointerdown', (e) => {
       if (e.pointerType !== 'touch') return;
       if (pinch) {
@@ -749,7 +843,7 @@ export function createPianoRoll({
          title: `${pitchName(n.pitch)} ベロシティ ${velocityOf(n)}${dup(n) ? '(同じ位置に重なっているノートがあります)' : ''}`,
       })));
       deleteButton.hidden = !selected.size;
-      dpad.hidden = !selected.size;
+      dpad.hidden = !selected.size || pinchMode;
       // 選んでいるノートの棒は、ほかの棒に隠れないよう後ろ(上)に描く
       const order = [...notes.filter((n) => !selected.has(n)), ...notes.filter((n) => selected.has(n))];
       velBars.replaceChildren(...order.map((n) => h('div', {

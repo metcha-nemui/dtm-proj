@@ -310,6 +310,10 @@ textarea {
    border-radius: var(--radius);
    background: var(--surface);
    box-shadow: var(--shadow-2);
+   /* 画面より長いメニュー(スマホの横持ちのオニオンスキンのトラックなど)は、中でスクロールする */
+   max-height: calc(100dvh - 16px);
+   overflow-y: auto;
+   overscroll-behavior: contain;
 }
 
 .menu-item {

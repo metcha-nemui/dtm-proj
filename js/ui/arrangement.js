@@ -19,7 +19,7 @@ import {
    arrangementPlayback, audioEndBar, audioTicks, clampAudioStart, snapToBeat, trackAudio,
 } from '../domain/audio.js';
 import {
-   audibleNotes, audibleTrackIds, audioFileName, CENTER_PAN, clipTickRange, clipTicks, DEFAULT_VOLUME, isAudioTrack, MAX_BPM, MIN_BPM, PPQ,
+   audibleNotes, audibleTrackIds, audioFileName, CENTER_PAN, clipTicks, DEFAULT_VOLUME, isAudioTrack, MAX_BPM, MIN_BPM, PPQ,
    projectBpm, projectScales, scaleLabel, soundLabel, TICKS_PER_BAR, trackMix, trackSound,
 } from '../domain/midi.js';
 import { sortByOrder } from '../domain/order.js';
@@ -115,12 +115,19 @@ export function mount(container, { id: projectId }) {
    const pianoRoll = createPianoRoll({
       projectId,
       onSelectionChange: () => markSelected(),
-      // そのクリップだけを、頭からループで鳴らす(ループ中にもう一度押すと止める)
+      // そのクリップだけをループで鳴らす(ループ中にもう一度押すと止める)。再生を始める位置がクリップの中ならそこから、
+      // 外なら頭から鳴らす(startPlayback がクリップの範囲に収める)。ループは頭に戻る
       onPlayClip: (clip) => {
          if (isLooping(clip.id)) sound.stop();
-         else startPlayback(clipTickRange(clip).fromTick, clip.id).catch(reportPlayError);
+         else startPlayback(startTick, clip.id).catch(reportPlayError);
       },
       isLooping: (clipId) => isLooping(clipId),
+      // 全体の再生。クリップをループで鳴らしている間に押したら、全体の再生に切り替える
+      onPlayAll: () => {
+         if (sound.isPlaying() && loopClipId == null) sound.stop();
+         else startPlayback(startTick).catch(reportPlayError);
+      },
+      isPlayingAll: () => sound.isPlaying() && loopClipId == null,
       onSeek: (tick) => seek(tick, { keepLoop: true }),
       onOpenDetail: (clipId) => drawer.open(clipId),
       isPlaying: () => sound.isPlaying(),

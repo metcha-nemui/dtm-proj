@@ -1,4 +1,5 @@
 // ボタンの下に出すポップアップメニュー。外側のクリック・Esc・スクロールで閉じる。
+// 画面に入り切らない長さなら、メニューの中でスクロールする(CSS の max-height)。
 
 import { h, icon } from './dom.js';
 
@@ -66,7 +67,10 @@ export function openMenu(anchor, items) {
       closeMenu();
       anchor.focus();
    }, options);
-   window.addEventListener('scroll', closeMenu, options);
+   // メニューの中のスクロール(画面より長いとき)では閉じない
+   window.addEventListener('scroll', (e) => {
+      if (!menu.contains(e.target)) closeMenu();
+   }, options);
    window.addEventListener('resize', closeMenu, options);
    window.addEventListener('hashchange', closeMenu, options);
 

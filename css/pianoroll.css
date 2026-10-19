@@ -429,11 +429,39 @@
    }
 }
 
-/* タッチの画面では、ブラウザのスクロールバーは出さない(細くて指で掴めない。下の横のスクロールバーと鍵盤で動かす) */
+/* タッチの画面では、ブラウザのスクロールバーは出さない(細くて指で掴めない。下の横のスクロールバーと鍵盤で動かす)。
+   鍵盤は縦のスクロールとピンチに指を置くところなので、広めにとる */
 @media (pointer: coarse) {
+   .pr {
+      --pr-keys: 72px;
+   }
+
    .pr-scroll {
       scrollbar-width: none;
    }
+}
+
+/* ピンチモードの間は、ルーラーなども含めて、指の動きをすべて pianoRoll.js で扱う */
+.pr.is-pinch-mode .pr-scroll {
+   touch-action: none;
+}
+
+/* ピンチモードを終えるボタン。十字キーと同じ場所(ピンチモードの間は十字キーを出さない)に重ねる */
+.pr-pinch-exit {
+   position: absolute;
+   right: var(--space-3);
+   bottom: calc(var(--pr-vel-h) + 32px + var(--space-3));
+   z-index: 5;
+   display: inline-flex;
+   align-items: center;
+   gap: var(--space-1);
+   background: var(--accent);
+   color: var(--accent-contrast);
+   box-shadow: var(--shadow-1);
+}
+
+.pr-pinch-exit[hidden] {
+   display: none;
 }
 
 /* 横のスクロールバー。グリッドの下に、鍵盤の列を除いた幅で出す。指で掴めるよう太くする */
