@@ -17,8 +17,8 @@ import { projectHead } from './projectHeader.js';
 import { projectTabs } from './projectTabs.js';
 import { createTaskDrawer } from './taskDrawer.js';
 
-// 「未完了のみ」は画面を行き来しても保つ
-let hideDone = false;
+// 「完了済を表示」は画面を行き来しても保つ。既定は隠す
+let showDone = false;
 
 export function mount(container, { id: projectId }) {
    const root = h('div', { class: 'board-page' });
@@ -141,7 +141,7 @@ export function mount(container, { id: projectId }) {
             onMove: ({ dragged, from, to }) => !(dragged.dataset.clipId && from !== to),
             onEnd:({ item, from, to, oldIndex, newIndex }) => {
                if (from === to && oldIndex === newIndex) return;
-               // 「未完了のみ」で隠れているタスクも含めたDOM上の位置を使う
+               // 隠している完了済のタスクも含めたDOM上の位置を使う
                runPlaced(actions.moveTask(projectId, item.dataset.taskId, to.dataset.laneId, domIndex(item, '.task')));
             },
          }));
@@ -216,14 +216,14 @@ export function mount(container, { id: projectId }) {
          h('label', { class: 'board-filter' },
             h('input', {
                type: 'checkbox',
-               checked: hideDone,
+               checked: showDone,
                dataset: { focusKey: 'filter' },
                onchange: (e) => {
-                  hideDone = e.target.checked;
-                  root.querySelector('.board').classList.toggle('hide-done', hideDone);
+                  showDone = e.target.checked;
+                  root.querySelector('.board').classList.toggle('hide-done', !showDone);
                },
             }),
-            '未完了のみ'));
+            '完了済を表示'));
    }
 
    // チップで選んだレーンを見える位置まで動かす
@@ -298,7 +298,7 @@ export function mount(container, { id: projectId }) {
       keepFocus(root, () => root.replaceChildren(...[
          toolbar(),
          laneChips(),
-         h('div', { class: `board${hideDone ? ' hide-done' : ''}` },
+         h('div', { class: `board${showDone ? '' : ' hide-done'}` },
             laneGroup('global'),
             laneGroup('section'),
             h('button', {
