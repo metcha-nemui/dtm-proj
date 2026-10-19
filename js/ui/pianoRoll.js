@@ -3,7 +3,8 @@
 // ノートを掴むと移動、右端を掴むと長さを変える。右クリックで消す(押したままなぞると続けて消す)。
 // ノートを置く長さは、最後に触ったノートの長さ。Ctrl+ドラッグで囲んだノートを選ぶ(Shift も押すと選択に足す)。
 // タッチでは、グリッドの上の指はスクロールに使わず、すぐノートの操作にする(スクロールと取り合うと、操作の起点が長押しに頼ることになり使いにくいため)。
-// 横のスクロールは下端の太いスクロールバー、縦のスクロールとノートの高さ(縦のピンチ)は鍵盤の上の指で行う。
+// 横のスクロールは下端の太いスクロールバー、縦のスクロールは鍵盤の上の指で行う。
+// 2本の指のピンチは、ヘッダーより下ならどこでも効く(横に並べれば1拍の幅、縦ならノートの高さ)。
 // ノートのドラッグは「置く・動かす」が基本で、ヘッダーの「伸縮モード」を ON にした間だけ「長さを変える」にする(端を狙わずに済むように)。
 // 選んでいるノートは、右端に出す十字キーでも動かせる。
 // 選んだノートは Ctrl+C でコピー(Ctrl+X で切り取り)し、Ctrl+V で再生を始める位置(クリップの外ならクリップの頭)に貼り付ける。
@@ -42,8 +43,6 @@ import { clipMidi, downloadMidi } from './midiExport.js';
 import { importMidiToClip } from './midiImport.js';
 import { previewNote } from '../synth.js';
 
-const BEAT = 64; // 1拍の幅(px)
-const PX = BEAT / PPQ; // 1 tick の幅(px)
 const EDGE = 6; // ノートの右端の、掴むと長さを変えられる幅(px)
 const VEL_HEIGHT = 64; // ベロシティの段の高さ(px。CSS の --pr-vel-h に渡す)
 const VEL_PAD = 6; // ベロシティの段の上の余白(127 の棒が上端に付かないように)
@@ -94,7 +93,7 @@ function loadHeight() {
 
 let savedHeight = loadHeight();
 
-// 1音の高さ(px)。タッチでは鍵盤の上の縦のピンチ、マウスではホイールを押しながら回して変える。
+// 1音の高さ(px)。タッチでは縦のピンチ、マウスではホイールを押しながら回して変える。
 // 指で押すスマホ(pointer: coarse)は、既定を広めにする。パネルの高さと同じく、このブラウザの localStorage に覚えておく
 const ROW_KEY = 'dtm-proj:piano-roll-row';
 const MIN_ROW = 8;
@@ -112,6 +111,25 @@ function loadRow() {
 }
 
 let row = loadRow();
+
+// 1拍の幅(px)。タッチでは横のピンチ、マウスでは Shift とホイールを押しながら回して変える。ノートの高さと同じく覚えておく
+const BEAT_KEY = 'dtm-proj:piano-roll-beat';
+const MIN_BEAT = 16;
+const MAX_BEAT = 256;
+const WHEEL_BEAT_RATIO = 1.25; // ホイール1目盛りで変える倍率
+
+function loadBeat() {
+   try {
+      const saved = Number(localStorage.getItem(BEAT_KEY));
+      if (Number.isInteger(saved) && saved >= MIN_BEAT && saved <= MAX_BEAT) return saved;
+   } catch {
+      // 覚えていなければ既定
+   }
+   return 64;
+}
+
+let beat = loadBeat();
+let px = beat / PPQ; // 1 tick の幅(px)
 
 function loadSnap() {
    try {
@@ -191,7 +209,7 @@ export function createPianoRoll({
          if (!c) return;
          const unit = snap > 1 ? snap : PPQ / 4;
          const last = Math.floor((clipTicks(c) - 1) / unit) * unit;
-         const at = Math.floor((e.clientX - ruler.getBoundingClientRect().left) / PX / unit) * unit;
+         const at = Math.floor((e.clientX - ruler.getBoundingClientRect().left) / px / unit) * unit;
          onSeek?.((c.startBar - 1) * TICKS_PER_BAR + Math.max(0, Math.min(last, at)));
       },
    });
@@ -468,9 +486,9 @@ export function createPianoRoll({
       const t = track();
       title.textContent = `${t?.name ?? ''}: ${c.name || UNTITLED_CLIP}`;
       range.textContent = barRange(c);
-      inner.style.setProperty('--pr-width', `${clipTicks(c) * PX}px`);
-      inner.style.setProperty('--pr-bar', `${TICKS_PER_BAR * PX}px`);
-      inner.style.setProperty('--pr-beat', `${BEAT}px`);
+      inner.style.setProperty('--pr-width', `${clipTicks(c) * px}px`);
+      inner.style.setProperty('--pr-bar', `${TICKS_PER_BAR * px}px`);
+      inner.style.setProperty('--pr-beat', `${beat}px`);
       inner.style.setProperty('--pr-row', `${row}px`);
       renderScale();
       updateHbar();
@@ -485,7 +503,7 @@ export function createPianoRoll({
       const c = clip();
       const rel = c ? startTick - (c.startBar - 1) * TICKS_PER_BAR : -1;
       cursor.hidden = !c || rel < 0 || rel > clipTicks(c);
-      if (!cursor.hidden) cursor.style.left = `${rel * PX}px`;
+      if (!cursor.hidden) cursor.style.left = `${rel * px}px`;
    }
 
    // スケールの外の音の行を暗く、主音の行を少し色付きにする(鍵盤は実際の白黒のまま)。
@@ -501,7 +519,7 @@ export function createPianoRoll({
       rows.replaceChildren(...spans.map(({ from, to, scale }) => {
          const column = h('div', {
             class: `pr-scale${from > 0 ? ' is-change' : ''}`,
-            style: { width: `${(to - from) * TICKS_PER_BAR * PX}px` },
+            style: { width: `${(to - from) * TICKS_PER_BAR * px}px` },
          });
          for (let pitch = 127; pitch >= 0; pitch--) {
             const out = !inScale(pitch, scale);
@@ -530,22 +548,60 @@ export function createPianoRoll({
       scroller.scrollTop = at * row + RULER_H - offset;
    }
 
-   // マウスでは、ホイールを押しながら回すとノートの高さを変える(押すだけで始まる自動スクロールは止める)
+   // 1拍の幅を変える。anchorX(画面上の x 座標。指の間やポインタの位置)にある時間は、同じ位置に残す
+   function setBeat(value, anchorX) {
+      const next = Math.max(MIN_BEAT, Math.min(MAX_BEAT, Math.round(value)));
+      if (next === beat || !clipId) return;
+      const offset = anchorX - grid.getBoundingClientRect().left;
+      const at = offset / px; // anchorX にある tick
+      beat = next;
+      px = beat / PPQ;
+      try {
+         localStorage.setItem(BEAT_KEY, String(beat));
+      } catch {
+         // 覚えられなくても、この画面の間は効く
+      }
+      scaleSignature = ''; // 転調の区間の幅も変わるので作り直す
+      renderHead();
+      renderGridLines();
+      renderNotes();
+      renderOnion();
+      scroller.scrollLeft += at * px - offset;
+      updateHbar();
+   }
+
+   // マウスでは、ホイールを押しながら回すとノートの高さを、Shift も押しながらだと1拍の幅を変える
+   // (押すだけで始まる自動スクロールは止める。Shift を押すと横の回転になるブラウザもあるので deltaX も見る)
    scroller.addEventListener('mousedown', (e) => {
       if (e.button === 1) e.preventDefault();
    });
    scroller.addEventListener('wheel', (e) => {
-      if (!(e.buttons & 4) || !e.deltaY) return;
+      const delta = e.deltaY || e.deltaX;
+      if (!(e.buttons & 4) || !delta) return;
       e.preventDefault();
-      setRow(row + (e.deltaY < 0 ? WHEEL_ROW_STEP : -WHEEL_ROW_STEP), e.clientY);
+      if (e.shiftKey) setBeat(delta < 0 ? beat * WHEEL_BEAT_RATIO : beat / WHEEL_BEAT_RATIO, e.clientX);
+      else setRow(row + (delta < 0 ? WHEEL_ROW_STEP : -WHEEL_ROW_STEP), e.clientY);
    }, { passive: false });
 
-   // ---- タッチのスクロール ----
+   // ---- タッチのスクロールとピンチ ----
 
-   // 鍵盤の上の指。1本なら縦にスクロール(離したあとも少し滑らせる)、2本なら縦のピンチでノートの高さを変える。
+   // タッチで、いま1本の指でしている操作(グリッド・鍵盤・ベロシティの段・横のスクロールバー)。指での操作は1本ずつにする。
+   // cancel は、2本目の指を置いてピンチに切り替えるときに、その操作を取り消す関数。
+   // ノートを動かし始めたあとなど、取り消すと困るときは null にして、2本目の指を無視する
+   let touchOp = null;
+
+   function beginTouch(cancel) {
+      touchOp = { cancel };
+      return touchOp;
+   }
+
+   function endTouch(op) {
+      if (op && touchOp === op) touchOp = null;
+   }
+
+   // 鍵盤の上の指で、縦にスクロールする(離したあとも少し滑らせる)。
    // 動かさずに離したら、その鍵盤を鳴らす。鍵盤は touch-action: none なので、ブラウザのスクロールとは取り合わない
-   const keyTouches = new Map(); // pointerId → 今の y 座標
-   let keyGesture = null;
+   let keyGesture = null; // { id, y, top, tap: 離したら鳴らす音(動かしたら null), samples, op }
    let glide = 0; // 慣性で滑らせている requestAnimationFrame の id
 
    function stopGlide() {
@@ -553,32 +609,22 @@ export function createPianoRoll({
       glide = 0;
    }
 
-   // 1本指のスクロールを、今の指の位置から始め直す(ピンチから1本に戻ったときも)。tap は、離したら鳴らす音(動かしたら null)
-   function startKeyScroll(y, tap) {
-      keyGesture = { kind: 'scroll', y, top: scroller.scrollTop, tap, samples: [{ y, t: performance.now() }] };
-   }
-
    keys.addEventListener('pointerdown', (e) => {
-      if (e.pointerType !== 'touch') return;
+      if (e.pointerType !== 'touch' || touchOp) return;
       stopGlide();
       keys.setPointerCapture(e.pointerId);
-      keyTouches.set(e.pointerId, e.clientY);
-      if (keyTouches.size === 1) {
-         const pitch = e.target.closest?.('.pr-key')?.dataset.pitch;
-         startKeyScroll(e.clientY, pitch == null ? null : Number(pitch));
-      } else if (keyTouches.size === 2) {
-         const [a, b] = [...keyTouches.values()];
-         keyGesture = { kind: 'pinch', distance: Math.max(20, Math.abs(a - b)), row };
-      }
+      const pitch = e.target.closest?.('.pr-key')?.dataset.pitch;
+      keyGesture = {
+         id: e.pointerId,
+         y: e.clientY,
+         top: scroller.scrollTop,
+         tap: pitch == null ? null : Number(pitch),
+         samples: [{ y: e.clientY, t: performance.now() }],
+         op: beginTouch(() => { keyGesture = null; }),
+      };
    });
    keys.addEventListener('pointermove', (e) => {
-      if (!keyTouches.has(e.pointerId) || !keyGesture) return;
-      keyTouches.set(e.pointerId, e.clientY);
-      if (keyGesture.kind === 'pinch') {
-         const [a, b] = [...keyTouches.values()];
-         setRow(keyGesture.row * (Math.max(20, Math.abs(a - b)) / keyGesture.distance), (a + b) / 2);
-         return;
-      }
+      if (keyGesture?.id !== e.pointerId) return;
       if (keyGesture.tap != null && Math.abs(e.clientY - keyGesture.y) < TOUCH_SLOP) return;
       keyGesture.tap = null;
       scroller.scrollTop = keyGesture.top - (e.clientY - keyGesture.y);
@@ -586,17 +632,10 @@ export function createPianoRoll({
       keyGesture.samples = [...keyGesture.samples.filter((s) => now - s.t < 100), { y: e.clientY, t: now }];
    });
    const endKeyTouch = (e) => {
-      if (!keyTouches.has(e.pointerId)) return;
-      keyTouches.delete(e.pointerId);
-      if (keyTouches.size === 1) {
-         // ピンチの指が1本離れたら、残った指でスクロールを続ける
-         startKeyScroll([...keyTouches.values()][0], null);
-         return;
-      }
-      if (keyTouches.size) return;
+      if (keyGesture?.id !== e.pointerId) return;
       const gesture = keyGesture;
       keyGesture = null;
-      if (gesture?.kind !== 'scroll') return;
+      endTouch(gesture.op);
       if (gesture.tap != null) {
          if (e.type === 'pointerup') preview(gesture.tap);
          return;
@@ -618,6 +657,53 @@ export function createPianoRoll({
    keys.addEventListener('pointerup', endKeyTouch);
    keys.addEventListener('pointercancel', endKeyTouch);
 
+   // ピンチ。ヘッダーより下(ルーラー・鍵盤・グリッド・ベロシティの段・横のスクロールバー)なら、どこに置いた2本の指でも効く。
+   // 2本目の指を置いたときの並びで向きを決める:横に並んでいれば1拍の幅、縦に並んでいればノートの高さを変える
+   // (斜めに動いても両方は変えない。狙っていないほうまで動いてしまうため)。
+   // 指の動きは el で先に受け取り(キャプチャ)、下の要素には渡さない。1本離したら、残った指は離すまで何もしない
+   const touches = new Map(); // pointerId → { x, y }。ピンチに使える範囲に置いている指
+   let pinch = null; // { ids, axis: 'x' | 'y', distance, value, done }
+   const inPinchArea = (target) => scroller.contains(target) || hbar.contains(target);
+   const spread = (a, b, axis) => Math.max(20, Math.abs(axis === 'x' ? a.x - b.x : a.y - b.y));
+
+   el.addEventListener('pointerdown', (e) => {
+      if (e.pointerType !== 'touch' || !inPinchArea(e.target)) return;
+      if (pinch) {
+         e.stopPropagation(); // ピンチの間(と、その指が残っている間)に置いた指は使わない
+         return;
+      }
+      touches.set(e.pointerId, { x: e.clientX, y: e.clientY });
+      if (touches.size !== 2 || !clipId) return;
+      if (touchOp && !touchOp.cancel) return; // 1本目の指の操作がもう始まっている
+      touchOp?.cancel();
+      touchOp = null;
+      stopGlide();
+      e.stopPropagation();
+      const [a, b] = [...touches.values()];
+      const axis = Math.abs(a.x - b.x) > Math.abs(a.y - b.y) ? 'x' : 'y';
+      pinch = { ids: [...touches.keys()], axis, distance: spread(a, b, axis), value: axis === 'x' ? beat : row, done: false };
+      for (const id of pinch.ids) el.setPointerCapture(id);
+   }, true);
+   el.addEventListener('pointermove', (e) => {
+      if (!touches.has(e.pointerId)) return;
+      touches.set(e.pointerId, { x: e.clientX, y: e.clientY });
+      if (!pinch?.ids.includes(e.pointerId)) return;
+      e.stopPropagation();
+      if (pinch.done) return;
+      const [a, b] = pinch.ids.map((id) => touches.get(id));
+      const scale = spread(a, b, pinch.axis) / pinch.distance;
+      if (pinch.axis === 'x') setBeat(pinch.value * scale, (a.x + b.x) / 2);
+      else setRow(pinch.value * scale, (a.y + b.y) / 2);
+   }, true);
+   const endPinchTouch = (e) => {
+      if (!touches.delete(e.pointerId) || !pinch?.ids.includes(e.pointerId)) return;
+      e.stopPropagation();
+      pinch.done = true;
+      if (!pinch.ids.some((id) => touches.has(id))) pinch = null;
+   };
+   el.addEventListener('pointerup', endPinchTouch, true);
+   el.addEventListener('pointercancel', endPinchTouch, true);
+
    // 横のスクロールバーのつまみの大きさと位置を、スクロールの位置に合わせる
    function updateHbar() {
       const track = hbar.clientWidth;
@@ -633,30 +719,40 @@ export function createPianoRoll({
    new ResizeObserver(updateHbar).observe(scroller);
 
    // スクロールバーを押す。つまみの外なら、押した位置につまみの真ん中を持ってくる。そのままなぞって動かす
+   // 2本目の指を置いたら、飛ぶ前の位置に戻してピンチにする
    function onHbarDown(down) {
-      if (down.button !== 0) return;
+      if (down.button !== 0 || touchOp) return;
       down.preventDefault();
       const rect = hbar.getBoundingClientRect();
       const thumb = hbarThumb.getBoundingClientRect();
       const range = rect.width - thumb.width; // つまみが動ける幅
       const max = scroller.scrollWidth - scroller.clientWidth;
       if (range <= 0 || max <= 0) return;
+      const before = scroller.scrollLeft;
       if (down.clientX < thumb.left || down.clientX > thumb.right) {
          scroller.scrollLeft = ((down.clientX - rect.left - thumb.width / 2) / range) * max;
       }
       const from = scroller.scrollLeft;
       hbar.classList.add('is-dragging');
-      trackPointer(hbar, down, {
+      const op = beginTouch(() => {
+         stop();
+         hbar.classList.remove('is-dragging');
+         scroller.scrollLeft = before;
+      });
+      const stop = trackPointer(hbar, down, {
          onMove: (e) => {
             scroller.scrollLeft = from + ((e.clientX - down.clientX) / range) * max;
          },
-         onEnd: () => hbar.classList.remove('is-dragging'),
+         onEnd: () => {
+            endTouch(op);
+            hbar.classList.remove('is-dragging');
+         },
       });
    }
 
    // いちばん細い縦線は、グリッドの細かさに合わせる(「なし」なら 1/16)
    function renderGridLines() {
-      inner.style.setProperty('--pr-snap', `${(snap > 1 ? snap : PPQ / 4) * PX}px`);
+      inner.style.setProperty('--pr-snap', `${(snap > 1 ? snap : PPQ / 4) * px}px`);
    }
    renderGridLines();
 
@@ -671,9 +767,9 @@ export function createPianoRoll({
       layer.replaceChildren(...notes.map((n, i) => h('div', {
          class: `pr-note${selected.has(n) ? ' is-selected' : ''}${outside(n) ? ' is-outside' : ''}${dup(n) ? ' is-dup' : ''}`,
          style: {
-            left: `${n.start * PX}px`,
+            left: `${n.start * px}px`,
             top: `${(127 - n.pitch) * row}px`,
-            width: `${Math.max(3, n.length * PX)}px`,
+            width: `${Math.max(3, n.length * px)}px`,
             '--vel': String(velocityOf(n) / 127),
          },
          dataset: { index: String(i) },
@@ -685,7 +781,7 @@ export function createPianoRoll({
       const order = [...notes.filter((n) => !selected.has(n)), ...notes.filter((n) => selected.has(n))];
       velBars.replaceChildren(...order.map((n) => h('div', {
          class: `pr-vel-bar${selected.has(n) ? ' is-selected' : ''}${outside(n) ? ' is-outside' : ''}`,
-         style: { left: `${n.start * PX}px`, height: `${(velocityOf(n) / 127) * (VEL_HEIGHT - VEL_PAD)}px` },
+         style: { left: `${n.start * px}px`, height: `${(velocityOf(n) / 127) * (VEL_HEIGHT - VEL_PAD)}px` },
       })));
    }
 
@@ -730,9 +826,9 @@ export function createPianoRoll({
       onionLayer.replaceChildren(...ghosts.map((n) => h('div', {
          class: 'pr-onion-note',
          style: {
-            left: `${Math.max(0, n.start) * PX}px`,
+            left: `${Math.max(0, n.start) * px}px`,
             top: `${(127 - n.pitch) * row}px`,
-            width: `${Math.max(3, (Math.min(end, n.start + n.length) - Math.max(0, n.start)) * PX)}px`,
+            width: `${Math.max(3, (Math.min(end, n.start + n.length) - Math.max(0, n.start)) * px)}px`,
          },
       })));
    }
@@ -755,7 +851,7 @@ export function createPianoRoll({
    function pointAt(e) {
       const rect = grid.getBoundingClientRect();
       return {
-         tick: (e.clientX - rect.left) / PX,
+         tick: (e.clientX - rect.left) / px,
          pitch: Math.max(0, Math.min(127, 127 - Math.floor((e.clientY - rect.top) / row))),
          x: e.clientX - rect.left,
          y: e.clientY - rect.top,
@@ -791,16 +887,20 @@ export function createPianoRoll({
       return { pitch: at.pitch, start, length: Math.max(1, Math.min(lastLength, end - start)), velocity: lastVelocity };
    }
 
-   // ドラッグの間だけ dragging を立てて、ポインタを追う
+   // ドラッグの間だけ dragging を立てて、ポインタを追う。返す関数を呼ぶと、onEnd を呼ばずにやめる
    function follow(down, { onMove, onEnd }) {
       dragging = true;
-      trackPointer(grid, down, {
+      const stop = trackPointer(grid, down, {
          onMove,
          onEnd: (e) => {
             dragging = false;
             onEnd(e);
          },
       });
+      return () => {
+         stop();
+         dragging = false;
+      };
    }
 
    function onGridDown(down) {
@@ -809,7 +909,7 @@ export function createPianoRoll({
       if (down.pointerType === 'touch') {
          stopGlide();
          // 指でのドラッグは1本ずつ(2本目の指は無視する)
-         if (!dragging) onTouchDown(down);
+         if (!dragging && !touchOp) onTouchDown(down);
          return;
       }
       if (down.button === 2) {
@@ -853,7 +953,7 @@ export function createPianoRoll({
    // created は、押したときに置いたノート(動かさなくても保存する)
    function dragNotes(down, target, { created = false, mode: given } = {}) {
       const at = pointAt(down);
-      const mode = given ?? (!created && (target.start + target.length) * PX - at.x <= EDGE ? 'resize' : 'move');
+      const mode = given ?? (!created && (target.start + target.length) * px - at.x <= EDGE ? 'resize' : 'move');
       preview(target.pitch, velocityOf(target));
       renderNotes();
 
@@ -905,16 +1005,22 @@ export function createPianoRoll({
    // 動かしたらドラッグ(startTouchDrag)、空いているところの長押しは囲んで選ぶ、動かさずに離したらタップ(tap)。
    // 伸縮モードでは囲んで選ばない(長さを変えるつもりで少し外したときに、選択だけが変わらないように)。
    // 代わりに、ノートの少し外側を押しても、そのノートを掴む(noteNear)
+   // 何をするかが決まるまでに2本目の指を置いたら、何もせずにピンチにする
    function onTouchDown(down) {
       const target = noteAtTarget(down.target) ?? (resizeMode ? noteNear(down) : null);
       let handlers = null; // 何をするかが決まってからの動き
       let timer = null;
+      const op = beginTouch(() => {
+         clearTimeout(timer);
+         stop();
+      });
       const begin = (make) => {
          clearTimeout(timer);
+         op.cancel = null;
          handlers = make();
       };
       if (!target && !resizeMode) timer = setTimeout(() => begin(() => marquee(down, { add: true })), HOLD_MS);
-      follow(down, {
+      const stop = follow(down, {
          onMove: (e) => {
             if (!handlers) {
                if (Math.hypot(e.clientX - down.clientX, e.clientY - down.clientY) < TOUCH_SLOP) return;
@@ -924,6 +1030,7 @@ export function createPianoRoll({
          },
          onEnd: (e) => {
             clearTimeout(timer);
+            endTouch(op);
             if (handlers) handlers.onEnd(e);
             else if (e.type === 'pointerup') tap(down, target);
          },
@@ -963,8 +1070,8 @@ export function createPianoRoll({
       let bestDistance = RESIZE_REACH;
       for (const n of notes) {
          if (n.pitch !== at.pitch) continue;
-         const left = n.start * PX;
-         const right = left + Math.max(3, n.length * PX);
+         const left = n.start * px;
+         const right = left + Math.max(3, n.length * px);
          const distance = Math.max(left - at.x, at.x - right, 0);
          if (distance <= bestDistance) {
             best = n;
@@ -1026,6 +1133,7 @@ export function createPianoRoll({
    // FL Studio と同じく、Alt を押している間は既定値(100)にし、Shift を押して始めると、押した位置から今の位置まで直線で描く
    function onVelDown(down) {
       if (!clipId || down.button !== 0) return;
+      if (down.pointerType === 'touch' && touchOp) return; // 指での操作は1本ずつ
       down.preventDefault();
       scroller.focus({ preventScroll: true });
       const targets = selected.size ? [...selected] : notes;
@@ -1047,7 +1155,7 @@ export function createPianoRoll({
             const from = Math.min(line.x, x) - VEL_HIT;
             const to = Math.max(line.x, x) + VEL_HIT;
             for (const n of targets) {
-               const at = n.start * PX;
+               const at = n.start * px;
                if (at < from || at > to) {
                   n.velocity = raw.get(n);
                   continue;
@@ -1061,7 +1169,7 @@ export function createPianoRoll({
             const to = Math.max(lastX ?? x, x) + VEL_HIT;
             lastX = x;
             for (const n of targets) {
-               const at = n.start * PX;
+               const at = n.start * px;
                if (at < from || at > to) continue;
                n.velocity = value;
                hit = true;
@@ -1072,12 +1180,23 @@ export function createPianoRoll({
          velLabel.textContent = String(value);
          renderNotes();
       };
+      const velocityBefore = lastVelocity;
       paint(down);
       dragging = true;
-      trackPointer(vel, down, {
+      // タッチで2本目の指を置いたら、なぞった分を元に戻してピンチにする
+      const op = down.pointerType === 'touch' ? beginTouch(() => {
+         stop();
+         dragging = false;
+         for (const n of targets) n.velocity = raw.get(n);
+         lastVelocity = velocityBefore;
+         velLabel.textContent = 'ベロシティ';
+         renderNotes();
+      }) : null;
+      const stop = trackPointer(vel, down, {
          onMove: paint,
          onEnd: () => {
             dragging = false;
+            endTouch(op);
             velLabel.textContent = 'ベロシティ';
             if (targets.some((n) => velocityOf(n) !== before.get(n))) commit();
          },
@@ -1142,9 +1261,9 @@ export function createPianoRoll({
          const { left, right, top, bottom } = drawMarquee(box, from, pointAt(last));
          // 行の上端・下端の位置で比べる(描いているノートの見た目の範囲と揃える)
          const hit = (n) => {
-            const x = n.start * PX;
+            const x = n.start * px;
             const y = (127 - n.pitch) * row;
-            return x < right && x + Math.max(3, n.length * PX) > left && y < bottom && y + row > top;
+            return x < right && x + Math.max(3, n.length * px) > left && y < bottom && y + row > top;
          };
          selected = new Set([...base, ...notes.filter(hit)]);
          renderNotes();
@@ -1386,7 +1505,7 @@ export function createPianoRoll({
          const rel = c && tick != null ? tick - (c.startBar - 1) * TICKS_PER_BAR : -1;
          const visible = c && rel >= 0 && rel <= clipTicks(c);
          playhead.hidden = !visible;
-         if (visible) playhead.style.left = `${rel * PX}px`;
+         if (visible) playhead.style.left = `${rel * px}px`;
       },
    };
 }

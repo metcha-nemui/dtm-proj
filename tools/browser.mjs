@@ -13,7 +13,8 @@
 //   node tools/browser.mjs touch <x1> <y1> <x2> <y2> [押さえる ms] [幅x高さ]   指でなぞる(押さえる ms のあいだ止めてから動かす。長押しの確認に使う)。
 //                                                  幅x高さ があれば、emulate と同じスマホの画面にしてからなぞる
 //   node tools/browser.mjs touch <場所> <dx> <dy> [押さえる ms] [幅x高さ]   場所(下記)から dx, dy だけなぞる(0 0 ならタップ)
-//   node tools/browser.mjs pinch <場所> <指の間 前> <指の間 後> [幅x高さ]   場所を真ん中に、縦に並べた2本の指の間を広げる / 狭める
+//   node tools/browser.mjs pinch <場所> <指の間 前> <指の間 後> [x] [幅x高さ]   場所を真ん中に、縦に並べた2本の指の間を広げる / 狭める
+//                                                  (x を付けると横に並べる)
 //                                                  場所は「セレクタ」か「セレクタ@dx,dy」(要素の中央からずらした位置)。
 //                                                  スマホの画面にすると(emulate も)レイアウトが変わってスクロールの位置がずれるので、
 //                                                  座標を別のコマンドで調べて渡すより、場所で指す方が確か
@@ -260,12 +261,16 @@ const commands = {
       return 'OK';
    },
 
-   async pinch(place, from, to, size) {
+   async pinch(place, from, to, ...rest) {
+      const horizontal = rest[0] === 'x';
+      const size = horizontal ? rest[1] : rest[0];
       const cdp = await connect();
       if (size) await emulatePhone(cdp, size);
       const [x, y] = await locate(cdp, place);
       const gap = (t) => (Number(from) + (Number(to) - Number(from)) * t) / 2;
-      const points = (t) => [{ x, y: y - gap(t), id: 1 }, { x, y: y + gap(t), id: 2 }];
+      const points = (t) => (horizontal
+         ? [{ x: x - gap(t), y, id: 1 }, { x: x + gap(t), y, id: 2 }]
+         : [{ x, y: y - gap(t), id: 1 }, { x, y: y + gap(t), id: 2 }]);
       await cdp.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: points(0) });
       await wait(50);
       for (let i = 1; i <= 10; i++) {

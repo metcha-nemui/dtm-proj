@@ -3,22 +3,28 @@
 /**
  * 押してから離すまでのポインタを追う。target がポインタを捕まえるので、要素の外へ出ても追える。
  * 離すか取り消されたら、リスナーを外してから onEnd(e) を呼ぶ(取り消しは e.type が 'pointercancel')。
+ * 返す関数を呼ぶと、onEnd を呼ばずに追うのをやめる(ピアノロールで、2本目の指でピンチに切り替えるとき)。
  * @param {Element} target
  * @param {PointerEvent} down
  * @param {{ onMove?: (e: PointerEvent) => void, onEnd?: (e: PointerEvent) => void }} handlers
+ * @returns {() => void}
  */
 export function trackPointer(target, down, { onMove, onEnd }) {
    target.setPointerCapture(down.pointerId);
    const move = (e) => onMove?.(e);
-   const end = (e) => {
+   const stop = () => {
       target.removeEventListener('pointermove', move);
       target.removeEventListener('pointerup', end);
       target.removeEventListener('pointercancel', end);
+   };
+   const end = (e) => {
+      stop();
       onEnd?.(e);
    };
    target.addEventListener('pointermove', move);
    target.addEventListener('pointerup', end);
    target.addEventListener('pointercancel', end);
+   return stop;
 }
 
 /**
