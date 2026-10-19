@@ -10,7 +10,8 @@ import { h, icon } from './components/dom.js';
 import { watchSlow } from './components/slowNotice.js';
 import { reportError, showToast } from './components/toast.js';
 import {
-   clearSoundFont, isWindows, onSynthChange, refreshSoundSource, setSoundFont, soundSource, WINDOWS_GM_DLS,
+   clearSoundFont, DEFAULT_VOICE_CAP, isWindows, loadVoiceCap, MAX_VOICE_CAP, MIN_VOICE_CAP, onSynthChange,
+   refreshSoundSource, saveVoiceCap, setSoundFont, soundSource, WINDOWS_GM_DLS,
 } from '../synth.js';
 
 const dateFormat = new Intl.DateTimeFormat('ja-JP', { dateStyle: 'short', timeStyle: 'short' });
@@ -97,6 +98,32 @@ function soundFontSection(run, section) {
       removeButton.hidden = !source;
    }
 
+   // 同時に鳴らす音の上限。速くない端末で、音が重なる場面に途切れるのを防ぐ。データではなく、このブラウザの設定
+   const voiceCapInput = h('input', {
+      type: 'number',
+      class: 'input settings-number',
+      min: String(MIN_VOICE_CAP),
+      max: String(MAX_VOICE_CAP),
+      step: '1',
+      value: String(loadVoiceCap()),
+      'aria-label': '同時に鳴らす音の上限',
+      onchange: () => {
+         const cap = Math.round(Number(voiceCapInput.value));
+         if (voiceCapInput.value === '' || !Number.isFinite(cap)) {
+            voiceCapInput.value = String(loadVoiceCap());
+            return;
+         }
+         const clamped = Math.max(MIN_VOICE_CAP, Math.min(cap, MAX_VOICE_CAP));
+         saveVoiceCap(clamped);
+         voiceCapInput.value = String(clamped);
+      },
+   });
+   const voiceCap = h('div', { class: 'settings-voice-cap' },
+      h('label', { class: 'settings-inline' }, '同時に鳴らす音の上限', voiceCapInput, '音'),
+      h('p', { class: 'muted settings-description' },
+         `音が重なる場面でプツプツ途切れるときは下げます。上限を超えると、古い音・余韻の小さい音から止めます`
+         + `(${MIN_VOICE_CAP}〜${MAX_VOICE_CAP}音。この端末の既定は ${DEFAULT_VOICE_CAP}音)。このブラウザにだけ保存されます。`));
+
    const unsubscribe = onSynthChange(render);
    run(refreshSoundSource());
    render();
@@ -105,7 +132,7 @@ function soundFontSection(run, section) {
       h('button', { type: 'button', class: 'btn btn-primary', onclick: () => picker.click() }, icon('upload'), 'ファイルを選ぶ…'),
       removeButton,
       picker);
-   el.append(status, windowsHint || '');
+   el.append(status, windowsHint || '', voiceCap);
    return { el, unsubscribe };
 }
 

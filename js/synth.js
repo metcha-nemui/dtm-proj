@@ -18,8 +18,9 @@
 // スマホ(主な入力がタッチの端末)では、合成が締め切りに間に合わずブツブツ途切れやすいので、軽く鳴らす。
 // 出力のバッファを大きくし(試し弾きの音が少し遅れるだけで、再生は先読みで予約しているのでずれない)、
 // 波形の補間を軽いもの(linear。spessasynth の既定は hermite)にする。
-// 合成の重さは同時に鳴っている音(ボイス)の数に比例するので、ボイスの上限も下げる(既定は 350)。
+// 合成の重さは同時に鳴っている音(ボイス)の数に比例するので、ボイスの上限も下げる(spessasynth の既定は 350)。
 // 上限を超えると、古い音・余韻の小さい音から止めて使い回す(和音や余韻が重なる場面でも、途切れるよりはよい)。
+// 上限は端末の速さで合う値が違うので、設定画面で変えられるようにし、このブラウザの localStorage に覚えておく。
 
 import { DRUM_CHANNEL, secondsToTicks, ticksToSeconds } from './domain/midi.js';
 import { loadAudioFile } from './store/audioFileStore.js';
@@ -35,7 +36,10 @@ const AUDIO_DELAY = 0.03; // 再生中に音声を鳴らし直すときの間(�
 const RAMP = 0.01; // 再生中に音量・パンを変えるときに、なめらかに移る時間(秒)。いきなり変えるとプツッと鳴る
 const LIGHT = matchMedia('(pointer: coarse)').matches;
 const LINEAR_INTERPOLATION = 0; // spessasynth_core の InterpolationTypes.linear
-const LIGHT_VOICE_CAP = 64;
+const VOICE_CAP_KEY = 'dtm-proj:voice-cap';
+export const DEFAULT_VOICE_CAP = LIGHT ? 64 : 350;
+export const MIN_VOICE_CAP = 8;
+export const MAX_VOICE_CAP = 350;
 
 /** Windows で MSGS と同じ音色を持つファイル。ブラウザからは自動では読めないので、選ぶときの案内に使う。 */
 export const WINDOWS_GM_DLS = 'C:\\Windows\\System32\\drivers\\gm.dls';
@@ -96,10 +100,8 @@ export function prepareSynth() {
       await ctx.audioWorklet.addModule(PROCESSOR_URL);
       const created = new WorkletSynthesizer(ctx);
       created.connect(ctx.destination);
-      if (LIGHT) {
-         created.setSystemParameter('interpolationType', LINEAR_INTERPOLATION);
-         created.setSystemParameter('voiceCap', LIGHT_VOICE_CAP);
-      }
+      if (LIGHT) created.setSystemParameter('interpolationType', LINEAR_INTERPOLATION);
+      created.setSystemParameter('voiceCap', loadVoiceCap());
       try {
          await created.soundBankManager.addSoundBank(await stored.blob.arrayBuffer(), 'main');
          await created.isReady;
@@ -117,6 +119,28 @@ export function prepareSynth() {
       throw error;
    });
    return preparing;
+}
+
+/** 同時に鳴らす音(ボイス)の上限。 */
+export function loadVoiceCap() {
+   try {
+      const value = localStorage.getItem(VOICE_CAP_KEY);
+      const cap = Number(value);
+      return value !== null && Number.isInteger(cap) && cap >= MIN_VOICE_CAP && cap <= MAX_VOICE_CAP ? cap : DEFAULT_VOICE_CAP;
+   } catch {
+      return DEFAULT_VOICE_CAP; // localStorage を使えない環境では、既定の値で鳴らす
+   }
+}
+
+/** ボイスの上限を覚えて、読み込み済みのシンセにもすぐ当てる(再生中でも効く)。 */
+export function saveVoiceCap(cap) {
+   try {
+      if (cap === DEFAULT_VOICE_CAP) localStorage.removeItem(VOICE_CAP_KEY);
+      else localStorage.setItem(VOICE_CAP_KEY, String(cap));
+   } catch {
+      // 保存できなくても、開いている間は効く
+   }
+   synth?.setSystemParameter('voiceCap', cap);
 }
 
 // 作ったシンセを捨てる(音源を入れ替えたとき)。次に使うときに読み直す

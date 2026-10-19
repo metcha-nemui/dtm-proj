@@ -53,6 +53,15 @@
    font-size: 13px;
 }
 
+/* 同時に鳴らす音の上限。音源の状態・案内の下に、間を空けて置く */
+.settings-voice-cap {
+   margin-top: var(--space-4);
+}
+
+.settings-voice-cap .settings-description {
+   margin: var(--space-2) 0 0;
+}
+
 .settings-sound-path {
    display: flex;
    align-items: center;
