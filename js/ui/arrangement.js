@@ -562,7 +562,7 @@ export function mount(container, { id: projectId }) {
 
    /**
     * クリップを動かす。mode が 'move' なら位置(上下で別のトラックへも)、'start' / 'end' なら左端・右端を動かして伸縮する。
-    * 動かさずに離したら、詳細を開く。
+    * 動かさずに離したら(端でも)、詳細を開く。
     */
    function dragClip(down, clip, mode) {
       const fromLane = down.currentTarget;
@@ -594,8 +594,9 @@ export function mount(container, { id: projectId }) {
          onEnd: (moved) => {
             ghost.remove();
             clipEl.classList.remove('is-moving');
+            // 端を押した(動かさなかった)ときも開く。短いクリップは大半が端なので、端で開かないと選べない
             if (!moved) {
-               if (mode === 'move') openClip(clip.id);
+               openClip(clip.id);
                return;
             }
             const same = place && place.trackId === clip.trackId && place.startBar === clip.startBar && place.bars === clip.bars;
@@ -1240,7 +1241,7 @@ export function mount(container, { id: projectId }) {
             const under = document.elementFromPoint(e.clientX, e.clientY);
             const clipEl = under?.closest('.clip');
             if (clipEl) {
-               if (!under.closest('.clip-edge')) openPianoRoll(clipEl.dataset.clipId);
+               openPianoRoll(clipEl.dataset.clipId);
                return;
             }
             if (needMarker()) return;
