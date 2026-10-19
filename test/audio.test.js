@@ -27,7 +27,7 @@ test('addAudioTrack: 名前は addTrack と同じに決め、音声は曲の頭�
    equal([vocal.name, vocal.kind, isAudioTrack(vocal), isAudioTrack(synth), vocal.order > synth.order], ['仮歌', 'audio', true, false, true]);
    equal(trackAudio(vocal), { fileId: 'f1', name: 'vocal.wav', size: 1000, duration: 10, startTick: 0 });
    equal([trackAudio(synth), trackAudio({ kind: 'audio', audio: null })], [null, null], 'MIDI のトラックと、ファイルのないもの');
-   equal(addAudioTrack(project.id, [vocal], '', FILE).name, 'トラック', '名前が空なら「トラック」');
+   equal(addAudioTrack(project.id, [vocal], '', FILE).name, 'Track', '名前が空なら「Track」');
    throws(() => addClip(vocal, [], { startBar: 1 }), 'オーディオトラックには作れない');
    throws(() => assertClipTrack(vocal));
    assertClipTrack(synth);

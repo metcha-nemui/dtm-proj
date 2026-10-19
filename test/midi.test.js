@@ -481,5 +481,5 @@ test('inScale / scaleLabel', () => {
    equal(pick({ root: 2, mode: 'major' }), [1, 2, 4, 6, 7, 9, 11], 'D メジャー');
    equal(pick({ root: 4, mode: 'minor' }), [0, 2, 4, 6, 7, 9, 11], 'E マイナー');
    assert(inScale(1, { root: 1, mode: 'major' }) && !inScale(2, { root: 1, mode: 'major' }), '低い音でも');
-   equal([scaleLabel({ root: 9, mode: 'minor' }), scaleLabel({})], ['A マイナー', 'C メジャー']);
+   equal([scaleLabel({ root: 9, mode: 'minor' }), scaleLabel({})], ['A Minor', 'C Major']);
 });

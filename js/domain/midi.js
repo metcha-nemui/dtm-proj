@@ -78,8 +78,8 @@ export const isBlackKey = (pitch) => [1, 3, 6, 8, 10].includes(pitch % 12);
 // キー(主音)とメジャー / マイナーだけを持つ。教会旋法などは扱わない。マイナーは自然的短音階
 export const KEY_NAMES = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B'];
 export const SCALE_MODES = [
-   { value: 'major', label: 'メジャー', steps: [0, 2, 4, 5, 7, 9, 11] },
-   { value: 'minor', label: 'マイナー', steps: [0, 2, 3, 5, 7, 8, 10] },
+   { value: 'major', label: 'Major', steps: [0, 2, 4, 5, 7, 9, 11] },
+   { value: 'minor', label: 'Minor', steps: [0, 2, 3, 5, 7, 8, 10] },
 ];
 export const DEFAULT_SCALE = Object.freeze({ root: 0, mode: 'major' });
 
@@ -162,7 +162,7 @@ export function inScale(pitch, scale) {
    return steps.includes((((pitch - root) % 12) + 12) % 12);
 }
 
-/** スケールの表記(例: 「A マイナー」)。 */
+/** スケールの表記(例: 「A Minor」)。 */
 export function scaleLabel(scale) {
    const { root, mode } = normalizeScale(scale);
    return `${KEY_NAMES[root]} ${SCALE_MODES.find((m) => m.value === mode).label}`;

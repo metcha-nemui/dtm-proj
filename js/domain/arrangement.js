@@ -9,7 +9,7 @@ import { orderAtEnd, reorder, sortByOrder } from './order.js';
 import { newRecord, touch } from './record.js';
 import { addClipTask } from './task.js';
 
-export const DEFAULT_TRACK_NAME = 'トラック';
+export const DEFAULT_TRACK_NAME = 'Track';
 const MIN_BARS = 32; // クリップもマーカーもないときに見せる小節数
 const TAIL_BARS = 8; // いちばん後ろの中身より先に空けておく小節数(ここへ置けば、さらに伸びる)
 
@@ -29,7 +29,7 @@ export function uniqueTrackName(base, existingNames) {
    return `${base}${n}`;
 }
 
-/** トラックを末尾に追加する。名前が空なら「トラック」。重なったら番号を振る。音色はピアノ。 */
+/** トラックを末尾に追加する。名前が空なら「Track」。重なったら番号を振る。音色はピアノ。 */
 export function addTrack(projectId, tracks, name = '') {
    const base = String(name ?? '').trim() || DEFAULT_TRACK_NAME;
    return newRecord({

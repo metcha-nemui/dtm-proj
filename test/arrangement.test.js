@@ -18,9 +18,9 @@ test('addTrack: 末尾に追加し、名前が重なったら番号を振る。�
    const one = addTrack('p', []);
    const two = addTrack('p', [one], ' ');
    const three = addTrack('p', [one, two], 'Bass');
-   equal([one.name, two.name, three.name], ['トラック', 'トラック2', 'Bass']);
+   equal([one.name, two.name, three.name], ['Track', 'Track2', 'Bass']);
    assert(one.order < two.order && two.order < three.order, '末尾に足す');
-   equal(titles(apply([one, two, three], moveTrack([one, two, three], three.id, 0))), ['Bass', 'トラック', 'トラック2']);
+   equal(titles(apply([one, two, three], moveTrack([one, two, three], three.id, 0))), ['Bass', 'Track', 'Track2']);
    equal(renameTrack(one, ' Lead ').name, 'Lead');
    throws(() => renameTrack(one, ' '), '空の名前は拒否');
 });

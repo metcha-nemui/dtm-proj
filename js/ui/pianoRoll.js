@@ -240,6 +240,7 @@ export function createPianoRoll({
    const copyButton = sideButton('copy', 'コピー', '選んだノートをコピー', () => copy());
    const pasteButton = sideButton('clipboard-paste', '貼り付け', '赤い印の位置(クリップの外ならクリップの頭)に貼り付ける', () => paste());
    const deleteButton = sideButton('trash-2', '削除', '選んだノートを消す', () => deleteSelected());
+   deleteButton.classList.add('is-danger');
    const side = h('div', { class: 'pr-side pr-touch-only' },
       undoButton, redoButton, cutButton, copyButton, pasteButton, deleteButton);
 
@@ -415,7 +416,7 @@ export function createPianoRoll({
          h('button', {
             type: 'button', class: 'btn btn-icon', title: '.mid の読み込み・書き出し', 'aria-label': '.mid の読み込み・書き出し',
             onclick: (e) => openMenu(e.currentTarget, [
-               { label: '.mid を読み込む(ノートを置き換える)', onSelect: () => { if (clipId) importMidiToClip(projectId, clipId); } },
+               { label: '.mid を読み込む', onSelect: () => { if (clipId) importMidiToClip(projectId, clipId); } },
                { label: '.mid を書き出す', onSelect: () => downloadMidi(currentMidi()) },
             ]),
          }, icon('ellipsis-vertical')),

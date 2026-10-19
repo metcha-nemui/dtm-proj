@@ -474,6 +474,11 @@
    background: var(--accent-soft);
 }
 
+/* 削除は赤くする(押せないときは、ほかと同じく薄くなる) */
+.pr-side-button.is-danger {
+   color: var(--danger);
+}
+
 .pr-side-button:disabled {
    color: var(--text-muted);
    opacity: 0.45;

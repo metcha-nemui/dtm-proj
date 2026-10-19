@@ -114,7 +114,7 @@ export async function scaleDialog(project, bar, title) {
             name: 'root', label: 'キー', type: 'select', value: String(current.root),
             options: KEY_NAMES.map((name, i) => ({ value: String(i), label: name })),
          },
-         { name: 'mode', label: 'メジャー / マイナー', type: 'select', value: current.mode, options: SCALE_MODES },
+         { name: 'mode', label: 'Major / Minor', type: 'select', value: current.mode, options: SCALE_MODES },
       ],
    });
    if (values) await actions.setScale(project.id, bar, { root: Number(values.root), mode: values.mode });
