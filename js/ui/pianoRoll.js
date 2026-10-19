@@ -4,7 +4,7 @@
 // ノートを置く長さは、最後に触ったノートの長さ。Ctrl+ドラッグで囲んだノートを選ぶ(Shift も押すと選択に足す)。
 // タッチでは、グリッドの上の指はスクロールに使わず、すぐノートの操作にする(スクロールと取り合うと、操作の起点が長押しに頼ることになり使いにくいため)。
 // 横のスクロールは下端の太いスクロールバー、縦のスクロールは鍵盤の上の指で行う。
-// 2本の指のピンチは、ヘッダーより下ならどこでも効く(横に並べれば1拍の幅、縦ならノートの高さ)。
+// 2本の指のピンチは、鍵盤の上ならノートの高さ、横のスクロールバーの上なら1拍の幅を変える。
 // ノートのドラッグは「置く・動かす」が基本で、ヘッダーの「伸縮モード」を ON にした間だけ「長さを変える」にする(端を狙わずに済むように)。
 // 選んでいるノートは、右端に出す十字キーでも動かせる。
 // 選んだノートは Ctrl+C でコピー(Ctrl+X で切り取り)し、Ctrl+V で再生を始める位置(クリップの外ならクリップの頭)に貼り付ける。
@@ -93,7 +93,7 @@ function loadHeight() {
 
 let savedHeight = loadHeight();
 
-// 1音の高さ(px)。タッチでは縦のピンチ、マウスではホイールを押しながら回して変える。
+// 1音の高さ(px)。タッチでは鍵盤の上の縦のピンチ、マウスではホイールを押しながら回して変える。
 // 指で押すスマホ(pointer: coarse)は、既定を広めにする。パネルの高さと同じく、このブラウザの localStorage に覚えておく
 const ROW_KEY = 'dtm-proj:piano-roll-row';
 const MIN_ROW = 8;
@@ -112,7 +112,7 @@ function loadRow() {
 
 let row = loadRow();
 
-// 1拍の幅(px)。タッチでは横のピンチ、マウスでは Shift とホイールを押しながら回して変える。ノートの高さと同じく覚えておく
+// 1拍の幅(px)。タッチでは横のスクロールバーの上のピンチ、マウスでは Shift とホイールを押しながら回して変える。ノートの高さと同じく覚えておく
 const BEAT_KEY = 'dtm-proj:piano-roll-beat';
 const MIN_BEAT = 16;
 const MAX_BEAT = 256;
@@ -585,9 +585,8 @@ export function createPianoRoll({
 
    // ---- タッチのスクロールとピンチ ----
 
-   // タッチで、いま1本の指でしている操作(グリッド・鍵盤・ベロシティの段・横のスクロールバー)。指での操作は1本ずつにする。
-   // cancel は、2本目の指を置いてピンチに切り替えるときに、その操作を取り消す関数。
-   // ノートを動かし始めたあとなど、取り消すと困るときは null にして、2本目の指を無視する
+   // タッチで、鍵盤か横のスクロールバーの上の1本の指でしている操作(スクロール)。指での操作は1本ずつにする。
+   // cancel は、同じところに2本目の指を置いてピンチに切り替えるときに、その操作を取り消す関数
    let touchOp = null;
 
    function beginTouch(cancel) {
@@ -657,36 +656,37 @@ export function createPianoRoll({
    keys.addEventListener('pointerup', endKeyTouch);
    keys.addEventListener('pointercancel', endKeyTouch);
 
-   // ピンチ。ヘッダーより下(ルーラー・鍵盤・グリッド・ベロシティの段・横のスクロールバー)なら、どこに置いた2本の指でも効く。
-   // 2本目の指を置いたときの並びで向きを決める:横に並んでいれば1拍の幅、縦に並んでいればノートの高さを変える
-   // (斜めに動いても両方は変えない。狙っていないほうまで動いてしまうため)。
+   // ピンチ。鍵盤の上ならノートの高さ、横のスクロールバーの上なら1拍の幅を変える(2本とも同じところに置いたときだけ)。
+   // グリッドなどでは、指はノートの操作に使うので、ピンチにはしない(始めかけた操作を取り消すのが難しいため)。
    // 指の動きは el で先に受け取り(キャプチャ)、下の要素には渡さない。1本離したら、残った指は離すまで何もしない
-   const touches = new Map(); // pointerId → { x, y }。ピンチに使える範囲に置いている指
+   const touches = new Map(); // pointerId → { x, y, axis }。鍵盤('y')かスクロールバー('x')に置いている指
    let pinch = null; // { ids, axis: 'x' | 'y', distance, value, done }
-   const inPinchArea = (target) => scroller.contains(target) || hbar.contains(target);
+   const pinchAxis = (target) => (keys.contains(target) ? 'y' : hbar.contains(target) ? 'x' : null);
    const spread = (a, b, axis) => Math.max(20, Math.abs(axis === 'x' ? a.x - b.x : a.y - b.y));
 
    el.addEventListener('pointerdown', (e) => {
-      if (e.pointerType !== 'touch' || !inPinchArea(e.target)) return;
+      if (e.pointerType !== 'touch') return;
       if (pinch) {
          e.stopPropagation(); // ピンチの間(と、その指が残っている間)に置いた指は使わない
          return;
       }
-      touches.set(e.pointerId, { x: e.clientX, y: e.clientY });
-      if (touches.size !== 2 || !clipId) return;
-      if (touchOp && !touchOp.cancel) return; // 1本目の指の操作がもう始まっている
+      const axis = pinchAxis(e.target);
+      if (!axis) return;
+      const others = [...touches].filter(([, t]) => t.axis === axis).map(([id]) => id);
+      touches.set(e.pointerId, { x: e.clientX, y: e.clientY, axis });
+      if (others.length !== 1 || !clipId) return;
       touchOp?.cancel();
       touchOp = null;
       stopGlide();
       e.stopPropagation();
-      const [a, b] = [...touches.values()];
-      const axis = Math.abs(a.x - b.x) > Math.abs(a.y - b.y) ? 'x' : 'y';
-      pinch = { ids: [...touches.keys()], axis, distance: spread(a, b, axis), value: axis === 'x' ? beat : row, done: false };
-      for (const id of pinch.ids) el.setPointerCapture(id);
+      const ids = [others[0], e.pointerId];
+      const [a, b] = ids.map((id) => touches.get(id));
+      pinch = { ids, axis, distance: spread(a, b, axis), value: axis === 'x' ? beat : row, done: false };
+      for (const id of ids) el.setPointerCapture(id);
    }, true);
    el.addEventListener('pointermove', (e) => {
       if (!touches.has(e.pointerId)) return;
-      touches.set(e.pointerId, { x: e.clientX, y: e.clientY });
+      touches.set(e.pointerId, { ...touches.get(e.pointerId), x: e.clientX, y: e.clientY });
       if (!pinch?.ids.includes(e.pointerId)) return;
       e.stopPropagation();
       if (pinch.done) return;
@@ -887,20 +887,16 @@ export function createPianoRoll({
       return { pitch: at.pitch, start, length: Math.max(1, Math.min(lastLength, end - start)), velocity: lastVelocity };
    }
 
-   // ドラッグの間だけ dragging を立てて、ポインタを追う。返す関数を呼ぶと、onEnd を呼ばずにやめる
+   // ドラッグの間だけ dragging を立てて、ポインタを追う
    function follow(down, { onMove, onEnd }) {
       dragging = true;
-      const stop = trackPointer(grid, down, {
+      trackPointer(grid, down, {
          onMove,
          onEnd: (e) => {
             dragging = false;
             onEnd(e);
          },
       });
-      return () => {
-         stop();
-         dragging = false;
-      };
    }
 
    function onGridDown(down) {
@@ -909,7 +905,7 @@ export function createPianoRoll({
       if (down.pointerType === 'touch') {
          stopGlide();
          // 指でのドラッグは1本ずつ(2本目の指は無視する)
-         if (!dragging && !touchOp) onTouchDown(down);
+         if (!dragging) onTouchDown(down);
          return;
       }
       if (down.button === 2) {
@@ -1005,22 +1001,16 @@ export function createPianoRoll({
    // 動かしたらドラッグ(startTouchDrag)、空いているところの長押しは囲んで選ぶ、動かさずに離したらタップ(tap)。
    // 伸縮モードでは囲んで選ばない(長さを変えるつもりで少し外したときに、選択だけが変わらないように)。
    // 代わりに、ノートの少し外側を押しても、そのノートを掴む(noteNear)
-   // 何をするかが決まるまでに2本目の指を置いたら、何もせずにピンチにする
    function onTouchDown(down) {
       const target = noteAtTarget(down.target) ?? (resizeMode ? noteNear(down) : null);
       let handlers = null; // 何をするかが決まってからの動き
       let timer = null;
-      const op = beginTouch(() => {
-         clearTimeout(timer);
-         stop();
-      });
       const begin = (make) => {
          clearTimeout(timer);
-         op.cancel = null;
          handlers = make();
       };
       if (!target && !resizeMode) timer = setTimeout(() => begin(() => marquee(down, { add: true })), HOLD_MS);
-      const stop = follow(down, {
+      follow(down, {
          onMove: (e) => {
             if (!handlers) {
                if (Math.hypot(e.clientX - down.clientX, e.clientY - down.clientY) < TOUCH_SLOP) return;
@@ -1030,7 +1020,6 @@ export function createPianoRoll({
          },
          onEnd: (e) => {
             clearTimeout(timer);
-            endTouch(op);
             if (handlers) handlers.onEnd(e);
             else if (e.type === 'pointerup') tap(down, target);
          },
@@ -1133,7 +1122,6 @@ export function createPianoRoll({
    // FL Studio と同じく、Alt を押している間は既定値(100)にし、Shift を押して始めると、押した位置から今の位置まで直線で描く
    function onVelDown(down) {
       if (!clipId || down.button !== 0) return;
-      if (down.pointerType === 'touch' && touchOp) return; // 指での操作は1本ずつ
       down.preventDefault();
       scroller.focus({ preventScroll: true });
       const targets = selected.size ? [...selected] : notes;
@@ -1180,23 +1168,12 @@ export function createPianoRoll({
          velLabel.textContent = String(value);
          renderNotes();
       };
-      const velocityBefore = lastVelocity;
       paint(down);
       dragging = true;
-      // タッチで2本目の指を置いたら、なぞった分を元に戻してピンチにする
-      const op = down.pointerType === 'touch' ? beginTouch(() => {
-         stop();
-         dragging = false;
-         for (const n of targets) n.velocity = raw.get(n);
-         lastVelocity = velocityBefore;
-         velLabel.textContent = 'ベロシティ';
-         renderNotes();
-      }) : null;
-      const stop = trackPointer(vel, down, {
+      trackPointer(vel, down, {
          onMove: paint,
          onEnd: () => {
             dragging = false;
-            endTouch(op);
             velLabel.textContent = 'ベロシティ';
             if (targets.some((n) => velocityOf(n) !== before.get(n))) commit();
          },
