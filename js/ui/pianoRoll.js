@@ -598,19 +598,12 @@ export function createPianoRoll({
       if (op && touchOp === op) touchOp = null;
    }
 
-   // 鍵盤の上の指で、縦にスクロールする(離したあとも少し滑らせる)。
+   // 鍵盤の上の指で、縦にスクロールする。離したらその場で止める(慣性で滑らせると、狙った音の位置で止めにくいため)。
    // 動かさずに離したら、その鍵盤を鳴らす。鍵盤は touch-action: none なので、ブラウザのスクロールとは取り合わない
-   let keyGesture = null; // { id, y, top, tap: 離したら鳴らす音(動かしたら null), samples, op }
-   let glide = 0; // 慣性で滑らせている requestAnimationFrame の id
-
-   function stopGlide() {
-      cancelAnimationFrame(glide);
-      glide = 0;
-   }
+   let keyGesture = null; // { id, y, top, tap: 離したら鳴らす音(動かしたら null), op }
 
    keys.addEventListener('pointerdown', (e) => {
       if (e.pointerType !== 'touch' || touchOp) return;
-      stopGlide();
       keys.setPointerCapture(e.pointerId);
       const pitch = e.target.closest?.('.pr-key')?.dataset.pitch;
       keyGesture = {
@@ -618,7 +611,6 @@ export function createPianoRoll({
          y: e.clientY,
          top: scroller.scrollTop,
          tap: pitch == null ? null : Number(pitch),
-         samples: [{ y: e.clientY, t: performance.now() }],
          op: beginTouch(() => { keyGesture = null; }),
       };
    });
@@ -627,31 +619,13 @@ export function createPianoRoll({
       if (keyGesture.tap != null && Math.abs(e.clientY - keyGesture.y) < TOUCH_SLOP) return;
       keyGesture.tap = null;
       scroller.scrollTop = keyGesture.top - (e.clientY - keyGesture.y);
-      const now = performance.now();
-      keyGesture.samples = [...keyGesture.samples.filter((s) => now - s.t < 100), { y: e.clientY, t: now }];
    });
    const endKeyTouch = (e) => {
       if (keyGesture?.id !== e.pointerId) return;
       const gesture = keyGesture;
       keyGesture = null;
       endTouch(gesture.op);
-      if (gesture.tap != null) {
-         if (e.type === 'pointerup') preview(gesture.tap);
-         return;
-      }
-      // 最後の 100ms の動きの速さで滑らせ、だんだん止める
-      const first = gesture.samples[0];
-      const last = gesture.samples[gesture.samples.length - 1];
-      let speed = last.t > first.t ? (last.y - first.y) / (last.t - first.t) : 0; // px/ms
-      let time = performance.now();
-      const step = (now) => {
-         const dt = Math.max(0, now - time);
-         time = now;
-         scroller.scrollTop -= speed * dt;
-         speed *= 0.95 ** (dt / 16);
-         glide = Math.abs(speed) > 0.02 ? requestAnimationFrame(step) : 0;
-      };
-      if (Math.abs(speed) > 0.1) glide = requestAnimationFrame(step);
+      if (gesture.tap != null && e.type === 'pointerup') preview(gesture.tap);
    };
    keys.addEventListener('pointerup', endKeyTouch);
    keys.addEventListener('pointercancel', endKeyTouch);
@@ -677,7 +651,6 @@ export function createPianoRoll({
       if (others.length !== 1 || !clipId) return;
       touchOp?.cancel();
       touchOp = null;
-      stopGlide();
       e.stopPropagation();
       const ids = [others[0], e.pointerId];
       const [a, b] = ids.map((id) => touches.get(id));
@@ -903,7 +876,6 @@ export function createPianoRoll({
       if (!clipId) return;
       scroller.focus({ preventScroll: true });
       if (down.pointerType === 'touch') {
-         stopGlide();
          // 指でのドラッグは1本ずつ(2本目の指は無視する)
          if (!dragging) onTouchDown(down);
          return;
