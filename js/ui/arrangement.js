@@ -268,7 +268,7 @@ export function mount(container, { id: projectId }) {
       showToast(error.message, { actionLabel: '設定を開く', onAction: () => { location.hash = '#/settings'; } });
    }
 
-   // 再生位置の線を動かし、画面の外へ出そうなら横にスクロールして追いかける
+   // 再生位置の線を動かす。画面の外へ出ても追いかけてスクロールはしない(再生しながら別の場所を見たり編集したりできるように)
    function follow() {
       cancelAnimationFrame(frame);
       const tick = sound.playbackTick();
@@ -276,16 +276,7 @@ export function mount(container, { id: projectId }) {
       pianoRoll.setPlayhead(tick);
       if (line) {
          line.hidden = tick == null;
-         if (tick != null) {
-            const bar = 1 + tick / TICKS_PER_BAR;
-            line.style.setProperty('--start', String(bar));
-            const scroller = root.querySelector('.arr');
-            const x = line.offsetLeft;
-            const head = root.querySelector('.arr-corner')?.offsetWidth ?? 0;
-            if (x > scroller.scrollLeft + scroller.clientWidth - 40 || x < scroller.scrollLeft + head) {
-               scroller.scrollLeft = x - head - 40;
-            }
-         }
+         if (tick != null) line.style.setProperty('--start', String(1 + tick / TICKS_PER_BAR));
       }
       if (tick != null) frame = requestAnimationFrame(follow);
    }
