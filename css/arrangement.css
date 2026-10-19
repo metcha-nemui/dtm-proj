@@ -113,8 +113,12 @@ button.project-tab {
    top: calc(var(--arr-ruler-h) + var(--arr-scale-h));
 }
 
+/* スケールの段はセクションの段より低いので、上下の余白を詰めて、行の高さを文字に合わせる(文字の下が切れないように) */
 .arr-scale-row .arr-flag {
+   top: 3px;
+   bottom: 3px;
    font-weight: 400;
+   line-height: 1.4;
 }
 
 /* 1小節目のスケール(動かせない) */

@@ -22,7 +22,7 @@ export async function addTrackDialog(projectId) {
    const values = await formDialog({
       title: 'トラックを追加',
       submitLabel: '追加',
-      fields: [{ name: 'name', label: '名前(空欄なら「トラック」)', placeholder: '例: ドラム' }],
+      fields: [{ name: 'name', label: '名前(空欄なら「Track」)', placeholder: '例: ドラム' }],
    });
    if (!values) return;
    const track = await actions.addTrack(projectId, values.name);
