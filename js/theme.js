@@ -11,7 +11,7 @@ export const THEMES = [
    { key: 'dark', label: 'ダーク', icon: 'moon' },
 ];
 
-// ヘッダーの背景(--surface)と揃える。index.html の theme-color と同じ値
+// 画面上端のツールバーの背景(--surface)と揃える。index.html の theme-color と同じ値
 const THEME_COLORS = { light: '#ffffff', dark: '#1e2129' };
 
 /** @returns {'system'|'light'|'dark'} */

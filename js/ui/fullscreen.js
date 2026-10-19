@@ -2,7 +2,7 @@
 // ブラウザはタップなどの操作の中でしか全画面を許さないので、画面を開いたときに自動では入れない。
 // アレンジのタブを押したとき(projectTabs.js)と、アレンジのツールバーのボタンから入る。
 
-// スマホ(タッチで、縦か横が狭い画面)。グローバルヘッダーを隠す条件(base.css)と揃える
+// スマホ(タッチで、縦か横が狭い画面)
 const phone = matchMedia('(pointer: coarse) and (max-width: 720px), (pointer: coarse) and (max-height: 500px)');
 
 /** 全画面にできる端末か(iPhone の Safari は動画以外を全画面にできない) */

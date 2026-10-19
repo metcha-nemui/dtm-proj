@@ -1,5 +1,5 @@
 // Supabase に保存しているときの、オフラインのお知らせ。
-// 失敗はその都度トーストで出すが、トーストは消えてしまうので、オフラインの間はヘッダーの下に出し続ける。
+// 失敗はその都度トーストで出すが、トーストは消えてしまうので、オフラインの間は画面の上端に出し続ける。
 // IndexedDB に保存しているときは、オフラインでも読み書きできるので出さない。
 
 import { notify } from '../state.js';
@@ -13,7 +13,7 @@ function update() {
       banner = h('div', { class: 'offline-banner', role: 'status' },
          icon('wifi-off'),
          h('span', null, 'オフラインです。Supabase に接続できないため、この間の変更は保存されません。'));
-      document.querySelector('.app-header').after(banner);
+      document.body.prepend(banner);
    } else if (!offline && banner) {
       banner.remove();
       banner = null;

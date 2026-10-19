@@ -43,19 +43,6 @@ textarea {
    display: none !important;
 }
 
-/* ---- ヘッダー ---- */
-
-.app-header {
-   flex: none;
-   display: flex;
-   align-items: center;
-   gap: var(--space-5);
-   height: var(--header-h);
-   padding: 0 var(--space-4);
-   background: var(--surface);
-   border-bottom: 1px solid var(--border);
-}
-
 /* Supabase に保存しているときの、オフラインのお知らせ(js/ui/connectionBanner.js) */
 .offline-banner {
    flex: none;
@@ -71,42 +58,6 @@ textarea {
 .offline-banner .icon {
    flex: none;
    color: var(--doing);
-}
-
-.app-brand {
-   flex: none;
-   display: flex;
-   align-items: center;
-   color: var(--accent);
-}
-
-.app-brand-icon {
-   width: 28px;
-   height: 28px;
-}
-
-.app-nav {
-   display: flex;
-   gap: var(--space-1);
-   overflow-x: auto;
-}
-
-.app-nav a {
-   padding: var(--space-1) var(--space-3);
-   border-radius: var(--radius-sm);
-   color: var(--text-muted);
-   text-decoration: none;
-   white-space: nowrap;
-}
-
-.app-nav a:hover {
-   background: var(--surface-2);
-}
-
-.app-nav a.is-active {
-   background: var(--accent-soft);
-   color: var(--accent);
-   font-weight: 600;
 }
 
 #app {
@@ -129,6 +80,12 @@ textarea {
    justify-content: space-between;
    gap: var(--space-3);
    margin-bottom: var(--space-4);
+}
+
+.page-head-group {
+   display: flex;
+   align-items: center;
+   gap: var(--space-2);
 }
 
 .page-lead {
@@ -460,11 +417,6 @@ textarea {
 /* ---- スマホ ---- */
 
 @media (max-width: 720px) {
-   .app-header {
-      gap: var(--space-3);
-      padding: 0 var(--space-3);
-   }
-
    .page {
       padding: var(--space-4) var(--space-3);
    }
@@ -474,18 +426,6 @@ textarea {
    .select,
    .textarea {
       font-size: 16px;
-   }
-}
-
-/* スマホ(タッチで、縦か横が狭い画面)では、グローバルヘッダーをプロジェクト一覧でだけ出す(縦の場所を空けるため)。
-   ほかの画面には一覧へ戻るボタンがある。条件は js/ui/fullscreen.js と揃える */
-@media (pointer: coarse) and (max-width: 720px), (pointer: coarse) and (max-height: 500px) {
-   body:not(.is-home) {
-      --header-h: 0px;
-   }
-
-   body:not(.is-home) .app-header {
-      display: none;
    }
 }
 
@@ -518,10 +458,6 @@ textarea {
 }
 
 /* ---- ログイン ---- */
-
-.is-logged-out .app-nav {
-   display: none;
-}
 
 .login-page {
    display: grid;

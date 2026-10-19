@@ -45,7 +45,10 @@ export function mount(container) {
    container.append(h('div', { class: 'page' },
       h('div', { class: 'page-head' },
          h('h1', { class: 'page-title' }, 'プロジェクト'),
-         h('button', { type: 'button', class: 'btn btn-primary', onclick: create }, icon('plus'), '新規プロジェクト')),
+         // 設定へはここからだけ行く(編集しながら何度も開くものではないので、ほかの画面には置かない)
+         h('div', { class: 'page-head-group' },
+            h('a', { class: 'btn btn-icon', href: '#/settings', 'aria-label': '設定', title: '設定' }, icon('settings')),
+            h('button', { type: 'button', class: 'btn btn-primary', onclick: create }, icon('plus'), '新規プロジェクト'))),
       deadlines,
       grid));
 

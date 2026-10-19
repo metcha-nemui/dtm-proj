@@ -18,14 +18,13 @@ import * as settings from './ui/settings.js';
 
 // 各画面は mount(container, params) を持ち、後片付けの関数を返す。
 const routes = [
-   { name: 'projects', pattern: /^\/$/, view: projectList },
-   { name: 'projects', pattern: /^\/p\/([^/]+)$/, params: ['id'], view: board },
-   { name: 'projects', pattern: /^\/p\/([^/]+)\/arrange$/, params: ['id'], view: arrangement },
-   { name: 'settings', pattern: /^\/settings$/, view: settings },
+   { pattern: /^\/$/, view: projectList },
+   { pattern: /^\/p\/([^/]+)$/, params: ['id'], view: board },
+   { pattern: /^\/p\/([^/]+)\/arrange$/, params: ['id'], view: arrangement },
+   { pattern: /^\/settings$/, view: settings },
 ];
 
 const notFound = {
-   name: '',
    view: {
       mount(container) {
          container.append(h('div', { class: 'empty' },
@@ -51,12 +50,8 @@ export function matchRoute(hash) {
 applyTheme(loadTheme());
 
 const app = document.getElementById('app');
-const projectsLink = document.querySelector('[data-nav="projects"]');
 let started = false;
 let unmount = null;
-// 閲覧中のプロジェクトの画面(ボードかアレンジ)。設定を見てから「プロジェクト」タブで戻れるように覚えておく。
-// プロジェクト一覧(タイトルのリンクや「←」で行ける)を開いたら忘れる。
-let currentProjectHash = null;
 
 function render() {
    unmount?.();
@@ -64,14 +59,6 @@ function render() {
    app.scrollTop = 0;
    const { route, params } = matchRoute(location.hash);
    unmount = route.view.mount(app, params) ?? null;
-   for (const link of document.querySelectorAll('[data-nav]')) {
-      link.classList.toggle('is-active', link.dataset.nav === route.name);
-   }
-   // スマホでは、グローバルヘッダーをプロジェクト一覧でだけ出す(base.css)。ほかの画面には一覧へ戻るボタンがある
-   document.body.classList.toggle('is-home', route.view === projectList);
-   if (route.view === board || route.view === arrangement) currentProjectHash = location.hash;
-   else if (route.view === projectList) currentProjectHash = null;
-   projectsLink.href = currentProjectHash ?? '#/';
 }
 
 // 保存先を用意してアプリを始める。保存先に届かなければ失敗する。
@@ -81,13 +68,11 @@ async function start(session) {
    await upgradeStorage(repository);
    setRepository(repository);
    if (session.mode === 'supabase') watchConnection();
-   document.body.classList.remove('is-logged-out');
    started = true;
    render();
 }
 
 function showLogin() {
-   document.body.classList.add('is-logged-out');
    app.replaceChildren();
    login.mount(app, {
       onLogin: async (session) => {
@@ -107,7 +92,6 @@ function showStopped(error, { canLogout }) {
    started = false;
    unmount?.();
    unmount = null;
-   document.body.classList.add('is-logged-out');
    app.replaceChildren(h('div', { class: 'error-box' },
       h('p', null, error instanceof NewerSchemaError
          ? error.message

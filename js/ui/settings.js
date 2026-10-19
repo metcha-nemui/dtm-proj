@@ -179,7 +179,10 @@ export function mount(container) {
    });
 
    container.append(h('div', { class: 'page settings-page' },
-      h('div', { class: 'page-head' }, h('h1', { class: 'page-title' }, '設定')),
+      h('div', { class: 'page-head' },
+         h('div', { class: 'page-head-group' },
+            h('a', { class: 'btn btn-icon', href: '#/', 'aria-label': 'プロジェクト一覧へ', title: 'プロジェクト一覧へ' }, icon('arrow-left')),
+            h('h1', { class: 'page-title' }, '設定'))),
       section('UIテーマ',
          '画面の明るさを選びます。「システム」では端末の設定(ライト / ダーク)に合わせます。このブラウザにだけ保存されます。',
          h('div', { class: 'project-tabs', role: 'radiogroup', 'aria-label': 'UIテーマ' }, themeButtons)),
