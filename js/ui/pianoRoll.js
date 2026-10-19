@@ -95,7 +95,7 @@ function loadHeight() {
 
 let savedHeight = loadHeight();
 
-// 1音の高さ(px)。タッチでは鍵盤の上の縦のピンチ、マウスではホイールを押しながら回して変える。
+// 1音の高さ(px)。タッチでは鍵盤の上の縦のピンチ、マウスでは Ctrl+Shift+ホイールで変える。
 // 指で押すスマホ(pointer: coarse)は、既定を広めにする。パネルの高さと同じく、このブラウザの localStorage に覚えておく
 const ROW_KEY = 'dtm-proj:piano-roll-row';
 const MIN_ROW = 8;
@@ -114,11 +114,12 @@ function loadRow() {
 
 let row = loadRow();
 
-// 1拍の幅(px)。タッチでは横のスクロールバーの上のピンチ、マウスでは Shift とホイールを押しながら回して変える。ノートの高さと同じく覚えておく
+// 1拍の幅(px)。タッチでは横のスクロールバーの上のピンチ、マウスでは Ctrl+ホイールで変える。ノートの高さと同じく覚えておく
 const BEAT_KEY = 'dtm-proj:piano-roll-beat';
 const MIN_BEAT = 16;
 const MAX_BEAT = 256;
 const WHEEL_BEAT_RATIO = 1.25; // ホイール1目盛りで変える倍率
+const WHEEL_STEP = 50; // 1段変えるのに要るホイールの量(px。マウスの1目盛りは 100 前後)
 
 function loadBeat() {
    try {
@@ -616,17 +617,21 @@ export function createPianoRoll({
       updateHbar();
    }
 
-   // マウスでは、ホイールを押しながら回すとノートの高さを、Shift も押しながらだと1拍の幅を変える
-   // (押すだけで始まる自動スクロールは止める。Shift を押すと横の回転になるブラウザもあるので deltaX も見る)
-   scroller.addEventListener('mousedown', (e) => {
-      if (e.button === 1) e.preventDefault();
-   });
+   // マウスでは、Ctrl を押しながらホイールを回すと1拍の幅を、Ctrl+Shift だとノートの高さを変える。
+   // ピアノロールの上では、ブラウザのページの拡大(Ctrl+ホイール)を止めて使う(タッチパッドのピンチも Ctrl+ホイールとして届く)。
+   // Shift を押すと横の回転になるブラウザもあるので deltaX も見る。
+   // タッチパッドのピンチは小さい量が続けて届くので、WHEEL_STEP までためてから1段ずつ変える(マウスは1目盛りで1段)
+   let wheelSum = 0;
    scroller.addEventListener('wheel', (e) => {
-      const delta = e.deltaY || e.deltaX;
-      if (!(e.buttons & 4) || !delta) return;
+      const delta = (e.deltaY || e.deltaX) * (e.deltaMode === 1 ? 33 : 1); // 行単位(Firefox)なら px に直す
+      if (!(e.ctrlKey || e.metaKey) || !delta) return;
       e.preventDefault();
-      if (e.shiftKey) setBeat(delta < 0 ? beat * WHEEL_BEAT_RATIO : beat / WHEEL_BEAT_RATIO, e.clientX);
-      else setRow(row + (delta < 0 ? WHEEL_ROW_STEP : -WHEEL_ROW_STEP), e.clientY);
+      wheelSum += delta;
+      if (Math.abs(wheelSum) < WHEEL_STEP) return;
+      const zoomIn = wheelSum < 0;
+      wheelSum = 0;
+      if (e.shiftKey) setRow(row + (zoomIn ? WHEEL_ROW_STEP : -WHEEL_ROW_STEP), e.clientY);
+      else setBeat(zoomIn ? beat * WHEEL_BEAT_RATIO : beat / WHEEL_BEAT_RATIO, e.clientX);
    }, { passive: false });
 
    // ---- タッチのスクロールとピンチ ----
