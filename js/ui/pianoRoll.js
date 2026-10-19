@@ -54,6 +54,9 @@ const DRAG_THRESHOLD = 3;
 const HOLD_MS = 350;
 // タッチで、これだけ動いたらドラッグとみなす(px)。指は少し揺れるので、マウスより広くとる(タップで選ぶつもりが動かさないように)
 const TOUCH_SLOP = 8;
+// タッチの伸縮モードで、ノートの左右のこれだけ外側(px。同じ高さの空いているところ)を押しても、そのノートを掴む。
+// 指は狙った位置からずれやすく、短いノートは指より細いので
+const RESIZE_REACH = 16;
 const RULER_H = 20; // ルーラーの高さ(px。CSS の --pr-ruler-h と揃える)
 // 十字キーを押し続けたとき、くり返し動かし始めるまでと、その間隔(ms)
 const REPEAT_DELAY = 400;
@@ -899,16 +902,18 @@ export function createPianoRoll({
 
    // タッチ。グリッドは touch-action: none なので、指の動きはスクロールにならず、すべてノートの操作になる。
    // 指が TOUCH_SLOP 動くか、離すか、空いているところを HOLD_MS 押さえるまで待ってから、何をするかを決める:
-   // 動かしたらドラッグ(startTouchDrag)、空いているところの長押しは囲んで選ぶ、動かさずに離したらタップ(tap)
+   // 動かしたらドラッグ(startTouchDrag)、空いているところの長押しは囲んで選ぶ、動かさずに離したらタップ(tap)。
+   // 伸縮モードでは囲んで選ばない(長さを変えるつもりで少し外したときに、選択だけが変わらないように)。
+   // 代わりに、ノートの少し外側を押しても、そのノートを掴む(noteNear)
    function onTouchDown(down) {
-      const target = noteAtTarget(down.target);
+      const target = noteAtTarget(down.target) ?? (resizeMode ? noteNear(down) : null);
       let handlers = null; // 何をするかが決まってからの動き
       let timer = null;
       const begin = (make) => {
          clearTimeout(timer);
          handlers = make();
       };
-      if (!target) timer = setTimeout(() => begin(() => marquee(down, { add: true })), HOLD_MS);
+      if (!target && !resizeMode) timer = setTimeout(() => begin(() => marquee(down, { add: true })), HOLD_MS);
       follow(down, {
          onMove: (e) => {
             if (!handlers) {
@@ -926,7 +931,7 @@ export function createPianoRoll({
    }
 
    // タッチのドラッグを始める。ノートなら掴んで(選んでいなければ、それだけを選んで)動かし、伸縮モードなら長さを変える。
-   // 空いているところなら、ノートを置いて動かす(伸縮モードでは置かず、囲んで選ぶ)
+   // 空いているところなら、ノートを置いて動かす(伸縮モードでは何もしない)
    function startTouchDrag(down, target) {
       if (target) {
          if (!selected.has(target)) selected = new Set([target]);
@@ -934,7 +939,7 @@ export function createPianoRoll({
          lastVelocity = velocityOf(target);
          return dragNotes(down, target, { mode: resizeMode ? 'resize' : 'move' });
       }
-      if (resizeMode) return marquee(down, { add: true });
+      if (resizeMode) return { onMove() {}, onEnd() {} };
       const note = newNoteAt(pointAt(down), false);
       notes.push(note);
       selected = new Set([note]);
@@ -948,6 +953,25 @@ export function createPianoRoll({
             renderNotes();
          },
       };
+   }
+
+   // 押した位置と同じ高さで、左右 RESIZE_REACH 以内にあるノートのうち、いちばん近いもの。
+   // 押した位置は空いているところなので、隣のノートとの間が狭ければ、近いほうを掴む
+   function noteNear(down) {
+      const at = pointAt(down);
+      let best = null;
+      let bestDistance = RESIZE_REACH;
+      for (const n of notes) {
+         if (n.pitch !== at.pitch) continue;
+         const left = n.start * PX;
+         const right = left + Math.max(3, n.length * PX);
+         const distance = Math.max(left - at.x, at.x - right, 0);
+         if (distance <= bestDistance) {
+            best = n;
+            bestDistance = distance;
+         }
+      }
+      return best;
    }
 
    // タッチのタップ。ノートなら選択に足す / 外す(Shift+クリックと同じ)。空いているところなら、
