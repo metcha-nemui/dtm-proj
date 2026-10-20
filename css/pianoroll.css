@@ -156,6 +156,11 @@
    color: var(--text);
 }
 
+/* クリップの右端の外の余白 */
+.pr-beat.is-margin {
+   opacity: 0.45;
+}
+
 /* 押した拍から再生する。印はアレンジのルーラーと同じ(sticky の .pr-ruler が位置の基準になる) */
 .pr-ruler {
    cursor: pointer;
@@ -233,6 +238,15 @@
 
 .pr-scale {
    flex: none;
+}
+
+/* クリップの右端の外の余白。ノートは置けないので、スケールに関わらず灰色にし、右端に線を引く */
+.pr-scale.is-margin {
+   box-shadow: inset 2px 0 0 var(--text-muted);
+}
+
+.pr-scale.is-margin .pr-row {
+   background: var(--surface-2);
 }
 
 /* 転調の位置 */
@@ -545,11 +559,12 @@
    z-index: 5;
    display: grid;
    grid-template-areas:
+      "octup . octdown"
       ". up ."
       "left . right"
       ". down .";
    grid-template-columns: repeat(3, 44px);
-   grid-template-rows: repeat(3, 44px);
+   grid-template-rows: 44px repeat(3, 44px);
    pointer-events: none;
 }
 
@@ -562,6 +577,15 @@
    box-shadow: var(--shadow-1);
    pointer-events: auto;
    touch-action: none;
+}
+
+/* オクターブのボタン。十字キーと少し離し、文字で出す */
+.pr-dpad-button.is-text {
+   height: 36px;
+   padding: 0;
+   font-size: 12px;
+   font-weight: 600;
+   white-space: nowrap;
 }
 
 .pr-dpad-button:active {

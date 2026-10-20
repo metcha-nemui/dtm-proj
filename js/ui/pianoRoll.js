@@ -8,11 +8,11 @@
 // ヘッダーの「ピンチモード」を ON にした間は、グリッドのどこでもピンチでき(指の並びの向きで縦横を決める)、1本の指でスクロールする。
 // その間はノートの操作をしない(スクロールバーは画面の下端にあり、OS のジェスチャーと取り合ってピンチしにくいため)。
 // ノートのドラッグは「置く・動かす」が基本で、ヘッダーの「伸縮モード」を ON にした間だけ「長さを変える」にする(端を狙わずに済むように)。
-// 選んでいるノートは、右端に出す十字キーでも動かせる。タッチの画面では、グリッドの右に編集のボタン(元に戻す・切り取り・コピー・貼り付け・削除など)を縦に並べる。
+// 選んでいるノートは、右端に出す十字キー(上にオクターブの上下)でも動かせる。タッチの画面では、グリッドの右に編集のボタン(元に戻す・切り取り・コピー・貼り付け・削除など)を縦に並べる。
 // 選んだノートは Ctrl+C でコピー(Ctrl+X で切り取り)し、Ctrl+V で再生を始める位置(クリップの外ならクリップの頭)に貼り付ける。
 // 行の塗り分けは鍵盤の白黒ではなく、プロジェクトのスケール(キーとメジャー / マイナー)に合わせる。
 // スケールはアレンジ画面の「スケール」の段で決め、クリップの途中で転調していれば、転調の位置から塗り分けを変える。
-// ノートはクリップの範囲(左端〜右端)からはみ出すようには動かせない。
+// ノートはクリップの範囲(左端〜右端)からはみ出すようには動かせない。右端の外には1小節の余白を出す(ノートは置かない。右端の近くを触りやすくするため)。
 // 同じ高さ・同じ位置で始まるノートが重なっていたら赤くする(気付いて片方を消せるように)。
 // オニオンスキン:ほかのトラックの、同じ時間に鳴るノートを薄く重ねて出せる(表示だけ。押せない)。
 // 全体の ON / OFF と、トラックごとの ON / OFF がある。覚えておかず、閉じた状態から開くたびに「全体 OFF・各トラック ON」に戻す。
@@ -61,6 +61,9 @@ const TOUCH_SLOP = 8;
 // 指は狙った位置からずれやすく、短いノートは指より細いので
 const RESIZE_REACH = 16;
 const RULER_H = 20; // ルーラーの高さ(px。CSS の --pr-ruler-h と揃える)
+// クリップの右端の外に出す余白(tick)。右端の近くのノートを掴むとき、指や十字キーに隠れて窮屈にならないように。
+// 余白にはノートを置かない(表示と、ドラッグの続きのためだけ)
+const MARGIN = TICKS_PER_BAR;
 // 十字キーを押し続けたとき、くり返し動かし始めるまでと、その間隔(ms)
 const REPEAT_DELAY = 400;
 const REPEAT_MS = 90;
@@ -300,7 +303,8 @@ export function createPianoRoll({
    coarse.addEventListener('change', () => applyVelMode());
    // 十字キー(矢印キーと同じ。←→ でグリッド1つ分、↓↑ で半音)。タッチの画面で、ノートを選んでいる間だけ右端に出す。
    // 押し続けるとくり返し動かし、離したときにまとめて保存する
-   const padButton = (name, label, area, step) => {
+   // content はアイコンの名前か、ボタンに出す文字(オクターブのボタン)
+   const padButton = (content, label, area, step, { text = false } = {}) => {
       let timer = null;
       let moved = false;
       const stop = () => {
@@ -316,7 +320,7 @@ export function createPianoRoll({
       };
       return h('button', {
          type: 'button',
-         class: 'btn btn-icon pr-dpad-button',
+         class: `btn btn-icon pr-dpad-button${text ? ' is-text' : ''}`,
          style: { 'grid-area': area },
          title: label,
          'aria-label': label,
@@ -338,9 +342,12 @@ export function createPianoRoll({
          onclick: (e) => {
             if (e.detail === 0) nudge(...step());
          },
-      }, icon(name));
+      }, text ? content : icon(content));
    };
+   // 上の段はオクターブ(±12。キーの Shift+↑↓ と同じ)
    const dpad = h('div', { class: 'pr-dpad pr-touch-only', hidden: true },
+      padButton('オク上', '選んだノートを1オクターブ上げる', 'octup', () => [0, 12], { text: true }),
+      padButton('オク下', '選んだノートを1オクターブ下げる', 'octdown', () => [0, -12], { text: true }),
       padButton('arrow-up', '選んだノートを半音上げる', 'up', () => [0, 1]),
       padButton('arrow-left', '選んだノートをグリッド1つ分左へ', 'left', () => [-snap, 0]),
       padButton('arrow-right', '選んだノートをグリッド1つ分右へ', 'right', () => [snap, 0]),
@@ -546,14 +553,15 @@ export function createPianoRoll({
       const t = track();
       title.textContent = `${t?.name ?? ''}: ${c.name || UNTITLED_CLIP}`;
       range.textContent = barRange(c);
-      inner.style.setProperty('--pr-width', `${clipTicks(c) * px}px`);
+      inner.style.setProperty('--pr-width', `${(clipTicks(c) + MARGIN) * px}px`);
       inner.style.setProperty('--pr-bar', `${TICKS_PER_BAR * px}px`);
       inner.style.setProperty('--pr-beat', `${beat}px`);
       inner.style.setProperty('--pr-row', `${row}px`);
       renderScale();
       updateHbar();
-      ruler.replaceChildren(...Array.from({ length: c.bars * BEATS_PER_BAR }, (_, i) => h('span', {
-         class: `pr-beat${i % BEATS_PER_BAR === 0 ? ' is-bar' : ''}`,
+      // 余白の小節も目盛りを出す(クリップの外なので薄く)
+      ruler.replaceChildren(...Array.from({ length: (c.bars + MARGIN / TICKS_PER_BAR) * BEATS_PER_BAR }, (_, i) => h('span', {
+         class: `pr-beat${i % BEATS_PER_BAR === 0 ? ' is-bar' : ''}${i >= c.bars * BEATS_PER_BAR ? ' is-margin' : ''}`,
       }, i % BEATS_PER_BAR === 0 ? String(c.startBar + i / BEATS_PER_BAR) : '')), cursor);
       renderCursor();
    }
@@ -567,7 +575,8 @@ export function createPianoRoll({
    }
 
    // スケールの外の音の行を暗く、主音の行を少し色付きにする(鍵盤は実際の白黒のまま)。
-   // 転調があれば、区間ごとに128行の列を作って横に並べる。変わらなければ作り直さない
+   // 転調があれば、区間ごとに128行の列を作って横に並べる。右端の外の余白にも、最後の区間の列を足す(クリップの外として灰色で出す)。
+   // 変わらなければ作り直さない
    let scaleSignature = '';
    function renderScale() {
       const c = clip();
@@ -576,9 +585,10 @@ export function createPianoRoll({
       const signature = JSON.stringify(spans);
       if (signature === scaleSignature) return;
       scaleSignature = signature;
-      rows.replaceChildren(...spans.map(({ from, to, scale }) => {
+      const margin = { from: c.bars, to: c.bars + MARGIN / TICKS_PER_BAR, scale: spans.at(-1).scale, isMargin: true };
+      rows.replaceChildren(...[...spans, margin].map(({ from, to, scale, isMargin }) => {
          const column = h('div', {
-            class: `pr-scale${from > 0 ? ' is-change' : ''}`,
+            class: `pr-scale${isMargin ? ' is-margin' : from > 0 ? ' is-change' : ''}`,
             style: { width: `${(to - from) * TICKS_PER_BAR * px}px` },
          });
          for (let pitch = 127; pitch >= 0; pitch--) {
@@ -878,8 +888,10 @@ export function createPianoRoll({
    // 編集中のトラック以外のトラック(並び順)
    const otherTracks = () => sortByOrder(data?.tracks ?? []).filter((t) => t.id !== clip()?.trackId);
 
+   // 表示している範囲(クリップの範囲)にノートのあるトラックだけを候補に出す
    function openOnionMenu() {
-      const tracks = otherTracks();
+      const c = clip();
+      const tracks = c ? otherTracks().filter((t) => onionNotes(c, new Set([t.id])).length) : [];
       openMenu(onionTracks, tracks.length
          ? tracks.map((t) => ({
             label: t.name,
@@ -891,11 +903,22 @@ export function createPianoRoll({
                return !onionOff.has(t.id);
             },
          }))
-         : [{ label: 'ほかのトラックがありません', onSelect: () => {} }]);
+         : [{ label: 'この範囲にノートのあるトラックがありません', onSelect: () => {} }]);
    }
 
-   // ほかのトラックのクリップのうち、編集中のクリップと時間が重なる部分の、鳴るノートを出す。
+   // trackIds のトラックのクリップのうち、編集中のクリップ c と時間が重なる部分の、鳴るノート。
    // 位置は編集中のクリップの先頭からの相対に直す
+   function onionNotes(c, trackIds) {
+      const end = clipTicks(c);
+      return data.clips.filter((other) => trackIds.has(other.trackId)).flatMap((other) => {
+         const offset = (other.startBar - c.startBar) * TICKS_PER_BAR;
+         return audibleNotes(other)
+            .map((n) => ({ ...n, start: n.start + offset }))
+            .filter((n) => n.start < end && n.start + n.length > 0);
+      });
+   }
+
+   // オニオンスキンを出す
    function renderOnion() {
       onionToggle.setAttribute('aria-pressed', String(onion));
       const c = clip();
@@ -904,13 +927,7 @@ export function createPianoRoll({
          return;
       }
       const end = clipTicks(c);
-      const shown = new Set(otherTracks().filter((t) => !onionOff.has(t.id)).map((t) => t.id));
-      const ghosts = data.clips.filter((other) => shown.has(other.trackId)).flatMap((other) => {
-         const offset = (other.startBar - c.startBar) * TICKS_PER_BAR;
-         return audibleNotes(other)
-            .map((n) => ({ ...n, start: n.start + offset }))
-            .filter((n) => n.start < end && n.start + n.length > 0);
-      });
+      const ghosts = onionNotes(c, new Set(otherTracks().filter((t) => !onionOff.has(t.id)).map((t) => t.id)));
       onionLayer.replaceChildren(...ghosts.map((n) => h('div', {
          class: 'pr-onion-note',
          style: {
@@ -945,6 +962,9 @@ export function createPianoRoll({
          y: e.clientY - rect.top,
       };
    }
+
+   // 右端の外の余白(ノートを置かない)を押したか
+   const inMargin = (e) => pointAt(e).tick >= clipTicks(clip());
 
    const noteAtTarget = (target) => {
       const noteEl = target?.closest?.('.pr-note');
@@ -1017,6 +1037,11 @@ export function createPianoRoll({
          }
          lastLength = target.length;
          lastVelocity = velocityOf(target);
+      } else if (inMargin(down)) {
+         // 余白にはノートを置かない。空いているところと同じく、選択だけ外す
+         selected = new Set();
+         renderNotes();
+         return;
       } else {
          target = newNoteAt(at, down.altKey);
          notes.push(target);
@@ -1114,7 +1139,7 @@ export function createPianoRoll({
    }
 
    // タッチのドラッグを始める。ノートなら掴んで(選んでいなければ、それだけを選んで)動かし、伸縮モードなら長さを変える。
-   // 空いているところなら、ノートを置いて動かす(伸縮モードでは何もしない)
+   // 空いているところなら、ノートを置いて動かす(伸縮モードと、右端の外の余白では何もしない)
    function startTouchDrag(down, target) {
       if (target) {
          if (!selected.has(target)) selected = new Set([target]);
@@ -1122,7 +1147,7 @@ export function createPianoRoll({
          lastVelocity = velocityOf(target);
          return dragNotes(down, target, { mode: resizeMode ? 'resize' : 'move' });
       }
-      if (resizeMode) return { onMove() {}, onEnd() {} };
+      if (resizeMode || inMargin(down)) return { onMove() {}, onEnd() {} };
       const note = newNoteAt(pointAt(down), false);
       notes.push(note);
       selected = new Set([note]);
@@ -1158,7 +1183,7 @@ export function createPianoRoll({
    }
 
    // タッチのタップ。ノートなら選択に足す / 外す(Shift+クリックと同じ)。空いているところなら、
-   // 選んでいるノートがあれば選択を外し、なければノートを置く(続けて置けるよう、置いたノートは選ばない。伸縮モードでは置かない)
+   // 選んでいるノートがあれば選択を外し、なければノートを置く(続けて置けるよう、置いたノートは選ばない。伸縮モードと余白では置かない)
    function tap(down, target) {
       if (target) {
          if (selected.has(target)) {
@@ -1173,7 +1198,7 @@ export function createPianoRoll({
       } else if (selected.size) {
          selected = new Set();
          renderNotes();
-      } else if (!resizeMode) {
+      } else if (!resizeMode && !inMargin(down)) {
          const note = newNoteAt(pointAt(down), false);
          notes.push(note);
          preview(note.pitch, velocityOf(note));
