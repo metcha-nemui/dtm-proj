@@ -1,10 +1,11 @@
 // プロジェクト一覧の締切パネル。カードの上に出し、締切の近い順に「リスト」か「タイムライン」で見せる。
-// 表示のみで、ここからは編集しない。行を押すと、そのプロジェクトのボードを開く。
+// 表示のみで、ここからは編集しない。行を押すと、そのプロジェクトを最後に開いていた画面(ボードかアレンジ)で開く。
 
 import { addDays, daysBetween, toDateString } from '../domain/date.js';
 import { deadlineRange, deadlineRows } from '../domain/deadline.js';
 import { h, icon } from './components/dom.js';
 import { dueState, restLabel } from './dueBadge.js';
+import { projectHref } from './projectTabs.js';
 
 const VIEWS = [
    { key: 'list', label: 'リスト', icon: 'list' },
@@ -33,7 +34,7 @@ function saveView() {
    }
 }
 
-const projectHref = (project) => `#/p/${encodeURIComponent(project.id)}`;
+const projectLink = (project) => projectHref(project.id);
 
 const WEEKDAYS = ['日', '月', '火', '水', '木', '金', '土'];
 
@@ -56,7 +57,7 @@ function renderList(rows) {
    return h('ol', { class: 'deadline-list' }, rows.map(({ project, days, weekendDays }) => {
       const { monthDay, weekday } = dateParts(project.dueDate);
       return h('li', null,
-         h('a', { class: 'deadline-item', href: projectHref(project) },
+         h('a', { class: 'deadline-item', href: projectLink(project) },
             h('span', { class: 'deadline-date' }, monthDay),
             h('span', { class: 'deadline-weekday' }, weekday),
             h('span', { class: 'deadline-title' }, project.title),
@@ -96,7 +97,7 @@ function renderTimeline(rows, today) {
       rows.map(({ project, days: rest }) => {
          const left = at(project.dueDate);
          const label = `${project.title} ${formatDate(project.dueDate)}(${restLabel(rest)})`;
-         return h('a', { class: 'deadline-tl-row', href: projectHref(project), title: label, 'aria-label': label },
+         return h('a', { class: 'deadline-tl-row', href: projectLink(project), title: label, 'aria-label': label },
             h('span', { class: 'deadline-title' }, project.title),
             h('span', { class: 'deadline-tl-track' },
                h('span', {

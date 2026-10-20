@@ -139,6 +139,12 @@ textarea {
    white-space: nowrap;
 }
 
+/* リンク(a)で作ったボタンも、button と同じ見た目にする。.btn-icon などの色が勝つように、詳細度は .btn と同じにする */
+:where(a).btn {
+   color: var(--text);
+   text-decoration: none;
+}
+
 .btn:hover {
    background: var(--surface-2);
 }

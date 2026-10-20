@@ -8,6 +8,7 @@ import { reportError } from './components/toast.js';
 import { renderDeadlinePanel } from './deadlinePanel.js';
 import { dueBadge } from './dueBadge.js';
 import { deleteProjectDialog, editProjectDialog, newProjectDialog } from './projectDialogs.js';
+import { projectHref } from './projectTabs.js';
 
 const dateFormat = new Intl.DateTimeFormat('ja-JP', { dateStyle: 'short', timeStyle: 'short' });
 
@@ -23,7 +24,7 @@ function projectCard(project, stats) {
    }, icon('ellipsis-vertical'));
 
    return h('article', { class: 'card project-card' },
-      h('a', { class: 'project-card-link', href: `#/p/${project.id}` },
+      h('a', { class: 'project-card-link', href: projectHref(project.id) },
          h('h2', { class: 'project-card-title' }, project.title),
          project.memo && h('p', { class: 'project-card-memo muted' }, project.memo),
          dueBadge(project, stats),
@@ -39,7 +40,7 @@ export function mount(container) {
    // 締切パネルの差し込み口。締切のある未完了のプロジェクトがなければ空のまま
    const deadlines = h('div', { class: 'deadline-slot' });
    const create = () => newProjectDialog()
-      .then((project) => { if (project) location.hash = `#/p/${project.id}`; })
+      .then((project) => { if (project) location.hash = projectHref(project.id); })
       .catch(reportError);
 
    container.append(h('div', { class: 'page' },
@@ -47,7 +48,7 @@ export function mount(container) {
          h('h1', { class: 'page-title' }, 'プロジェクト'),
          // 設定へはここからだけ行く(編集しながら何度も開くものではないので、ほかの画面には置かない)
          h('div', { class: 'page-head-group' },
-            h('a', { class: 'btn btn-icon', href: '#/settings', 'aria-label': '設定', title: '設定' }, icon('settings')),
+            h('a', { class: 'btn', href: '#/settings' }, icon('settings'), '設定'),
             h('button', { type: 'button', class: 'btn btn-primary', onclick: create }, icon('plus'), '新規プロジェクト'))),
       deadlines,
       grid));
