@@ -21,6 +21,8 @@
 // 合成の重さは同時に鳴っている音(ボイス)の数に比例するので、ボイスの上限も下げる(spessasynth の既定は 350)。
 // 上限を超えると、古い音・余韻の小さい音から止めて使い回す(和音や余韻が重なる場面でも、途切れるよりはよい)。
 // 上限は端末の速さで合う値が違うので、設定画面で変えられるようにし、このブラウザの localStorage に覚えておく。
+// ほかの重さの元(エフェクト、補間、出力のバッファ、サンプリング周波数)も、同じく設定画面で変えられる。
+// バッファとサンプリング周波数は AudioContext を作るときにしか決められないので、変えたら作り直す(resetAudio)。
 
 import { DRUM_CHANNEL, secondsToTicks, ticksToSeconds } from './domain/midi.js';
 import { loadAudioFile } from './store/audioFileStore.js';
@@ -35,11 +37,24 @@ const PREVIEW = 0.25; // 試し弾きの長さ(秒)
 const AUDIO_DELAY = 0.03; // 再生中に音声を鳴らし直すときの間(秒)。読み込み済みでも、すぐの時刻には間に合わないことがある
 const RAMP = 0.01; // 再生中に音量・パンを変えるときに、なめらかに移る時間(秒)。いきなり変えるとプツッと鳴る
 const LIGHT = matchMedia('(pointer: coarse)').matches;
-const LINEAR_INTERPOLATION = 0; // spessasynth_core の InterpolationTypes.linear
 const VOICE_CAP_KEY = 'dtm-proj:voice-cap';
 export const DEFAULT_VOICE_CAP = LIGHT ? 64 : 350;
 export const MIN_VOICE_CAP = 8;
 export const MAX_VOICE_CAP = 350;
+
+// 選択肢から選ぶ、再生の設定。values は選べる値(先頭のものから並べて設定画面に出す)。
+// 既定と違うときだけ、このブラウザの localStorage に覚える。
+// live は、読み込み済みのシンセにすぐ当てられるもの。そうでないものは、変えたら AudioContext から作り直す
+const PLAYBACK_OPTIONS = {
+   // リバーブ・コーラス・ディレイ(と、GS のインサーションエフェクト)の計算。使わないと、トラックのリバーブも掛からない
+   effects: { key: 'dtm-proj:effects', values: [true, false], fallback: true, live: true },
+   // 波形の補間。spessasynth_core の InterpolationTypes の値(linear: 0、hermite: 2)。linear は軽いが、高い音が少し荒れる
+   interpolation: { key: 'dtm-proj:interpolation', values: [2, 0], fallback: LIGHT ? 0 : 2, live: true },
+   // 出力のバッファ(AudioContext の latencyHint)。大きいほど途切れにくいが、試し弾きの音が遅れる
+   latency: { key: 'dtm-proj:latency', values: ['interactive', 'balanced', 'playback', 0.3], fallback: LIGHT ? 'playback' : 'interactive' },
+   // サンプリング周波数。0 は端末の既定(多くは 48000)。下げると合成が軽くなるが、高い音がこもる
+   sampleRate: { key: 'dtm-proj:sample-rate', values: [0, 32000, 22050], fallback: 0 },
+};
 
 /** Windows で MSGS と同じ音色を持つファイル。ブラウザからは自動では読めないので、選ぶときの案内に使う。 */
 export const WINDOWS_GM_DLS = 'C:\\Windows\\System32\\drivers\\gm.dls';
@@ -56,10 +71,15 @@ export class NoSoundFontError extends Error {
 }
 
 let ctx = null;
-const createContext = () => new AudioContext({ latencyHint: LIGHT ? 'playback' : 'interactive' });
+function createContext() {
+   const sampleRate = loadPlaybackOption('sampleRate');
+   return new AudioContext({ latencyHint: loadPlaybackOption('latency'), ...(sampleRate ? { sampleRate } : {}) });
+}
 let synth = null;
 let channelCount = 0; // synth が持つチャンネルの数
 let preparing = null;
+let generation = 0; // 作り直す(resetAudio)たびに増やす。作り直す前に始めた読み込みの結果を捨てるため
+let peakVoices = 0; // 作り直してから、再生中に同時に鳴っていた音の数の最大(設定画面に出して、上限を決める目安にする)
 // 保存している音源の名前とサイズ。まだ調べていなければ undefined、なければ null
 let source;
 
@@ -90,7 +110,9 @@ export async function refreshSoundSource() {
  * 音源が選ばれていなければ NoSoundFontError、読めない形式なら spessasynth_lib のエラーで失敗する。
  */
 export function prepareSynth() {
-   preparing ??= (async () => {
+   if (preparing) return preparing;
+   const started = generation;
+   const promise = (async () => {
       const stored = await loadSoundFont();
       source = stored && { name: stored.name, size: stored.size };
       if (!stored) throw new NoSoundFontError();
@@ -100,7 +122,8 @@ export function prepareSynth() {
       await ctx.audioWorklet.addModule(PROCESSOR_URL);
       const created = new WorkletSynthesizer(ctx);
       created.connect(ctx.destination);
-      if (LIGHT) created.setSystemParameter('interpolationType', LINEAR_INTERPOLATION);
+      created.setSystemParameter('interpolationType', loadPlaybackOption('interpolation'));
+      created.setSystemParameter('effectsEnabled', loadPlaybackOption('effects'));
       created.setSystemParameter('voiceCap', loadVoiceCap());
       try {
          await created.soundBankManager.addSoundBank(await stored.blob.arrayBuffer(), 'main');
@@ -109,16 +132,22 @@ export function prepareSynth() {
          created.destroy();
          throw new Error(`「${stored.name}」を音源として読み込めませんでした(${error?.message ?? error})`);
       }
+      if (started !== generation) {
+         // 読み込んでいる間に作り直した。古い AudioContext のシンセは使わない(新しい読み込みが始まっている)
+         created.destroy();
+         return prepareSynth();
+      }
       synth = created;
       channelCount = 16;
       emit();
       return created;
    })().catch((error) => {
-      preparing = null;
+      if (preparing === promise) preparing = null;
       emit();
       throw error;
    });
-   return preparing;
+   preparing = promise;
+   return promise;
 }
 
 /** 同時に鳴らす音(ボイス)の上限。 */
@@ -143,12 +172,80 @@ export function saveVoiceCap(cap) {
    synth?.setSystemParameter('voiceCap', cap);
 }
 
+/** 再生の設定(PLAYBACK_OPTIONS の名前)の、選べる値と既定の値。 */
+export function playbackOptionChoices(name) {
+   const { values, fallback } = PLAYBACK_OPTIONS[name];
+   return { values, fallback };
+}
+
+/** 再生の設定の、いまの値。 */
+export function loadPlaybackOption(name) {
+   const { key, values, fallback } = PLAYBACK_OPTIONS[name];
+   try {
+      const value = localStorage.getItem(key);
+      return values.find((v) => String(v) === value) ?? fallback;
+   } catch {
+      return fallback; // localStorage を使えない環境では、既定の値で鳴らす
+   }
+}
+
+/**
+ * 再生の設定を覚えて当てる。すぐ当てられないもの(バッファ、サンプリング周波数)は、
+ * AudioContext とシンセを作り直す(再生中なら止まる)。
+ */
+export async function savePlaybackOption(name, value) {
+   const { key, fallback, live } = PLAYBACK_OPTIONS[name];
+   try {
+      if (value === fallback) localStorage.removeItem(key);
+      else localStorage.setItem(key, String(value));
+   } catch {
+      // 保存できなくても、開いている間は効く
+   }
+   if (!live) {
+      await resetAudio();
+      return;
+   }
+   if (name === 'effects') synth?.setSystemParameter('effectsEnabled', value);
+   if (name === 'interpolation') synth?.setSystemParameter('interpolationType', value);
+}
+
+/**
+ * いまの鳴らし方(設定画面に出す)。AudioContext をまだ作っていなければ sampleRate などは null。
+ * latency は、出力のバッファで音が遅れる秒数(baseLatency + outputLatency。ブラウザが出さなければ 0 の分は足さない)。
+ */
+export function audioStatus() {
+   return {
+      sampleRate: ctx?.sampleRate ?? null,
+      latency: ctx ? (ctx.baseLatency || 0) + (ctx.outputLatency || 0) : null,
+      voices: synth?.voiceCount ?? null,
+      peakVoices,
+   };
+}
+
+/**
+ * 鳴らしているものをすべて止め、AudioContext とシンセを作り直す(パニックボタン)。
+ * 止まらない音や、だんだん途切れるようになったときに使う。音源を読み込んでいた(読み込み中だった)なら、すぐ読み直す。
+ * デコード済みの音声(AudioBuffer)は AudioContext に属さないので、そのまま使い回す。
+ */
+export async function resetAudio() {
+   const loaded = synth !== null || preparing !== null;
+   discard();
+   const old = ctx;
+   ctx = null;
+   channelCount = 0;
+   peakVoices = 0;
+   emit();
+   await old?.close().catch(() => {});
+   if (loaded) await prepareSynth().catch(() => {}); // 読み込めないときは、次に再生を押したときに知らせる
+}
+
 // 作ったシンセを捨てる(音源を入れ替えたとき)。次に使うときに読み直す
 function discard() {
    stop();
    synth?.destroy();
    synth = null;
    preparing = null;
+   generation++;
 }
 
 /** 選んだファイルを音源として保存し、読み込む。読めなければ保存したものを消して失敗する。 */
@@ -393,6 +490,7 @@ function pump(state) {
       state.index++;
    }
    state.sentUntil = horizon;
+   peakVoices = Math.max(peakVoices, state.synth.voiceCount);
    const endAt = Math.max(state.lastSentAt, timeOf(state, state.endTick));
    if (!state.loop && state.index >= state.events.length && now > endAt + 0.1) {
       const { onEnd } = state;

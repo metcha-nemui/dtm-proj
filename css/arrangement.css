@@ -689,6 +689,20 @@ button.project-tab {
    flex: none;
 }
 
+/* 音源の名前は、押すと音のリセットと設定を出すボタン。見た目は文字のままにする */
+button.arr-source {
+   padding: 0;
+   border: 0;
+   background: none;
+   font: inherit;
+   font-size: 12px;
+   cursor: pointer;
+}
+
+button.arr-source:hover {
+   color: var(--text);
+}
+
 .arr-source.is-missing {
    color: var(--doing);
    font-weight: 600;

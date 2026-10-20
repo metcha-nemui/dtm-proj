@@ -879,8 +879,16 @@ export function mount(container, { id: projectId }) {
          })),
          source === null
             ? h('a', { class: 'arr-source is-missing', href: '#/settings', title: '再生に使う音源を設定画面で選ぶ' }, icon('triangle-alert', 14), '音源を設定')
-            : source && h('span', { class: 'arr-source muted', title: `音源: ${source.name}(設定画面で変更)` },
-               icon('audio-waveform', 14), source.name, sound.isSynthLoading() && '(読み込み中)'),
+            // 押すと、音のリセット(再生中に途切れるようになったとき、止まらない音があるとき)と設定を出す
+            : source && h('button', {
+               type: 'button',
+               class: 'arr-source muted',
+               title: `音源: ${source.name}`,
+               onclick: (e) => openMenu(e.currentTarget, [
+                  { label: '音をリセット', onSelect: () => run(sound.resetAudio().then(() => showToast('音をリセットしました'))) },
+                  { label: '設定を開く(音源・再生の負荷)', onSelect: () => { location.hash = '#/settings'; } },
+               ]),
+            }, icon('audio-waveform', 14), source.name, sound.isSynthLoading() && '(読み込み中)'),
          h('button', {
             type: 'button',
             class: 'btn btn-icon',
