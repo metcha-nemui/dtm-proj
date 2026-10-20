@@ -133,7 +133,18 @@ export function mount(container, { id: projectId }) {
       isPlaying: () => sound.isPlaying(),
       // ツールバー(再生・BPM)は隠さない。複製の案内が出ていれば、その下まで
       topLimit: () => (root.querySelector('.arr-placing') ?? root.querySelector('.board-toolbar'))?.getBoundingClientRect().bottom ?? 0,
+      // ピアノロールは保存をまとめて行うので、待っている間も、クリップの表示と再生には編集中のノートを使う
+      onNotesChange: () => {
+         if (!data) return;
+         data.clips = withEditing(data.clips);
+         render();
+         run(syncPlayback());
+      },
    });
+   const withEditing = (clips) => {
+      const editing = pianoRoll.editing;
+      return editing ? clips.map((c) => (c.id === editing.clipId ? { ...c, notes: editing.notes } : c)) : clips;
+   };
    root.append(view, pianoRoll.el);
 
    // クリップを開く。ピアノロールを開いている間は、そちらに切り替える(詳細はピアノロールの見出しから開ける)
@@ -1468,7 +1479,9 @@ export function mount(container, { id: projectId }) {
       const peaks = new Map(await Promise.all(audioIds.map(async (id) => [id, await loadPeaks(id)])));
       if (!alive) return;
       // tasks は、トラックの削除の確認に出す連動タスクの数と、クリップの色(連動タスクのステータス)に使う
-      data = { project, lanes: sortByOrder(lanes), tracks: withLocal(sortByOrder(tracks)), clips, markers, tasks, audioPresent, peaks };
+      data = {
+         project, lanes: sortByOrder(lanes), tracks: withLocal(sortByOrder(tracks)), clips: withEditing(clips), markers, tasks, audioPresent, peaks,
+      };
       if (project) {
          cleanAudioFiles(tracks);
          // 再生を押したときに待たせないよう、音声を先にデコードしておく

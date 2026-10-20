@@ -68,6 +68,7 @@ const MARGIN = TICKS_PER_BAR;
 const REPEAT_DELAY = 400;
 const REPEAT_MS = 90;
 const HISTORY_LIMIT = 100; // 元に戻せる回数(クリップごと)
+const SAVE_DELAY = 1000; // 最後の編集から保存するまで(ミリ秒)
 // 3連は、元の音符の 2/3 の長さ(1/8 3連 = 4分音符を3つに分けた長さ)
 const SNAPS = [
    { value: String(PPQ), label: '1/4' },
@@ -168,11 +169,12 @@ let clipboard = [];
  * @param {(clipId: string) => void} [options.onOpenDetail] クリップ詳細を開く
  * @param {(tick: number) => void} [options.onSeek] ルーラーを押して、再生を始める位置(曲の頭からの tick)を変えたとき
  * @param {() => boolean} [options.isPlaying] 再生中か(再生中は貼り付けさせない)
+ * @param {() => void} [options.onNotesChange] ノートを変えたとき(保存を待たずに、クリップの表示と再生に効かせる。中身は editing で取る)
  * @param {() => number} [options.topLimit] パネルの上端をここ(画面上の y 座標)より上へは広げない
  */
 export function createPianoRoll({
    projectId, onSelectionChange, onPlayClip, isLooping = () => false, onPlayAll, isPlayingAll = () => false, onOpenDetail, onSeek,
-   isPlaying = () => false, topLimit = () => 0,
+   isPlaying = () => false, topLimit = () => 0, onNotesChange,
 }) {
    let data = null; // アレンジ画面が読み込んだもの(project / tracks / clips)
    let clipId = null;
@@ -183,6 +185,8 @@ export function createPianoRoll({
    let snap = loadSnap();
    let dragging = false;
    let pending = 0; // 保存を待っている数。その間は、読み直した(古いかもしれない)ノートで上書きしない
+   let saveTimer = null; // まとめて保存するまでの待ち。動いている間は、まだ保存していない変更がある
+   const unsaved = () => saveTimer != null || pending > 0;
    let onion = false; // オニオンスキンを出すか
    let onionOff = new Set(); // オニオンスキンに出さないトラックの id
    // 元に戻す履歴。clipId → { saved: 保存したノート, bars: そのときの長さ, undo: [ノート…], redo: [ノート…] }
@@ -971,21 +975,43 @@ export function createPianoRoll({
       return noteEl ? notes[Number(noteEl.dataset.index)] : null;
    };
 
+   // 1音ずつ動かすたびに保存すると通信が多すぎるので、手を止めて SAVE_DELAY ミリ秒たってからまとめて保存する。
+   // 待っている間も、クリップの表示と再生には onNotesChange ですぐ効かせる
    function save() {
       if (!clipId) return;
+      clearTimeout(saveTimer);
+      saveTimer = setTimeout(flush, SAVE_DELAY);
+      onNotesChange?.();
+   }
+
+   // 待っている保存をすぐ行う。クリップを切り替える・閉じる・ピアノロールの外を触る・画面が隠れるときに呼ぶ
+   // (ほかの操作が保存済みのノートを読む前に揃えるため。clipId と notes は、まだ保存するクリップのもの)
+   function flush() {
+      if (saveTimer == null) return;
+      clearTimeout(saveTimer);
+      saveTimer = null;
+      const id = clipId;
       pending++;
-      actions.setClipNotes(projectId, clipId, notes.map((n) => ({ ...n })))
+      actions.setClipNotes(projectId, id, notes.map((n) => ({ ...n })))
          .catch((error) => {
             reportError(error);
-            history.delete(clipId); // 保存できなかった内容の写しが積まれているので捨てる
-            renderHistory();
+            history.delete(id); // 保存できなかった内容の写しが積まれているので捨てる
             pending = 0;
+            if (id !== clipId) return;
+            renderHistory();
             sync({ force: true }); // 保存できなかったので、保存済みのノートに戻す
          })
          .finally(() => {
             pending = Math.max(0, pending - 1);
          });
    }
+
+   const flushOutside = (e) => {
+      if (!el.contains(e.target)) flush();
+   };
+   const flushHidden = () => {
+      if (document.visibilityState === 'hidden') flush();
+   };
 
    // 押した位置に置くノート(長さとベロシティは、最後に触ったノートのもの)。
    // クリップの右端からはみ出さない長さにする。free ならグリッドに合わせない
@@ -1531,9 +1557,9 @@ export function createPianoRoll({
       renderHead();
       renderOnion();
       // 保存待ち・編集中は、読み直したノートが自分の保存より古いことがあるので比べない
-      if (!dragging && pending === 0) checkHistory(c);
+      if (!dragging && !unsaved()) checkHistory(c);
       renderHistory();
-      if (!force && (dragging || pending > 0 || sameNotes(c.notes, notes))) {
+      if (!force && (dragging || unsaved() || sameNotes(c.notes, notes))) {
          renderNotes();
          return;
       }
@@ -1551,7 +1577,13 @@ export function createPianoRoll({
          onion = false;
          onionOff = new Set();
          applyHeight();
+         // ピアノロールの外のボタン(書き出し・複製など)や、ほかのアプリへの切り替えの前に、待っている保存を済ませる
+         document.addEventListener('pointerdown', flushOutside, true);
+         document.addEventListener('focusin', flushOutside, true);
+         document.addEventListener('visibilitychange', flushHidden);
+         window.addEventListener('pagehide', flush);
       }
+      if (opening) flush();
       clipId = id;
       if (opening) {
          scaleSignature = '';
@@ -1575,6 +1607,11 @@ export function createPianoRoll({
 
    function close() {
       if (!clipId) return;
+      flush();
+      document.removeEventListener('pointerdown', flushOutside, true);
+      document.removeEventListener('focusin', flushOutside, true);
+      document.removeEventListener('visibilitychange', flushHidden);
+      window.removeEventListener('pagehide', flush);
       clipId = null;
       notes = [];
       selected = new Set();
@@ -1588,6 +1625,10 @@ export function createPianoRoll({
       close,
       get clipId() {
          return clipId;
+      },
+      /** まだ保存し終えていない編集中のノート({ clipId, notes })。なければ null。 */
+      get editing() {
+         return clipId && unsaved() ? { clipId, notes: normalizeNotes(notes) } : null;
       },
       /** 再生の開始・停止のたびに呼ぶ(再生ボタンの形を変える)。 */
       updatePlayState,
