@@ -124,7 +124,7 @@ js/
   audioExport.js          WAV の書き出し。音を作るのは audioExportWorker.js(Worker の中で spessasynth_core を動かす)
   actions.js              画面から呼ぶ操作。読む→domainで計算→保存→notify
   domain/                 DOMにもrepositoryにも依存しない純粋なロジック
-                          (record, order, date, project, task, stats, deadline, gantt, reference, arrangement, midi, audio)
+                          (record, order, date, project, task, stats, deadline, gantt, reference, arrangement, midi, audio, work)
   store/
     repository.js         インターフェース定義(JSDoc)、createRepository、migrate、upgradeStorage / checkSchema
     indexeddb.js          文書ストアの IndexedDB 実装

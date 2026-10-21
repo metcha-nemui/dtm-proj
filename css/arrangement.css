@@ -634,6 +634,81 @@ button.project-tab {
    display: none;
 }
 
+/* ---- 作業タイマー(ツールバー) ---- */
+
+.work-timer {
+   display: contents;
+}
+
+/* 作業対象と残り時間。ツールバーの中でいちばん目に入るよう、枠と文字を強くする */
+.work-timer-running {
+   display: inline-flex;
+   align-items: center;
+   gap: var(--space-1);
+   min-width: 0;
+   padding: 0 var(--space-1) 0 var(--space-2);
+   border: 2px solid var(--accent);
+   border-radius: 999px;
+   color: var(--accent);
+}
+
+.work-timer-name {
+   max-width: 24ch;
+   overflow: hidden;
+   border: none;
+   background: none;
+   color: var(--text);
+   font: inherit;
+   font-weight: 600;
+   text-overflow: ellipsis;
+   white-space: nowrap;
+   cursor: pointer;
+}
+
+.work-timer-name:hover {
+   text-decoration: underline;
+}
+
+.work-timer-remaining {
+   font-size: 15px;
+   font-variant-numeric: tabular-nums;
+   font-weight: 700;
+}
+
+/* 残り1分 */
+.work-timer-running.is-ending {
+   border-color: var(--doing);
+   color: var(--doing);
+}
+
+/* 時間切れで次へ移ったあと、ページを触るまで点滅させる(DAW から戻ってきたときに気づけるように) */
+.work-timer-running.is-alert {
+   animation: work-alert 1s steps(1) infinite;
+}
+
+@keyframes work-alert {
+   50% {
+      background: var(--accent);
+      color: var(--accent-contrast);
+   }
+}
+
+.work-timer-running.is-alert .work-timer-name {
+   color: inherit;
+}
+
+/* 作業対象のクリップ。選んでいるクリップ(is-selected の枠)と重なっても見分けられるよう、影で囲む */
+.clip.is-working {
+   box-shadow: 0 0 0 3px var(--accent), var(--shadow-1);
+}
+
+/* PC だけで使う(スマホでは、操作に時間が掛かって作業の区切りにならないため) */
+@media (max-width: 720px), (pointer: coarse) {
+   .work-timer {
+      display: none;
+   }
+}
+
 /* ---- 再生(ツールバー) ---- */
 
 /* ツールバー(再生・BPM)より小さくは縮まない(ピアノロールを高くしても、ツールバーは隠れない) */

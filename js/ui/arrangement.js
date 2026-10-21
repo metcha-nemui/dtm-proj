@@ -40,6 +40,7 @@ import { removeAudioFiles } from '../store/audioFileStore.js';
 import { addAudioTrackFromFile, chooseTrackAudio, loadPeaks, presentAudioIds } from './audioImport.js';
 import * as sound from '../synth.js';
 import { createIdleTimer } from './idleTimer.js';
+import { createWorkTimerView, onWorkTimerChange, workTimer } from './workTimer.js';
 import { canFullscreen, enterFullscreen, exitFullscreen, isFullscreen } from './fullscreen.js';
 import { createPianoRoll } from './pianoRoll.js';
 import { projectHead } from './projectHeader.js';
@@ -68,6 +69,8 @@ export function mount(container, { id: projectId }) {
    let data = null;
    // 最後に編集してからの経過時間(ツールバーに出す)
    const idle = createIdleTimer(projectId);
+   // 作業タイマー(いまの作業対象のクリップと残り時間)。名前を押すと、そのクリップを開く
+   const work = createWorkTimerView(projectId, { onOpenClip: (clipId) => openClip(clipId) });
    let sortable = null;
    // ドラッグ中に再描画すると、掴んでいる要素が消える。終わるまで待たせる
    let dragging = false;
@@ -107,6 +110,23 @@ export function mount(container, { id: projectId }) {
       picked = new Set(ids);
       markPicked();
    }
+   // 作業タイマーの作業対象のクリップに印を付ける。時間切れで次へ移ったら、見える位置までスクロールする
+   let workingClipId = null;
+   function markWorking({ reveal = false } = {}) {
+      const timer = workTimer();
+      const clipId = timer?.projectId === projectId ? timer.current.clipId : null;
+      for (const el of root.querySelectorAll('.clip.is-working')) el.classList.remove('is-working');
+      const el = clipId && root.querySelector(`.clip[data-clip-id="${CSS.escape(clipId)}"]`);
+      el?.classList.add('is-working');
+      if (reveal && el) el.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+   }
+   const unwatchWork = onWorkTimerChange((timer) => {
+      const clipId = timer?.projectId === projectId ? timer.current.clipId : null;
+      if (clipId === workingClipId) return;
+      workingClipId = clipId;
+      markWorking({ reveal: Boolean(clipId) });
+   });
+
    const drawer = createClipDrawer(projectId, {
       onSelectionChange: () => markSelected(),
       onOpenPianoRoll: (clipId) => openPianoRoll(clipId),
@@ -946,6 +966,7 @@ export function mount(container, { id: projectId }) {
          projectHead({ project, tasks: data.tasks, run }),
          projectTabs(projectId, 'arrange'),
          transport(),
+         work.el,
          idle.el,
          h('span', { class: 'muted board-summary' }, `トラック${data.tracks.length}・クリップ${data.clips.length}`));
    }
@@ -1452,6 +1473,7 @@ export function mount(container, { id: projectId }) {
       fitHeadWidth();
       restoreScroll(scroll);
       markSelected();
+      markWorking();
       setupSortable();
       if (sound.isPlaying()) follow();
    }
@@ -1512,6 +1534,8 @@ export function mount(container, { id: projectId }) {
       alive = false;
       unsubscribe();
       idle.destroy();
+      work.destroy();
+      unwatchWork();
       unwatchSynth();
       sound.stop();
       cancelAnimationFrame(frame);
