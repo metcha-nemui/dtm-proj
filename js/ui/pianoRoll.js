@@ -378,13 +378,13 @@ export function createPianoRoll({
    // ループ中は停止のボタンになる(updatePlayState で切り替える)
    const playButton = h('button', {
       type: 'button',
-      class: 'btn btn-icon',
+      class: 'btn btn-icon pr-play',
       onclick: () => { const c = clip(); if (c) onPlayClip?.(c); },
    });
    // 全体を再生する(アレンジのツールバーの再生ボタンと同じ。スマホの横持ちでは、ツールバーが隠れるため)
    const playAllButton = h('button', {
       type: 'button',
-      class: 'btn btn-icon',
+      class: 'btn btn-icon pr-play',
       onclick: () => onPlayAll?.(),
    });
    function updatePlayState() {

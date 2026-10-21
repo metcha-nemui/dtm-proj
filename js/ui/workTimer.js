@@ -197,11 +197,12 @@ export function createWorkTimer(projectId, { onOpenClip }) {
    const el = h('div', { class: 'work-timer' });
    const startButton = h('button', {
       type: 'button',
-      class: 'btn',
-      title: '進行中のクリップを1つずつ、決めた時間で区切って作業する',
+      class: 'btn btn-icon',
+      title: '作業タイマー(進行中のクリップを1つずつ、決めた時間で区切って作業する)',
+      'aria-label': '作業タイマー',
       dataset: { focusKey: 'work-start' },
       onclick: () => start().catch(reportError),
-   }, icon('timer', 14), '作業タイマー');
+   }, icon('timer'));
    const name = h('button', {
       type: 'button',
       class: 'work-timer-name',

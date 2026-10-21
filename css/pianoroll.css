@@ -73,6 +73,11 @@
    color: var(--danger);
 }
 
+/* 再生ボタン(全体・ループ)は、いちばん押すので横に広くする(アレンジの .arr-play と同じ幅) */
+.pr-play {
+   width: 35px;
+}
+
 .pr-title {
    min-width: 0;
    overflow: hidden;
