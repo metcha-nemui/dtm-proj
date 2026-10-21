@@ -133,6 +133,11 @@ async function navigate(cdp, url) {
 }
 
 const MODIFIERS = { Alt: 1, Ctrl: 2, Meta: 4, Shift: 8 };
+// 1文字でないキーの仮想キーコード(1文字のキーは、大文字の文字コードがそのまま使える)
+const KEY_CODES = {
+   Backspace: 8, Tab: 9, Enter: 13, Escape: 27, ' ': 32,
+   ArrowLeft: 37, ArrowUp: 38, ArrowRight: 39, ArrowDown: 40, Delete: 46,
+};
 const modifierBits = (list = '') => list.split(',').filter(Boolean).reduce((bits, name) => bits | (MODIFIERS[name] ?? 0), 0);
 
 async function mouse(cdp, type, x, y, modifiers = 0, clickCount = 1) {
@@ -298,8 +303,10 @@ const commands = {
       const bits = modifierBits(modifiers);
       const code = key === ' ' ? 'Space' : key.length === 1 ? `Key${key.toUpperCase()}` : key;
       const text = key.length === 1 && !(bits & (MODIFIERS.Ctrl | MODIFIERS.Alt)) ? key : undefined;
-      await cdp.send('Input.dispatchKeyEvent', { type: text ? 'keyDown' : 'rawKeyDown', key, code, text, modifiers: bits });
-      await cdp.send('Input.dispatchKeyEvent', { type: 'keyUp', key, code, modifiers: bits });
+      // 仮想キーコードがないと、ブラウザ自身の処理(Esc でダイアログ・popover を閉じるなど)が動かない
+      const windowsVirtualKeyCode = KEY_CODES[key] ?? (key.length === 1 ? key.toUpperCase().charCodeAt(0) : undefined);
+      await cdp.send('Input.dispatchKeyEvent', { type: text ? 'keyDown' : 'rawKeyDown', key, code, text, windowsVirtualKeyCode, modifiers: bits });
+      await cdp.send('Input.dispatchKeyEvent', { type: 'keyUp', key, code, windowsVirtualKeyCode, modifiers: bits });
       await wait(200);
       cdp.close();
       return 'OK';
