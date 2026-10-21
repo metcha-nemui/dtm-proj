@@ -51,7 +51,7 @@ const PLAYBACK_OPTIONS = {
    // 波形の補間。spessasynth_core の InterpolationTypes の値(linear: 0、hermite: 2)。linear は軽いが、高い音が少し荒れる
    interpolation: { key: 'dtm-proj:interpolation', values: [2, 0], fallback: LIGHT ? 0 : 2, live: true },
    // 出力のバッファ(AudioContext の latencyHint)。大きいほど途切れにくいが、試し弾きの音が遅れる
-   latency: { key: 'dtm-proj:latency', values: ['interactive', 'balanced', 'playback', 0.3], fallback: LIGHT ? 'playback' : 'interactive' },
+   latency: { key: 'dtm-proj:latency', values: ['interactive', 'balanced', 'playback', 0.3], fallback: LIGHT ? 0.3 : 'interactive' },
    // サンプリング周波数。0 は端末の既定(多くは 48000)。下げると合成が軽くなるが、高い音がこもる
    sampleRate: { key: 'dtm-proj:sample-rate', values: [0, 32000, 22050], fallback: 0 },
 };
