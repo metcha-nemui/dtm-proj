@@ -697,9 +697,54 @@ button.project-tab {
    color: inherit;
 }
 
-/* 作業対象のクリップ。選んでいるクリップ(is-selected の枠)と重なっても見分けられるよう、影で囲む */
-.clip.is-working {
-   box-shadow: 0 0 0 3px var(--accent), var(--shadow-1);
+/* 始めるときの、作業する順の一覧(ドラッグで入れ替える)。番号は並べ替えに合わせて振り直す */
+.work-order {
+   display: flex;
+   flex-direction: column;
+   gap: var(--space-1);
+   max-height: 50vh;
+   margin: 0;
+   padding: 0;
+   overflow-y: auto;
+   list-style: none;
+   counter-reset: work-order;
+}
+
+.work-order-item {
+   display: flex;
+   align-items: center;
+   gap: var(--space-2);
+   padding: var(--space-2);
+   border: 1px solid var(--border);
+   border-radius: var(--radius-sm);
+   background: var(--surface);
+   cursor: grab;
+   user-select: none;
+}
+
+.work-order-item::before {
+   counter-increment: work-order;
+   content: counter(work-order);
+   min-width: 1.5em;
+   color: var(--text-muted);
+   font-variant-numeric: tabular-nums;
+   text-align: right;
+}
+
+.work-order-item .icon {
+   flex: none;
+   color: var(--text-muted);
+}
+
+.work-order-title {
+   min-width: 0;
+   overflow: hidden;
+   text-overflow: ellipsis;
+   white-space: nowrap;
+}
+
+.work-order-item.is-drag-ghost {
+   opacity: 0.4;
 }
 
 /* PC だけで使う(スマホでは、操作に時間が掛かって作業の区切りにならないため) */
