@@ -1114,15 +1114,49 @@ button.arr-source:hover {
    position: relative;
 }
 
-/* 音色を選ぶ部品(トラックの音のダイアログ)。系統ごとの見出しの下に、音色のボタンを数列に並べる */
-.program-current {
-   margin: var(--space-1) 0;
-   font-size: 12px;
+/* 音色を選ぶ部品(トラックの音のダイアログ)。閉じているときはセレクトボックスの見た目で、選んでいる音色を出す */
+.program-trigger {
+   display: flex;
+   align-items: center;
+   gap: var(--space-2);
+   color: var(--text);
+   text-align: left;
+   cursor: pointer;
 }
 
-/* 音色の一覧。見出しと音色を上から下へ流し、入り切らない分は隣の列へ折り返す(PC幅では横にスクロール) */
+.program-trigger-label {
+   flex: 1;
+   min-width: 0;
+   overflow: hidden;
+   text-overflow: ellipsis;
+   white-space: nowrap;
+}
+
+.program-trigger .icon {
+   color: var(--text-muted);
+}
+
+/* ドロップダウン(popover)。位置と大きさは JS で決める(ボタンの下か上の広い方に、ボタンと同じ幅) */
+.program-panel {
+   position: fixed;
+   inset: auto;
+   margin: 0;
+   padding: var(--space-2);
+   border: 1px solid var(--border);
+   border-radius: var(--radius);
+   background: var(--surface);
+   color: var(--text);
+   box-shadow: var(--shadow-2);
+}
+
+.program-panel:popover-open {
+   display: grid;
+   grid-template-rows: auto minmax(0, 1fr);
+   gap: var(--space-2);
+}
+
+/* 音色の一覧。見出しと音色を上から下へ流し、入り切らない分は隣の列へ折り返して、横にスクロールする */
 .program-list {
-   height: min(46vh, 420px);
    overflow-x: auto;
    overflow-y: hidden;
    padding: var(--space-1);
@@ -1172,27 +1206,6 @@ button.arr-source:hover {
    border-color: var(--accent);
    background: var(--accent-soft);
    font-weight: 600;
-}
-
-/* スマホ幅では列に分けず、すべてを1列に縦に並べる(セレクトボックスの optgroup のように、見出しの下に字下げした音色) */
-@media (max-width: 720px) {
-   .program-list {
-      height: auto;
-      max-height: 46vh;
-      overflow-x: hidden;
-      overflow-y: auto;
-      columns: auto;
-   }
-
-   .program-family {
-      position: sticky;
-      top: calc(-1 * var(--space-1));
-      background: var(--surface);
-   }
-
-   .program-option {
-      padding-left: var(--space-4);
-   }
 }
 
 .program-empty {

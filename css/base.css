@@ -284,7 +284,7 @@ textarea {
    box-shadow: var(--shadow-2);
 }
 
-/* 中身の多いダイアログ(音色の一覧など) */
+/* 中身の多いダイアログ(音色の一覧のドロップダウンを、欄の幅で広く出すトラックの音など) */
 .dialog.is-wide {
    width: min(760px, calc(100vw - 32px));
 }
