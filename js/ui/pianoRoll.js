@@ -892,12 +892,27 @@ export function createPianoRoll({
    // 編集中のトラック以外のトラック(並び順)
    const otherTracks = () => sortByOrder(data?.tracks ?? []).filter((t) => t.id !== clip()?.trackId);
 
-   // 表示している範囲(クリップの範囲)にノートのあるトラックだけを候補に出す
+   // 表示している範囲(クリップの範囲)にノートのあるトラックだけを候補に出す。
+   // 2本以上あれば、先頭に全選択・全解除を置く(押したら、チェックを付け直したメニューを開き直す)
    function openOnionMenu() {
       const c = clip();
       const tracks = c ? otherTracks().filter((t) => onionNotes(c, new Set([t.id])).length) : [];
-      openMenu(onionTracks, tracks.length
-         ? tracks.map((t) => ({
+      const setAll = (on) => {
+         for (const t of tracks) {
+            if (on) onionOff.delete(t.id);
+            else onionOff.add(t.id);
+         }
+         renderOnion();
+         openOnionMenu();
+      };
+      if (!tracks.length) {
+         openMenu(onionTracks, [{ label: 'この範囲にノートのあるトラックがありません', onSelect: () => {} }]);
+         return;
+      }
+      openMenu(onionTracks, [
+         tracks.length > 1 && { label: 'すべて選ぶ', onSelect: () => setAll(true) },
+         tracks.length > 1 && { label: 'すべて外す', onSelect: () => setAll(false) },
+         ...tracks.map((t) => ({
             label: t.name,
             checked: !onionOff.has(t.id),
             onSelect: () => {
@@ -906,8 +921,8 @@ export function createPianoRoll({
                renderOnion();
                return !onionOff.has(t.id);
             },
-         }))
-         : [{ label: 'この範囲にノートのあるトラックがありません', onSelect: () => {} }]);
+         })),
+      ]);
    }
 
    // trackIds のトラックのクリップのうち、編集中のクリップ c と時間が重なる部分の、鳴るノート。
