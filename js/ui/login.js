@@ -3,7 +3,7 @@
 
 import { normalizeProjectUrl } from '../session.js';
 import { checkConnection } from '../store/supabase.js';
-import { h, icon } from './components/dom.js';
+import { autoFocus, h, icon } from './components/dom.js';
 
 /**
  * @param {HTMLElement} container
@@ -64,5 +64,5 @@ export function mount(container, { onLogin }) {
       error,
       h('div', { class: 'login-actions' }, submit, local))));
 
-   url.focus();
+   autoFocus(url);
 }

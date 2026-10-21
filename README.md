@@ -68,6 +68,8 @@ node -e "import('./test/domain.test.js').then(m => m.report()).then(ok => proces
 2. 操作は repository から読み、`domain/` の関数で保存すべきレコードを計算し、保存して `notify()` する。
 3. 各画面は `subscribe()` で通知を受け、repository から読み直して全体を再描画する。フォーカスと入力中の値は `data-focus-key` を目印に引き継ぐ(`keepFocus`)。
 
+指で操作する画面(`pointer: coarse`)では、ダイアログやパネルを開いたときに文字の入力欄へ自動でフォーカスを当てない(キーボードが開いて、横持ちでは画面を占領するため)。入力欄に当てるときは `autoFocus`、`<dialog>` が自分で当てた分は `dropAutoFocus` で外す(`js/ui/components/dom.js`)。
+
 操作は1つずつ順番に実行される(`serial`)。並行して走ると、後から保存した方が先の変更を消してしまうため。
 
 ### データモデル

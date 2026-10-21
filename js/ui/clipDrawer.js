@@ -8,7 +8,7 @@ import { collectReferences } from '../domain/reference.js';
 import { STATUS_LABELS, STATUSES } from '../domain/task.js';
 import { repo, subscribe } from '../state.js';
 import { autoGrow, fitTextarea } from './components/autoGrow.js';
-import { h, icon } from './components/dom.js';
+import { h, icon, isTouchScreen } from './components/dom.js';
 import { reportError, showToast } from './components/toast.js';
 import { clipMidi, downloadMidi } from './midiExport.js';
 import { importMidiToClip } from './midiImport.js';
@@ -202,8 +202,8 @@ export function createClipDrawer(projectId, { onSelectionChange, onOpenPianoRoll
       if (!el) build();
       el.references.reset();
       apply(context, { force: true });
-      // 作った直後は、すぐ名前を打てるようにする
-      if (focusName) el.name.focus();
+      // 作った直後は、すぐ名前を打てるようにする(スマホではキーボードが開いてしまうので、パネルに当てる)
+      if (focusName && !isTouchScreen()) el.name.focus();
       else el.panel.focus({ preventScroll: true });
       onSelectionChange?.(clipId);
    }

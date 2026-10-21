@@ -3,7 +3,7 @@
 // 表記の違い(全角・半角、大文字・小文字など)しかない曲名は、既にある表記に揃えて足す。
 
 import { canonicalizeReference, suggestReferences } from '../domain/reference.js';
-import { h, icon } from './components/dom.js';
+import { autoFocus, h, icon } from './components/dom.js';
 
 const SUGGESTION_LIMIT = 8; // 打っている間に候補を一度に出す数(空のときは全部出す)
 
@@ -58,7 +58,7 @@ export function createReferenceField({ getReferences, onChange, onBlur }) {
    function remove(name) {
       onChange(getReferences().filter((r) => r !== name));
       render();
-      input.focus();
+      autoFocus(input);
    }
 
    // 曲名を打ったまま閉じたり欄を離れたりしても、消さずに足す

@@ -1,6 +1,6 @@
 // モーダルダイアログ(<dialog> 要素)。確認ダイアログ、簡単な入力フォーム、見るだけのダイアログ。
 
-import { h } from './dom.js';
+import { dropAutoFocus, h } from './dom.js';
 
 // build(close) で中身を作る。close(value) で閉じると、その値で Promise が解決する。
 // Esc や背景クリックで閉じたときは null。wide なら幅を広げる(中身の多いダイアログ)。
@@ -25,6 +25,7 @@ function showDialog(build, { wide = false } = {}) {
       });
       document.getElementById('overlay-root').append(dialog);
       dialog.showModal();
+      dropAutoFocus(dialog);
    });
 }
 

@@ -75,6 +75,26 @@ export function progressBar(ratio) {
    return h('div', { class: 'progress' }, h('span', { style: { width: `${Math.round(ratio * 100)}%` } }));
 }
 
+// 指で操作する画面(スマホ・タブレット)か。
+export const isTouchScreen = () => matchMedia('(pointer: coarse)').matches;
+
+// 文字の入力欄か(フォーカスが当たると、スマホではソフトウェアキーボードが開く)
+const TEXT_ENTRY = 'textarea, input:not([type=checkbox], [type=radio], [type=range], [type=file], [type=color])';
+
+/**
+ * 開いた直後などに、入力欄へ自動でフォーカスを当てる。スマホでは当てない(キーボードが開いて、
+ * 横持ちでは画面を占領してしまう。打つときは自分で欄を押す)。
+ */
+export function autoFocus(el) {
+   if (!isTouchScreen()) el.focus();
+}
+
+/** スマホで、自動で入力欄に当たったフォーカスを外す(<dialog> の showModal が最初の欄に当てるため)。 */
+export function dropAutoFocus(root) {
+   const active = document.activeElement;
+   if (isTouchScreen() && root.contains(active) && active.matches(TEXT_ENTRY)) active.blur();
+}
+
 /**
  * 再描画(render)の前後で、フォーカスと入力中の値を保つ。
  * 対象は root の中で data-focus-key を持つ要素。再描画後に同じキーの要素へ引き継ぐ。
