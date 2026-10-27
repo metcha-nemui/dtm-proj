@@ -62,6 +62,28 @@ export const createProject = serial(async ({ title, memo, dueDate }) => {
    return project;
 });
 
+/**
+ * プロジェクトを丸ごと複製する。
+ * @returns {Promise<{ project: object, audioFiles: { from: string, to: string }[] }>} audioFiles は、このブラウザで中身を写す音声の組
+ */
+export const duplicateProject = serial(async (projectId) => {
+   const project = await repo().getProject(projectId);
+   if (!project) throw new Error('プロジェクトが見つかりません');
+   const [{ lanes, tasks }, tracks, clips, markers] = await Promise.all([
+      load(projectId), repo().getTracks(projectId), repo().getClips(projectId), repo().getMarkers(projectId),
+   ]);
+   const copy = projectDomain.duplicateProject({ project, lanes, tasks, tracks, clips, markers });
+   // 子を先に、プロジェクトを最後に保存する。途中で失敗しても、中身の欠けたプロジェクトが一覧に出ないように
+   await repo().saveLanes(copy.lanes);
+   await repo().saveTasks(copy.tasks);
+   await repo().saveTracks(copy.tracks);
+   await repo().saveClips(copy.clips);
+   await repo().saveMarkers(copy.markers);
+   await repo().saveProject(copy.project);
+   notify({ projectId: copy.project.id });
+   return { project: copy.project, audioFiles: copy.audioFiles };
+});
+
 export const updateProject = serial(async (projectId, patch) => {
    const project = await repo().getProject(projectId);
    if (!project) throw new Error('プロジェクトが見つかりません');

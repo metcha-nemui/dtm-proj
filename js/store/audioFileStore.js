@@ -59,6 +59,23 @@ export async function saveAudioFile(fileId, { projectId, file, peaks }) {
 }
 
 /**
+ * ファイルを別の id へ写す(プロジェクトの複製)。このブラウザに中身がないものは飛ばす。
+ * @param {string} projectId 写した先を使うプロジェクト
+ * @param {{ from: string, to: string }[]} pairs
+ * @returns {Promise<number>} 写した数
+ */
+export async function copyAudioFiles(projectId, pairs) {
+   let copied = 0;
+   for (const { from, to } of pairs) {
+      const stored = await loadAudioFile(from);
+      if (!stored) continue;
+      await transact('readwrite', (store) => store.put({ ...stored, projectId, savedAt: new Date().toISOString() }, to));
+      copied++;
+   }
+   return copied;
+}
+
+/**
  * プロジェクトのファイルのうち、keep にないものを消す。keep を渡さなければ、そのプロジェクトのものをすべて消す。
  * @returns {Promise<number>} 消した数
  */

@@ -1,12 +1,12 @@
 // アレンジと、ボードの連動タスクのテスト。test/domain.test.js から読む。
 
 import {
-   addClip, addMarker, addTrack, arrangementBars, canPlace, clipEnd, clipSection, markerSpans, moveTrack, placeClip, renameTrack,
+   addAudioTrack, addClip, addMarker, addTrack, arrangementBars, canPlace, clipEnd, clipSection, markerSpans, moveTrack, placeClip, renameTrack,
    syncClipTasks, updateClip, updateMarker,
 } from '../js/domain/arrangement.js';
 import { toDateString } from '../js/domain/date.js';
 import { ganttRows } from '../js/domain/gantt.js';
-import { duplicateLane } from '../js/domain/project.js';
+import { duplicateLane, duplicateProject } from '../js/domain/project.js';
 import { summarize } from '../js/domain/stats.js';
 import { moveTask, setStatus, updateTask } from '../js/domain/task.js';
 import { migrate } from '../js/store/repository.js';
@@ -187,4 +187,50 @@ test('migrate: v6 のデータは、セクションに入っているクリッ�
    equal(linked.map((t) => t.title).sort(), ['シンセ: (無題)', 'ドラム: フィル'], '区間の外のクリップには作らない');
    equal(data.tasks.filter((t) => !t.clipId).every((t) => t.clipId === null), true, 'ふつうのタスクは clipId: null');
    equal(migrate(data).tasks.length, data.tasks.length, 'v7 のデータには足さない');
+});
+
+test('duplicateProject: アレンジとタスクを丸ごと写し、つながりを新しい id に付け替える', () => {
+   const { project, lane, synth, a, intro, state, sync, linkedTo } = linkedFixture();
+   const vocal = addAudioTrack(project.id, state.tracks, '仮歌', { fileId: 'f1', name: 'v.wav', size: 1, duration: 2 });
+   let s = sync({ ...state, tracks: [...state.tracks, vocal] });
+   s = { ...s, tasks: apply(s.tasks, [setStatus(linkedTo(s, a), 'done')]) };
+   const source = { project: { ...project, dueDate: '2026-12-01' }, ...s };
+   const copy = duplicateProject(source);
+
+   equal([copy.project.title, copy.project.dueDate], [`${project.title}のコピー`, '2026-12-01']);
+   assert(copy.project.id !== project.id);
+   const all = [copy.lanes, copy.tasks, copy.tracks, copy.clips, copy.markers].flat();
+   assert(all.every((r) => r.projectId === copy.project.id), 'projectId を付け替える');
+   const oldIds = new Set([s.lanes, s.tasks, s.tracks, s.clips, s.markers].flat().map((r) => r.id));
+   assert(all.every((r) => !oldIds.has(r.id)), 'id はすべて新しい');
+   equal([copy.lanes.length, copy.tasks.length, copy.tracks.length, copy.clips.length, copy.markers.length],
+      [s.lanes.length, s.tasks.length, s.tracks.length, s.clips.length, s.markers.length]);
+
+   // 写した先どうしでつながっている
+   const laneIds = new Set(copy.lanes.map((l) => l.id));
+   const clipIds = new Set(copy.clips.map((c) => c.id));
+   const trackIds = new Set(copy.tracks.map((t) => t.id));
+   assert(copy.tasks.every((t) => laneIds.has(t.laneId)));
+   assert(copy.tasks.filter((t) => t.clipId).every((t) => clipIds.has(t.clipId)));
+   assert(copy.clips.every((c) => trackIds.has(c.trackId)));
+   assert(copy.markers.every((m) => laneIds.has(m.laneId)));
+
+   // 写した連動タスクはステータスも引き継ぎ、同期しても作り直されない
+   const copiedClip = copy.clips.find((c) => c.name === a.name && c.startBar === a.startBar);
+   const copiedTask = copy.tasks.find((t) => t.clipId === copiedClip.id);
+   equal([copiedTask.status, copiedTask.title], ['done', linkedTo(s, a).title]);
+   const { save, remove } = syncClipTasks(copy);
+   equal([save.length, remove.length], [0, 0]);
+   const introMarker = copy.markers.find((m) => m.bar === intro.bar);
+   equal(copy.lanes.find((l) => l.id === introMarker.laneId).name, lane('イントロ').name);
+
+   // 音声は新しい fileId にし、写す組を返す
+   const copiedVocal = copy.tracks.find((t) => t.name === '仮歌');
+   assert(copiedVocal.audio.fileId !== 'f1');
+   equal(copy.audioFiles, [{ from: 'f1', to: copiedVocal.audio.fileId }]);
+   equal(copiedVocal.audio.name, 'v.wav');
+
+   // 元は変えず、ノートの配列も共有しない
+   equal(synth.projectId, project.id);
+   assert(copiedClip.notes !== a.notes);
 });

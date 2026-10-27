@@ -101,6 +101,66 @@ export function updateProject(project, patch) {
    return touch(project, next);
 }
 
+// id とタイムスタンプだけを新しくしたコピー。ノートなどの配列も含めて、元とは中身を共有しない
+function cloneRecord(record, patch) {
+   const { id, createdAt, updatedAt, ...fields } = structuredClone(record);
+   return newRecord({ ...fields, ...patch });
+}
+
+/**
+ * プロジェクトを丸ごと複製する(セクション・タスク・アレンジ)。タイトルは「〜のコピー」。
+ * タスクのステータス・日付、締切、メモ、リファレンスもそのまま引き継ぐ。レコードどうしのつながり(laneId、trackId、clipId)は新しい id に付け替える。
+ * オーディオトラックの音声は新しい fileId にする(同じ id のままだと、元のプロジェクトで消したときに、このブラウザの中身が一緒に消える)。
+ * 中身を新しい id へ写すのは呼ぶ側(audioFiles に元と先の組を返す)。
+ * @param {{ project: object, lanes: object[], tasks: object[], tracks: object[], clips: object[], markers: object[] }} source
+ * @returns {{ project: object, lanes: object[], tasks: object[], tracks: object[], clips: object[], markers: object[],
+ *    audioFiles: { from: string, to: string }[] }}
+ */
+export function duplicateProject({ project, lanes, tasks, tracks, clips, markers }) {
+   const copy = cloneRecord(project, { title: `${project.title}のコピー` });
+   const projectId = copy.id;
+   const laneIds = new Map();
+   const trackIds = new Map();
+   const clipIds = new Map();
+   const audioFiles = [];
+
+   const newLanes = lanes.map((l) => {
+      const lane = cloneRecord(l, { projectId });
+      laneIds.set(l.id, lane.id);
+      return lane;
+   });
+   const newTracks = tracks.map((t) => {
+      const patch = { projectId };
+      if (t.audio?.fileId) {
+         const fileId = crypto.randomUUID();
+         audioFiles.push({ from: t.audio.fileId, to: fileId });
+         patch.audio = { ...t.audio, fileId };
+      }
+      const track = cloneRecord(t, patch);
+      trackIds.set(t.id, track.id);
+      return track;
+   });
+   const newClips = clips.map((c) => {
+      const clip = cloneRecord(c, { projectId, trackId: trackIds.get(c.trackId) ?? null });
+      clipIds.set(c.id, clip.id);
+      return clip;
+   });
+   return {
+      project: copy,
+      lanes: newLanes,
+      tracks: newTracks,
+      clips: newClips,
+      markers: markers.map((m) => cloneRecord(m, { projectId, laneId: laneIds.get(m.laneId) ?? null })),
+      // 無所属の連動タスク(laneId が null)は、そのまま無所属で写す
+      tasks: tasks.map((t) => cloneRecord(t, {
+         projectId,
+         laneId: t.laneId ? laneIds.get(t.laneId) ?? null : null,
+         clipId: t.clipId ? clipIds.get(t.clipId) ?? null : null,
+      })),
+      audioFiles,
+   };
+}
+
 /**
  * 空のセクションを追加する。
  * @param {object} input

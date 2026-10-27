@@ -7,7 +7,7 @@ import { openMenu } from './components/menu.js';
 import { reportError } from './components/toast.js';
 import { renderDeadlinePanel } from './deadlinePanel.js';
 import { dueBadge } from './dueBadge.js';
-import { deleteProjectDialog, editProjectDialog, newProjectDialog } from './projectDialogs.js';
+import { deleteProjectDialog, duplicateProject, editProjectDialog, newProjectDialog } from './projectDialogs.js';
 import { projectHref } from './projectTabs.js';
 
 const dateFormat = new Intl.DateTimeFormat('ja-JP', { dateStyle: 'short', timeStyle: 'short' });
@@ -19,6 +19,7 @@ function projectCard(project, stats) {
       'aria-label': `「${project.title}」のメニュー`,
       onclick: () => openMenu(menuButton, [
          { label: '名前・締切・メモを編集', onSelect: () => editProjectDialog(project).catch(reportError) },
+         { label: '複製', onSelect: () => duplicateProject(project).catch(reportError) },
          { label: '削除', danger: true, onSelect: () => deleteProjectDialog(project).catch(reportError) },
       ]),
    }, icon('ellipsis-vertical'));

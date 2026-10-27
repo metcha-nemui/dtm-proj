@@ -1,7 +1,7 @@
-// プロジェクトの作成・編集・削除のダイアログ。一覧とボード・アレンジから使う。
+// プロジェクトの作成・編集・複製・削除のダイアログ。一覧とボード・アレンジから使う。
 
 import * as actions from '../actions.js';
-import { removeAudioFiles } from '../store/audioFileStore.js';
+import { copyAudioFiles, removeAudioFiles } from '../store/audioFileStore.js';
 import { confirmDialog, formDialog } from './components/dialog.js';
 import { showToast } from './components/toast.js';
 
@@ -30,6 +30,15 @@ export async function editProjectDialog(project) {
       ],
    });
    if (values) await actions.updateProject(project.id, values);
+}
+
+/** 確認なしで複製する(消すのは簡単で、元のプロジェクトは変わらないため)。 @returns {Promise<object>} 複製したプロジェクト */
+export async function duplicateProject(project) {
+   const { project: copy, audioFiles } = await actions.duplicateProject(project.id);
+   // オーディオトラックの音声は、このブラウザにある分だけ新しい id へ写す(ほかの端末では、選び直してもらう)
+   await copyAudioFiles(copy.id, audioFiles).catch(() => {});
+   showToast(`「${copy.title}」を作りました`);
+   return copy;
 }
 
 /** @returns {Promise<boolean>} 削除したら true */
