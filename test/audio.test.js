@@ -16,7 +16,7 @@ const FILE = { fileId: 'f1', name: 'vocal.wav', size: 1000, duration: 10 };
 const close = (a, b) => Math.abs(a - b) < 1e-9;
 
 function audioFixture() {
-   const { project } = createProject({ title: 'x' });
+   const project = { ...createProject({ title: 'x' }).project, bpm: 120 };
    const synth = addTrack(project.id, [], 'シンセ');
    const vocal = addAudioTrack(project.id, [synth], ' 仮歌 ', FILE);
    return { project, synth, vocal };

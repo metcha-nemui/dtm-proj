@@ -19,7 +19,7 @@ test('uniqueTrackName: 重複したら番号を振る', () => {
 
 test('createProject: 「全体」レーンだけで作る', () => {
    const { project, lanes, tasks } = createProject({ title: ' 新曲 ', dueDate: '2026-10-31' });
-   equal([project.title, project.dueDate, 'isTemplate' in project], ['新曲', '2026-10-31', false]);
+   equal([project.title, project.dueDate, project.bpm, 'isTemplate' in project], ['新曲', '2026-10-31', 175, false]);
    equal(lanes.map((l) => [l.type, l.name, l.projectId]), [['global', '全体', project.id]]);
    equal(tasks, []);
    equal(createProject({ title: '' }).project.title, '無題のプロジェクト');

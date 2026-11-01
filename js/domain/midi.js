@@ -8,7 +8,8 @@
 export const PPQ = 480;
 export const BEATS_PER_BAR = 4;
 export const TICKS_PER_BAR = PPQ * BEATS_PER_BAR;
-export const DEFAULT_BPM = 120;
+export const DEFAULT_BPM = 175; // 新しく作るプロジェクトの BPM
+const LEGACY_BPM = 120; // BPM の項目がない(v7 以前の)データは、当時の既定だった 120 として読む
 export const MIN_BPM = 20;
 export const MAX_BPM = 300;
 export const DEFAULT_VELOCITY = 100;
@@ -31,8 +32,8 @@ export function normalizeBpm(bpm) {
    return Math.round(Math.max(MIN_BPM, Math.min(MAX_BPM, v)) * 100) / 100;
 }
 
-/** プロジェクトの BPM。項目がない(v7 以前の)データでも既定値を返す。 */
-export const projectBpm = (project) => normalizeBpm(project?.bpm ?? DEFAULT_BPM);
+/** プロジェクトの BPM。項目がない(v7 以前の)データは 120。 */
+export const projectBpm = (project) => normalizeBpm(project?.bpm ?? LEGACY_BPM);
 
 // ---- ノート ----
 

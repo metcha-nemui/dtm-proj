@@ -23,10 +23,10 @@ test('normalizeNotes: 整数に丸めて範囲に収め、開始位置 → 高�
    equal(normalizeNotes(undefined), [], '項目がなければなし');
 });
 
-test('normalizeBpm / projectBpm: 範囲に収め、項目がなければ 120', () => {
-   equal([normalizeBpm(128.556), normalizeBpm(5), normalizeBpm(999), normalizeBpm('x'), projectBpm({})], [128.56, MIN_BPM, MAX_BPM, 120, 120]);
+test('normalizeBpm / projectBpm: 範囲に収め、数でなければ 175、項目がなければ(v7 以前のデータ) 120', () => {
+   equal([normalizeBpm(128.556), normalizeBpm(5), normalizeBpm(999), normalizeBpm('x'), projectBpm({})], [128.56, MIN_BPM, MAX_BPM, 175, 120]);
    const { project } = createProject({ title: 'x' });
-   equal(project.bpm, 120, '新しいプロジェクトは 120');
+   equal(project.bpm, 175, '新しいプロジェクトは 175');
    equal(updateProject(project, { bpm: '90' }).bpm, 90);
 });
 
