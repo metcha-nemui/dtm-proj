@@ -4,7 +4,7 @@
 
 import { clampAudioStart } from './audio.js';
 import { isAudioTrack, normalizeNotes, TICKS_PER_BAR, trackMix, trackSound } from './midi.js';
-import { assertSection } from './project.js';
+import { addSection, assertSection, createProject } from './project.js';
 import { orderAtEnd, reorder, sortByOrder } from './order.js';
 import { newRecord, touch } from './record.js';
 import { addClipTask } from './task.js';
@@ -17,6 +17,18 @@ const isBar = (n) => Number.isInteger(n) && n >= 1;
 
 /** クリップが終わる小節(その小節まで占める)。 */
 export const clipEnd = (clip) => clip.startBar + clip.bars - 1;
+
+/**
+ * 新規作成で作るプロジェクト。「全体」レーンに加えて、空のセクションを1つと空のトラック(CH.1、ピアノ)を1本入れておく
+ * (作ってすぐにボードでもアレンジでも書き始められるように)。名前はそれぞれを追加したときの既定の名前。
+ * @param {{ title: string, memo?: string, dueDate?: string|null }} input
+ * @returns {{ project: object, lanes: object[], tasks: object[], tracks: object[] }}
+ */
+export function createNewProject(input) {
+   const { project, lanes, tasks } = createProject(input);
+   const { lane } = addSection({ projectId: project.id, lanes });
+   return { project, lanes: [...lanes, lane], tasks, tracks: [addTrack(project.id, [])] };
+}
 
 // ---- トラック ----
 

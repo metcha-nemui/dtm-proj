@@ -1,7 +1,7 @@
 // アレンジと、ボードの連動タスクのテスト。test/domain.test.js から読む。
 
 import {
-   addAudioTrack, addClip, addMarker, addTrack, arrangementBars, canPlace, clipEnd, clipSection, markerSpans, moveTrack, placeClip, renameTrack,
+   addAudioTrack, addClip, addMarker, addTrack, arrangementBars, createNewProject, canPlace, clipEnd, clipSection, markerSpans, moveTrack, placeClip, renameTrack,
    syncClipTasks, updateClip, updateMarker,
 } from '../js/domain/arrangement.js';
 import { toDateString } from '../js/domain/date.js';
@@ -13,6 +13,13 @@ import { migrate } from '../js/store/repository.js';
 import { test, assert, equal, throws, titles, apply, arrangementFixture, linkedFixture } from './helpers.js';
 
 // ---- arrangement ----
+
+test('createNewProject: 「全体」レーンと、空のセクション1つ・空のトラック1本(ピアノ)で作る', () => {
+   const { project, lanes, tasks, tracks } = createNewProject({ title: '新曲' });
+   equal(lanes.map((l) => [l.type, l.name, l.projectId]), [['global', '全体', project.id], ['section', 'セクション', project.id]]);
+   equal(tasks, []);
+   equal(tracks.map((t) => [t.name, t.projectId, t.program, t.drum, t.kind ?? 'midi']), [['Track', project.id, 0, false, 'midi']]);
+});
 
 test('addTrack: 末尾に追加し、名前が重なったら番号を振る。空なら「トラック」', () => {
    const one = addTrack('p', []);

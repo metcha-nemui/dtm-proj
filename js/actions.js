@@ -55,9 +55,11 @@ async function changed(projectId, { listening = false } = {}) {
 
 /** 新しいプロジェクトを作る。レーンは空の「全体」レーンだけ。 */
 export const createProject = serial(async ({ title, memo, dueDate }) => {
-   const { project, lanes } = projectDomain.createProject({ title, memo, dueDate });
-   await repo().saveProject(project);
+   const { project, lanes, tracks } = arrangementDomain.createNewProject({ title, memo, dueDate });
+   // 子を先に、プロジェクトを最後に保存する(duplicateProject と同じ理由)
    await repo().saveLanes(lanes);
+   await repo().saveTracks(tracks);
+   await repo().saveProject(project);
    notify({ projectId: project.id });
    return project;
 });
