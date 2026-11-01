@@ -4,8 +4,6 @@
 // Chromium がワークレットへのメッセージを無視することがあると spessasynth が注意している)。
 // spessasynth_core は spessasynth_lib が中で使っているもの。lib の版(4.3.14)を出したときの core の版に固定する。
 
-import { DRUM_CHANNEL } from './domain/midi.js';
-
 const CORE_URL = 'https://cdn.jsdelivr.net/npm/spessasynth_core@4.3.20/+esm';
 // 一度に作るサンプル数。SpessaSynthProcessor が一度に作れる上限の既定で、再生の AudioWorklet と同じ単位
 const BLOCK = 128;
@@ -37,12 +35,13 @@ async function render({ soundBank, soundBankName, sampleRate, setup, events, fra
    await synth.processorInitialized;
 
    // ポート付きのメッセージを送る。そのポートのチャンネルがまだなければ足す。
-   // 足したチャンネルは音源が必ずドラムにするので、組の 10ch のほかはドラムをやめる(synth.js の send と同じ)
+   // 足したチャンネルは、コントローラー(エクスプレッションやブライトネス)がすべて 0 のまま作られて、音が出ない。
+   // 始めの 16ch は音源を読み込んだときの全体のリセットで既定の値になるので、そのリセットがチャンネルごとに呼ぶものを呼ぶ
+   // (synth.js の addPorts と同じ。リセットで、組の 10ch のほかはドラムでなくなる)
    const send = ({ data, port }) => {
       while (synth.midiChannels.length < (port + 1) * 16) {
          synth.createMIDIChannel();
-         const channel = synth.midiChannels.length - 1;
-         synth.midiChannels[channel].setDrums(channel % 16 === DRUM_CHANNEL);
+         synth.midiChannels.at(-1).reset();
       }
       synth.processMessage(data, port * 16);
    };

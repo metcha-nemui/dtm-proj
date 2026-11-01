@@ -223,7 +223,8 @@ export function mount(container, { id: projectId }) {
       const eventsChanged = JSON.stringify(input.events) !== JSON.stringify(played.events);
       const audioChanged = JSON.stringify(input.audio) !== JSON.stringify(played.audio);
       sound.updatePlayback({
-         messages: input.setup.filter((m) => !sent.has(JSON.stringify(m))),
+         setup: input.setup,
+         messages:input.setup.filter((m) => !sent.has(JSON.stringify(m))),
          events: eventsChanged ? input.events : undefined,
          endTick: input.endTick,
          audio: audioChanged ? input.audio : undefined,

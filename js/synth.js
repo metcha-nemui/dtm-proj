@@ -24,7 +24,7 @@
 // ほかの重さの元(エフェクト、補間、出力のバッファ、サンプリング周波数)も、同じく設定画面で変えられる。
 // バッファとサンプリング周波数は AudioContext を作るときにしか決められないので、変えたら作り直す(resetAudio)。
 
-import { DRUM_CHANNEL, secondsToTicks, ticksToSeconds } from './domain/midi.js';
+import { secondsToTicks, ticksToSeconds } from './domain/midi.js';
 import { loadAudioFile } from './store/audioFileStore.js';
 import { loadSoundFont, removeSoundFont, saveSoundFont } from './store/soundFontStore.js';
 
@@ -376,16 +376,26 @@ export function previewNote(setup, channel, pitch, velocity = 100) {
 
 // ---- 再生 ----
 
-// ポート付きのメッセージ({ data, port })を送る。そのポートのチャンネルがまだなければ足す。
-// 足したチャンネルは音源が必ずドラムにするので、組の 10ch のほかはドラムをやめる(始めの 16ch と同じにする)
-function send(s, { data, port }, options) {
-   while (channelCount < (port + 1) * 16) {
+// メッセージ({ data, port })が使うポートの数
+const portCount = (messages) => messages.reduce((n, m) => Math.max(n, m.port + 1), 0);
+
+// ports 組ぶんのチャンネルがなければ足して、シンセ全体をリセットする。足したら true(呼ぶ側が設定を全部送り直す)。
+// 足したチャンネルは、コントローラー(エクスプレッションやブライトネス)がすべて 0 のまま作られて、音が出ない。
+// 始めの 16ch は、音源を読み込んだときの全体のリセットで既定の値になるので、同じリセットを通す
+// (ライブラリはチャンネルごとのリセットを外に出していない)。リセットで、組の 10ch のほかはドラムでなくなる。
+// ほかのチャンネルの音色・音量・パンも戻る
+function addPorts(s, ports) {
+   if (channelCount >= ports * 16) return false;
+   while (channelCount < ports * 16) {
       s.addNewChannel();
-      s.midiChannels[channelCount].setDrums(channelCount % 16 === DRUM_CHANNEL);
       channelCount++;
    }
-   s.sendMessage(data, port * 16, options);
+   s.reset();
+   return true;
 }
+
+// ポート付きのメッセージを送る。チャンネルは addPorts で足しておく
+const send = (s, { data, port }, options) => s.sendMessage(data, port * 16, options);
 
 // 鳴っている音を覚えておくキー(チャンネル:高さ)
 const channelOf = (e) => e.port * 16 + (e.data[0] & 0x0f);
@@ -415,6 +425,7 @@ export async function play({ bpm, setup, events, fromTick, endTick = 0, onEnd, l
    const s = await ready();
    // 音声を読み込み終えてから時刻を決める(初めて鳴らすときは、デコードに時間が掛かる)
    const buffers = await Promise.all(audio.map((item) => loadAudioBuffer(item.fileId).catch(() => null)));
+   addPorts(s, Math.max(portCount(setup), portCount(events)));
    for (const message of setup) send(s, message);
    const startAt = ctx.currentTime + START_DELAY;
    const state = {
@@ -503,17 +514,20 @@ function pump(state) {
  * 再生を止めずに、中身を差し替える(ミュート・ソロ、音量・パン、ノートの編集)。止まっていれば何もしない。
  * 鳴らし直すと、いま伸びている音が途切れるため、送り済みの位置より先のイベントだけを入れ替える。
  * 新しい中身に終わり(ノートオフ)がなくなった音(消したノートや、ミュートしたトラックの音)は、すぐに止める。
+ * トラックが増えてチャンネルの組を足したときは、シンセをリセットするので、messages ではなく setup を全部送り直す。
  * @param {object} options
+ * @param {{ data: number[], port: number }[]} [options.setup] 新しい中身の、頭で送るメッセージ全部(play の setup と同じ形)
  * @param {{ data: number[], port: number }[]} [options.messages] すぐに送るメッセージ(変わった音色・音量・パン)
  * @param {{ tick: number, data: number[], port: number }[]} [options.events] 新しいイベント列(noteEvents の結果)。省略すると変えない
  * @param {number} [options.endTick]
  * @param {object[]} [options.audio] 新しい音声(play の audio と同じ形)。省略すると変えない
  */
-export function updatePlayback({ messages = [], events, endTick, audio }) {
+export function updatePlayback({ setup = [], messages = [], events, endTick, audio }) {
    const state = playing;
    if (!state) return;
    const now = ctx.currentTime;
-   for (const message of messages) send(state.synth, message, { time: now });
+   const reset = addPorts(state.synth, Math.max(portCount(setup), portCount(messages), portCount(events ?? [])));
+   for (const message of reset ? setup : messages) send(state.synth, message, { time: now });
    if (endTick != null) state.endTick = endTick;
    if (audio) updateAudio(state, audio);
    if (!events) return;
