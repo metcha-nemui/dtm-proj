@@ -14,11 +14,12 @@ import { test, assert, equal, throws, titles, apply, arrangementFixture, linkedF
 
 // ---- arrangement ----
 
-test('createNewProject: 「全体」レーンと、空のセクション1つ・空のトラック1本(ピアノ)で作る', () => {
-   const { project, lanes, tasks, tracks } = createNewProject({ title: '新曲' });
+test('createNewProject: 「全体」レーンと、空のセクション1つ・空のトラック1本(ピアノ)、1小節目にそのセクションのマーカーで作る', () => {
+   const { project, lanes, tasks, tracks, markers } = createNewProject({ title: '新曲' });
    equal(lanes.map((l) => [l.type, l.name, l.projectId]), [['global', '全体', project.id], ['section', 'セクション', project.id]]);
    equal(tasks, []);
    equal(tracks.map((t) => [t.name, t.projectId, t.program, t.drum, t.kind ?? 'midi']), [['Track', project.id, 0, false, 'midi']]);
+   equal(markers.map((m) => [m.laneId, m.bar, m.projectId]), [[lanes[1].id, 1, project.id]]);
 });
 
 test('addTrack: 末尾に追加し、名前が重なったら番号を振る。空なら「トラック」', () => {

@@ -19,15 +19,18 @@ const isBar = (n) => Number.isInteger(n) && n >= 1;
 export const clipEnd = (clip) => clip.startBar + clip.bars - 1;
 
 /**
- * 新規作成で作るプロジェクト。「全体」レーンに加えて、空のセクションを1つと空のトラック(CH.1、ピアノ)を1本入れておく
- * (作ってすぐにボードでもアレンジでも書き始められるように)。名前はそれぞれを追加したときの既定の名前。
+ * 新規作成で作るプロジェクト。「全体」レーンに加えて、空のセクションを1つと空のトラック(CH.1、ピアノ)を1本入れ、
+ * アレンジの1小節目にそのセクションのマーカーを置いておく(作ってすぐにボードでもアレンジでも書き始められるように。
+ * マーカーがないとクリップを作れない)。名前はそれぞれを追加したときの既定の名前。
  * @param {{ title: string, memo?: string, dueDate?: string|null }} input
- * @returns {{ project: object, lanes: object[], tasks: object[], tracks: object[] }}
+ * @returns {{ project: object, lanes: object[], tasks: object[], tracks: object[], markers: object[] }}
  */
 export function createNewProject(input) {
    const { project, lanes, tasks } = createProject(input);
    const { lane } = addSection({ projectId: project.id, lanes });
-   return { project, lanes: [...lanes, lane], tasks, tracks: [addTrack(project.id, [])] };
+   return {
+      project, lanes: [...lanes, lane], tasks, tracks: [addTrack(project.id, [])], markers: [addMarker(project.id, [], lane, 1)],
+   };
 }
 
 // ---- トラック ----
