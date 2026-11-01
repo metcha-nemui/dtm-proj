@@ -156,6 +156,17 @@ export function mount(container, { id: projectId }) {
       else drawer.open(clipId);
    }
 
+   // クリップを消す(クリップ詳細の「削除」と同じく、トーストから元に戻せる)。開いている詳細は閉じる
+   // (ピアノロールは、クリップがなくなれば自分で閉じる)
+   function deleteClip({ id, name }) {
+      if (drawer.clipId === id) drawer.close();
+      if (picked.has(id)) setPicked([...picked].filter((c) => c !== id));
+      run(actions.deleteClip(projectId, id).then((deleted) => showToast(`${name ? `「${name}」` : 'クリップ'}を削除しました`, {
+         actionLabel: '元に戻す',
+         onAction: () => run(actions.restoreClip(deleted)),
+      })));
+   }
+
    function openPianoRoll(clipId) {
       drawer.close();
       pianoRoll.open(clipId);
@@ -1100,11 +1111,15 @@ export function mount(container, { id: projectId }) {
          role: 'button',
          title: `${clip.name || UNTITLED_CLIP} ${barRange(clip)}${outside ? '(セクションの外。ボードには出ません)' : ''}${clip.memo ? `\n${clip.memo}` : ''}`,
          'aria-label': `${clip.name || UNTITLED_CLIP} ${barRange(clip)}${outside ? '(セクションの外)' : ''}`,
-         // スペースは再生・停止に使うので、開くのは Enter だけ
+         // スペースは再生・停止に使うので、開くのは Enter だけ。Delete で消す
          onkeydown: (e) => {
-            if (e.key !== 'Enter') return;
-            e.preventDefault();
-            openClip(clip.id);
+            if (e.key === 'Enter') {
+               e.preventDefault();
+               openClip(clip.id);
+            } else if (e.key === 'Delete' && !e.ctrlKey && !e.metaKey && !e.altKey && !e.shiftKey) {
+               e.preventDefault();
+               deleteClip(clip);
+            }
          },
       },
       preview,
