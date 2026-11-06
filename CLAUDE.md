@@ -22,9 +22,9 @@
 - ブラウザでの確認は `tools/browser.mjs` を使う(確認用の CDP スクリプトを毎回書かない。足りない操作があればこのスクリプトに足す)。詳しい使い方は先頭のコメントにある:
 
   ```
-  node tools/browser.mjs start                   # サーバー(8766)とヘッドレス Chrome を起動。ログインせずに使う状態で開く
+  node tools/browser.mjs start                   # サーバー(8766)とヘッドレス Chrome を起動。画面はオフライン(#/offline/…)として開く
   node tools/browser.mjs eval "(await import('/js/actions.js')).createProject({ title: 'テスト' })"
-  node tools/browser.mjs open p/<id>/arrange     # 「#/」は省く。読み込み中の例外を出す
+  node tools/browser.mjs open p/<id>/arrange     # 「#/」は省く。読み込み中の例外を出す。オンラインの画面は online/…
   node tools/browser.mjs click .clip             # ほかに drag x1 y1 x2 y2 [Ctrl]、key Delete
   node tools/browser.mjs shot <scratchpad>/a.png .arr-tracks
   node tools/browser.mjs stop                    # 起動したプロセスだけを終了する

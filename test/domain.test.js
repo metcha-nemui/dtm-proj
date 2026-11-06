@@ -12,5 +12,6 @@ import './midi.test.js';
 import './audio.test.js';
 import './work.test.js';
 import './store.test.js';
+import './route.test.js';
 
 export { report, run } from './helpers.js';

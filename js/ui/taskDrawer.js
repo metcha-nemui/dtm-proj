@@ -12,6 +12,7 @@ import { autoGrow, fitTextarea } from './components/autoGrow.js';
 import { h, icon } from './components/dom.js';
 import { reportError, showToast } from './components/toast.js';
 import { barRange } from './clipDrawer.js';
+import { arrangeHref } from './projectTabs.js';
 import { createReferenceField } from './referenceField.js';
 
 /**
@@ -126,7 +127,7 @@ export function createTaskDrawer(projectId, { onSelectionChange } = {}) {
       const linkedNote = h('p', { class: 'drawer-linked-note' },
          icon('audio-lines', 14),
          'アレンジのクリップから来たタスクです。セクションはアレンジのマーカーで決まります。',
-         h('a', { href: `#/p/${projectId}/arrange` }, 'アレンジで見る'));
+         h('a', { href: arrangeHref(projectId) }, 'アレンジで見る'));
       const deleteButton = h('button', { type: 'button', class: 'btn btn-danger', onclick: remove }, 'タスクを削除');
       const memo = autoGrow(h('textarea', { class: 'textarea drawer-memo', 'aria-label': 'メモ', placeholder: 'メモ', onchange: commit }));
       const statusButtons = STATUSES.map((status) => h('button', {

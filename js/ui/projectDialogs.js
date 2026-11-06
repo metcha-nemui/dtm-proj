@@ -3,12 +3,14 @@
 import * as actions from '../actions.js';
 import { fileStamp } from '../domain/date.js';
 import { projectFileName } from '../domain/midi.js';
-import { repo } from '../state.js';
+import { MODES, otherMode, repositoryFor } from '../modes.js';
+import { currentMode, repo } from '../state.js';
 import { copyAudioFiles, removeAudioFiles } from '../store/audioFileStore.js';
 import { migrate } from '../store/repository.js';
 import { confirmDialog, formDialog } from './components/dialog.js';
 import { showToast } from './components/toast.js';
 import { downloadJson } from './midiExport.js';
+import { projectHref } from './projectTabs.js';
 
 /** @returns {Promise<object|null>} 作成したプロジェクト */
 export async function newProjectDialog() {
@@ -43,6 +45,23 @@ export async function duplicateProject(project) {
    // オーディオトラックの音声は、このブラウザにある分だけ新しい id へ写す(ほかの端末では、選び直してもらう)
    await copyAudioFiles(copy.id, audioFiles).catch(() => {});
    showToast(`「${copy.title}」を作りました`);
+   return copy;
+}
+
+/**
+ * プロジェクトを、もう一方の保存先(オンラインならオフライン、オフラインならオンライン)にコピーする。
+ * 足すだけで何も消さないので、確認は取らない。
+ */
+export async function copyProjectToOther(project) {
+   const target = otherMode(currentMode());
+   const repository = await repositoryFor(target);
+   const { project: copy, audioFiles } = await actions.copyProjectTo(project.id, repository);
+   // 音声ファイルの置き場所は保存先と共通(このブラウザの IndexedDB)なので、中身もそのまま新しい id へ写せる
+   await copyAudioFiles(copy.id, audioFiles).catch(() => {});
+   showToast(`「${copy.title}」を${MODES[target].label}にコピーしました`, {
+      actionLabel: '開く',
+      onAction: () => { location.hash = projectHref(copy.id, target); },
+   });
    return copy;
 }
 

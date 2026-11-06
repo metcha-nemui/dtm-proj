@@ -1,20 +1,26 @@
-// プロジェクト一覧 #/
+// プロジェクト一覧 #/(オンライン)と #/offline(オフライン)。いま開いている保存先のプロジェクトを並べる。
 
 import { summarize } from '../domain/stats.js';
-import { repo, subscribe } from '../state.js';
+import { canUseOnline, MODES, otherMode } from '../modes.js';
+import { href } from '../route.js';
+import { currentMode, repo, subscribe } from '../state.js';
 import { h, icon, progressBar } from './components/dom.js';
 import { openMenu } from './components/menu.js';
 import { reportError } from './components/toast.js';
 import { renderDeadlinePanel } from './deadlinePanel.js';
 import { dueBadge } from './dueBadge.js';
+import { listHead } from './modeTabs.js';
 import {
-   deleteProjectDialog, duplicateProject, editProjectDialog, exportProject, importProjectFile, newProjectDialog,
+   copyProjectToOther, deleteProjectDialog, duplicateProject, editProjectDialog, exportProject, importProjectFile, newProjectDialog,
 } from './projectDialogs.js';
 import { projectHref } from './projectTabs.js';
 
 const dateFormat = new Intl.DateTimeFormat('ja-JP', { dateStyle: 'short', timeStyle: 'short' });
 
 function projectCard(project, stats) {
+   const target = otherMode(currentMode());
+   // オンラインへのコピーは、ログインしていなければ出さない(コピー先がない)
+   const canCopy = target === 'offline' || canUseOnline();
    const menuButton = h('button', {
       type: 'button',
       class: 'btn btn-icon project-card-menu',
@@ -22,6 +28,7 @@ function projectCard(project, stats) {
       onclick: () => openMenu(menuButton, [
          { label: '名前・締切・メモを編集', onSelect: () => editProjectDialog(project).catch(reportError) },
          { label: '複製', onSelect: () => duplicateProject(project).catch(reportError) },
+         canCopy && { label: `${MODES[target].label}にコピー`, onSelect: () => copyProjectToOther(project).catch(reportError) },
          { label: 'エクスポート', onSelect: () => exportProject(project).catch(reportError) },
          { label: '削除', danger: true, onSelect: () => deleteProjectDialog(project).catch(reportError) },
       ]),
@@ -62,19 +69,17 @@ export function mount(container) {
    });
 
    container.append(h('div', { class: 'page' },
-      h('div', { class: 'page-head' },
-         h('h1', { class: 'page-title' }, 'プロジェクト'),
+      listHead(currentMode(),
          // 設定へはここからだけ行く(編集しながら何度も開くものではないので、ほかの画面には置かない)
-         h('div', { class: 'page-head-group' },
-            h('a', { class: 'btn', href: '#/settings' }, icon('settings'), '設定'),
-            h('button', {
-               type: 'button',
-               class: 'btn',
-               title: 'エクスポートしたファイルのプロジェクトを追加します(いまのプロジェクトはそのまま)',
-               onclick: () => fileInput.click(),
-            }, icon('upload'), 'インポート'),
-            fileInput,
-            h('button', { type: 'button', class: 'btn btn-primary', onclick: create }, icon('plus'), '新規プロジェクト'))),
+         h('a', { class: 'btn', href: href('/settings') }, icon('settings'), '設定'),
+         h('button', {
+            type: 'button',
+            class: 'btn',
+            title: 'エクスポートしたファイルのプロジェクトを追加します(いまのプロジェクトはそのまま)',
+            onclick: () => fileInput.click(),
+         }, icon('upload'), 'インポート'),
+         fileInput,
+         h('button', { type: 'button', class: 'btn btn-primary', onclick: create }, icon('plus'), '新規プロジェクト')),
       deadlines,
       grid));
 

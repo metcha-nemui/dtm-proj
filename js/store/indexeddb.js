@@ -1,4 +1,4 @@
-// 文書ストア(DocumentStore)の IndexedDB 実装。ログインせずに使うときの保存先。
+// 文書ストア(DocumentStore)の IndexedDB 実装。オフライン(一覧のオフラインのタブ)の保存先。
 // コレクションごとにオブジェクトストアを持ち、絞り込みに使う項目(projectId, laneId, trackId)にインデックスを張っている。
 
 import { COLLECTIONS, createRepository } from './repository.js';

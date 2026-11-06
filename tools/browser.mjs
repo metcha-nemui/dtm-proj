@@ -2,11 +2,13 @@
 // 確認のたびに CDP のスクリプトを書き直さずに済むよう、よく使う操作をコマンドにしてある。
 // npm の依存を足さないため、Node の組み込みの fetch と WebSocket だけで CDP を話す(Node 22 以降)。
 //
-//   node tools/browser.mjs start [画面] [幅x高さ]  静的サーバーとヘッドレス Chrome を起動し、ログインせずに使う状態で開く
+//   node tools/browser.mjs start [画面] [幅x高さ]  静的サーバーとヘッドレス Chrome を起動し、画面を開く
 //                                                  (大きさの既定は 1280x800。スマホ幅は 390x844 など)
 //   node tools/browser.mjs open <画面>             画面を移る。読み込み中の例外とエラーのログを出す
 //                                                  画面は「#/」を省いたハッシュ(例: p/xxxx/arrange、settings)。
-//                                                  「#/p/…」のままだと Git Bash がパスと見なして書き換えるため
+//                                                  「#/p/…」のままだと Git Bash がパスと見なして書き換えるため。
+//                                                  確認で Supabase の実データに触らないよう、オフライン(#/offline/…)の画面として開く。
+//                                                  オンラインの画面(ログインのフォームなど)は「online/…」と書く(例: online、online/settings)
 //   node tools/browser.mjs eval "<式>"               ページで式を評価して、結果を JSON で出す(await を使える)
 //   node tools/browser.mjs click <セレクタ> [2]      要素の中央を本物のマウスでクリックする(2 ならダブルクリック)
 //   node tools/browser.mjs drag <x1> <y1> <x2> <y2> [Shift,Ctrl,Alt]   ビューポート座標でドラッグする
@@ -51,7 +53,11 @@ const CHROME = [
    'C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe',
 ].find((p) => fs.existsSync(p));
 
-const pageUrl = (route = '') => `${ORIGIN}#/${route.replace(/^#?\/?/, '')}`;
+function pageUrl(route = '') {
+   const path = route.replace(/^#?\/?/, '');
+   if (path === 'online' || path.startsWith('online/')) return `${ORIGIN}#/${path.replace(/^online\/?/, '')}`;
+   return `${ORIGIN}#/offline${path ? `/${path}` : ''}`;
+}
 const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
 async function until(check, label, timeout = 10000) {
@@ -183,9 +189,6 @@ const commands = {
       await until(() => fetch(ORIGIN).then((r) => r.ok), '静的サーバー');
       await until(() => fetch(`http://127.0.0.1:${CDP_PORT}/json/version`).then((r) => r.ok), 'Chrome');
       const cdp = await connect();
-      // ログイン画面を飛ばして、ログインせずに(IndexedDB で)使う状態にする
-      await navigate(cdp, ORIGIN);
-      await evaluate(cdp, `localStorage.setItem('dtm-proj:session', JSON.stringify({ mode: 'local' }))`);
       const problems = await navigate(cdp, pageUrl(route));
       cdp.close();
       return problems.length ? problems : `起動しました: ${pageUrl(route)}`;

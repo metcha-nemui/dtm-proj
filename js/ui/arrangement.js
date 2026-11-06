@@ -24,6 +24,7 @@ import {
 } from '../domain/midi.js';
 import { sortByOrder } from '../domain/order.js';
 import { sectionColors } from '../domain/project.js';
+import { href } from '../route.js';
 import { repo, subscribe } from '../state.js';
 import { choiceDialog, confirmDialog } from './components/dialog.js';
 import { h, icon, keepFocus } from './components/dom.js';
@@ -298,7 +299,7 @@ export function mount(container, { id: projectId }) {
          reportError(error);
          return;
       }
-      showToast(error.message, { actionLabel: '設定を開く', onAction: () => { location.hash = '#/settings'; } });
+      showToast(error.message, { actionLabel: '設定を開く', onAction: () => { location.hash = href('/settings'); } });
    }
 
    // 再生位置の線を動かす。画面の外へ出ても追いかけてスクロールはしない(再生しながら別の場所を見たり編集したりできるように)
@@ -893,7 +894,7 @@ export function mount(container, { id: projectId }) {
             onchange: (e) => run(actions.updateProject(projectId, { bpm: e.target.value })),
          })),
          source === null
-            ? h('a', { class: 'arr-source is-missing', href: '#/settings', title: '再生に使う音源を設定画面で選ぶ' }, icon('triangle-alert', 14), '音源を設定')
+            ? h('a', { class: 'arr-source is-missing', href: href('/settings'), title: '再生に使う音源を設定画面で選ぶ' }, icon('triangle-alert', 14), '音源を設定')
             // 押すと、音のリセット(再生中に途切れるようになったとき、止まらない音があるとき)と設定を出す
             : source && h('button', {
                type: 'button',
@@ -901,7 +902,7 @@ export function mount(container, { id: projectId }) {
                title: `音源: ${source.name}`,
                onclick: (e) => openMenu(e.currentTarget, [
                   { label: '音をリセット', onSelect: () => run(sound.resetAudio().then(() => showToast('音をリセットしました'))) },
-                  { label: '設定を開く(音源・再生の負荷)', onSelect: () => { location.hash = '#/settings'; } },
+                  { label: '設定を開く(音源・再生の負荷)', onSelect: () => { location.hash = href('/settings'); } },
                ]),
             }, icon('audio-waveform', 14), source.name, sound.isSynthLoading() && '(読み込み中)'),
          h('button', {
@@ -1421,7 +1422,7 @@ export function mount(container, { id: projectId }) {
       if (!data.project) {
          view.replaceChildren(h('div', { class: 'empty' },
             h('p', null, 'プロジェクトが見つかりません。'),
-            h('p', null, h('a', { href: '#/' }, 'プロジェクト一覧へ'))));
+            h('p', null, h('a', { href: href('/') }, 'プロジェクト一覧へ'))));
          return;
       }
       if (dragging) {

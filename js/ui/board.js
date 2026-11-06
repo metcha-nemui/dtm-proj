@@ -4,6 +4,7 @@ import * as actions from '../actions.js';
 import { sortByOrder } from '../domain/order.js';
 import { sectionColors } from '../domain/project.js';
 import { summarize } from '../domain/stats.js';
+import { href } from '../route.js';
 import { repo, subscribe } from '../state.js';
 import { confirmDialog, formDialog } from './components/dialog.js';
 import { h, icon, keepFocus, progressBar } from './components/dom.js';
@@ -285,7 +286,7 @@ export function mount(container, { id: projectId }) {
       if (!data.project) {
          root.replaceChildren(h('div', { class: 'empty' },
             h('p', null, 'プロジェクトが見つかりません。'),
-            h('p', null, h('a', { href: '#/' }, 'プロジェクト一覧へ'))));
+            h('p', null, h('a', { href: href('/') }, 'プロジェクト一覧へ'))));
          return;
       }
       // ステータスが変わった(またはタスクが消えた)ものは、待ち表示を終える

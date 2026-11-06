@@ -2,6 +2,7 @@
 // 両方の画面で同じものを同じ並びで出す。違うと、ボード / アレンジのタブの位置が切り替えるたびに動いて押しにくいため。
 
 import { listReferences } from '../domain/reference.js';
+import { href } from '../route.js';
 import { viewDialog } from './components/dialog.js';
 import { h, icon } from './components/dom.js';
 import { openMenu } from './components/menu.js';
@@ -26,7 +27,7 @@ function showReferences(tasks) {
  * @returns {HTMLElement[]} ツールバーに並べる要素
  */
 export function projectHead({ project, tasks, run }) {
-   const remove = () => run(deleteProjectDialog(project).then((deleted) => { if (deleted) location.hash = '#/'; }));
+   const remove = () => run(deleteProjectDialog(project).then((deleted) => { if (deleted) location.hash = href('/'); }));
    const menuButton = h('button', {
       type: 'button',
       class: 'btn btn-icon',
@@ -40,7 +41,7 @@ export function projectHead({ project, tasks, run }) {
    }, icon('ellipsis-vertical'));
 
    return [
-      h('a', { class: 'btn btn-icon', href: '#/', 'aria-label': 'プロジェクト一覧へ', title: 'プロジェクト一覧へ' }, icon('arrow-left')),
+      h('a', { class: 'btn btn-icon', href: href('/'), 'aria-label': 'プロジェクト一覧へ', title: 'プロジェクト一覧へ' }, icon('arrow-left')),
       h('h1', { class: 'board-title', title: project.memo || null }, project.title),
       h('button', {
          type: 'button',

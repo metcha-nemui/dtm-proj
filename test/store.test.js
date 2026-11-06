@@ -3,7 +3,7 @@
 import { addClip, addMarker, addTrack } from '../js/domain/arrangement.js';
 import { createProject, importProjects } from '../js/domain/project.js';
 import { addTask, setStatus } from '../js/domain/task.js';
-import { normalizeProjectUrl } from '../js/session.js';
+import { clearSession, loadSession, normalizeProjectUrl, saveSession } from '../js/session.js';
 import { checkConnection, createSupabaseRepository, fromRow, toRow } from '../js/store/supabase.js';
 import { checkSchema, migrate, NewerSchemaError, SCHEMA_VERSION, upgradeStorage } from '../js/store/repository.js';
 import { test, assert, equal, throws, rejects, sampleProject, ids } from './helpers.js';
@@ -355,6 +355,31 @@ test('supabase: つながらない理由を伝える', async () => {
    await rejects(using({ failWith: { status: 500, body: { message: 'boom' } } }), 'boom');
    await rejects(checkConnection(config, async () => { throw new TypeError('Failed to fetch'); }), '接続できないため、読み込みも保存もできませんでした');
    await checkConnection(config, async () => ({ ok: true, status: 200, json: async () => [] }));
+});
+
+test('loadSession: 接続情報だけを読む。保存先を1つに決めていたときの形も読める', () => {
+   const saved = globalThis.localStorage;
+   const items = new Map();
+   globalThis.localStorage = {
+      getItem: (k) => items.get(k) ?? null,
+      setItem: (k, v) => items.set(k, String(v)),
+      removeItem: (k) => items.delete(k),
+   };
+   try {
+      equal(loadSession(), null);
+      items.set('dtm-proj:session', JSON.stringify({ mode: 'supabase', url: 'https://a.supabase.co', key: 'K' }));
+      equal(loadSession(), { url: 'https://a.supabase.co', key: 'K' });
+      items.set('dtm-proj:session', JSON.stringify({ mode: 'local' }));
+      equal(loadSession(), null, 'ログインせずに使っていた印は、接続情報なし');
+      items.set('dtm-proj:session', '{壊れた');
+      equal(loadSession(), null);
+      saveSession({ url: 'https://b.supabase.co', key: 'L' });
+      equal(JSON.parse(items.get('dtm-proj:session')), { url: 'https://b.supabase.co', key: 'L' });
+      clearSession();
+      equal(loadSession(), null);
+   } finally {
+      globalThis.localStorage = saved;
+   }
 });
 
 test('normalizeProjectUrl: 余分なパスや空白を落とす', () => {

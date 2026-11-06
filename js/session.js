@@ -1,19 +1,18 @@
-// 擬似ログインの状態。保存先の選択と、Supabase の接続先(Project URL と公開キー)を
-// このブラウザの localStorage に覚えておく。Supabase Auth によるユーザー認証はしていない。
+// 擬似ログインの状態。Supabase の接続先(Project URL と公開キー)を、このブラウザの localStorage に覚えておく。
+// Supabase Auth によるユーザー認証はしていない。オフライン(IndexedDB)のタブにいる間も消さない。
 
 const STORAGE_KEY = 'dtm-proj:session';
 
 /**
- * @typedef {{ mode: 'supabase', url: string, key: string } | { mode: 'local' }} Session
- * 'supabase' は Supabase に保存、'local' はログインせずこのブラウザ(IndexedDB)にだけ保存。
+ * @typedef {{ url: string, key: string }} Session
  */
 
-/** @returns {Session|null} 未ログインなら null */
+/** @returns {Session|null} ログインしていなければ null */
 export function loadSession() {
    try {
       const session = JSON.parse(localStorage.getItem(STORAGE_KEY));
-      if (session?.mode === 'local') return { mode: 'local' };
-      if (session?.mode === 'supabase' && session.url && session.key) return session;
+      // 保存先を1つに決めていたときの形({ mode: 'supabase', url, key } / { mode: 'local' })も、url と key だけを見て読む
+      if (session?.url && session.key) return { url: session.url, key: session.key };
    } catch {
       // 壊れた値や、localStorage を使えない環境では未ログインとして扱う
    }
@@ -22,7 +21,7 @@ export function loadSession() {
 
 /** @param {Session} session */
 export function saveSession(session) {
-   localStorage.setItem(STORAGE_KEY, JSON.stringify(session));
+   localStorage.setItem(STORAGE_KEY, JSON.stringify({ url: session.url, key: session.key }));
 }
 
 export function clearSession() {

@@ -6,7 +6,7 @@
 - 運用ルールに頼らず、型はツール側の構造で保つ。
 - 計画変更(セクションの追加・削除・並べ替え、タスクの移動)を気軽にできる。
 
-MVP、アレンジ(MIDI クリップとピアノロール)、Supabase への保存(擬似ログイン)は実装済み。下の「これから」にあるものは未着手。
+MVP、アレンジ(MIDI クリップとピアノロール)、Supabase への保存(擬似ログイン)と、オンライン / オフラインの保存先の切り替えは実装済み。下の「これから」にあるものは未着手。
 
 ## ドキュメント
 
@@ -27,7 +27,7 @@ MVP、アレンジ(MIDI クリップとピアノロール)、Supabase への保�
 python -m http.server 8765
 ```
 
-`http://localhost:8765/` を開くとログイン画面が出る。Supabase の Project URL と公開キーを入れるか、「ログインせずに使う」を選ぶ(その場合、データはそのブラウザの IndexedDB に入る)。PWA としてインストールでき、IndexedDB ならオフラインでも使える([docs/storage.md](docs/storage.md))。
+`http://localhost:8765/` を開くと、プロジェクト一覧のオンライン(Supabase)のタブが開く。初めてならログインのフォームが出るので、Supabase の Project URL と公開キーを入れる。ログインせずに使うときは、オフラインのタブ(そのブラウザの IndexedDB)を開く。PWA としてインストールでき、オフラインのタブならつながっていなくても使える([docs/storage.md](docs/storage.md))。
 
 テストは `http://localhost:8765/test.html` を開くか、Node で実行する。
 
@@ -52,14 +52,15 @@ node -e "import('./test/domain.test.js').then(m => m.report()).then(ok => proces
 | オーディオトラック | 1本につき音声ファイル1つ。クリップは置かず、鳴らし始める位置だけを動かせる。ファイルは端末ごとの IndexedDB に置き、Supabase には入れない(中身のない端末では印を出し、選び直してもらう)。伸び縮みはさせない(BPM とずれても割り切る)。録音はしない |
 | アレンジとボード | クリップは、属するセクションのレーンに連動タスク(`clipId` を持つ Task)として出る |
 | テンプレート | 持たない(廃止)。狙いが曖昧なまま保守コストが掛かるのでやめた。ボードとアレンジの仕様が固まった頃に、何のために持つかから考え直す |
+| 保存先 | オンライン(Supabase)とオフライン(そのブラウザの IndexedDB)の2つを、一覧のタブで行き来する。別々のデータで、行き来はプロジェクトのコピー(id は新しくする)だけ。同期はしない |
 | 色 | 選ばせない。セクションの並び順で固定パレット(18色)を1色ずつ割り振る。保存しない |
 
 ## 技術方針
 
 - 素の HTML / CSS / JavaScript(ES Modules)。ビルドステップなし。そのまま GitHub Pages に置ける。
 - 外部依存は CDN から読むものだけ。**SortableJS**(ドラッグ&ドロップ)、**Lucide**(アイコン)、**spessasynth_lib**(SoundFont / DLS の再生)と、その中身の **spessasynth_core**(WAV の書き出し。Worker の中で直接使う)。spessasynth は版を固定し、使うときに動的に読む。
-- 保存先は Supabase か IndexedDB。repository 層で抽象化してあり、UIとドメインロジックはどちらに保存しているかを知らない([docs/storage.md](docs/storage.md))。
-- ルーティングはハッシュ方式。IDは `crypto.randomUUID()`。
+- 保存先は Supabase(オンライン)か IndexedDB(オフライン)。repository 層で抽象化してあり、UIとドメインロジックはどちらに保存しているかを知らない([docs/storage.md](docs/storage.md))。
+- ルーティングはハッシュ方式。オフラインの画面は先頭に `/offline` が付く(`#/offline/p/:id`)。リンクは `js/route.js` の `href()` で作る。IDは `crypto.randomUUID()`。
 - 並び順は小数の `order`(fractional indexing)。間に入れるときは前後の中間値を使い、他の行を書き換えない。精度が尽きたときだけ全体を振り直す。
 
 ### データの流れ
@@ -119,9 +120,11 @@ css/
   pianoroll.css           ピアノロール
   settings.css            設定
 js/
-  main.js                 起動(ログイン状態を見て保存先を決める)、ルーター
-  pwa.js / session.js / theme.js   Service Worker の登録 / 擬似ログインの状態 / UIテーマ
-  state.js                repository の参照と、変更通知(subscribe / notify)
+  main.js                 起動とルーター(URL の保存先に合わせて repository を差し替える。未ログインならログインのフォーム)
+  route.js                URL と保存先(オンライン / オフライン)の対応、リンク先の組み立て(href)
+  modes.js                保存先ごとの repository(作って使い回す)
+  pwa.js / session.js / theme.js   Service Worker の登録 / 擬似ログインの接続情報 / UIテーマ
+  state.js                いまの repository と保存先、変更通知(subscribe / notify)
   synth.js                ブラウザ内の音源(spessasynth_lib)と再生(オーディオトラックの音声も)。何を鳴らすかは domain/midi.js・audio.js で組み立てる
   audioExport.js          WAV の書き出し。音を作るのは audioExportWorker.js(Worker の中で spessasynth_core を動かす)
   actions.js              画面から呼ぶ操作。読む→domainで計算→保存→notify

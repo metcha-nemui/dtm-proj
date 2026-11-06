@@ -1,8 +1,10 @@
-// 設定 #/settings — UIテーマ、音源と再生の負荷(このブラウザだけ)、保存先(ログイン状態)と、JSONのエクスポート/インポート。
+// 設定 #/settings(オフラインでは #/offline/settings)— UIテーマ、音源と再生の負荷(このブラウザだけ)、保存先(ログイン状態)と、
+// JSONのエクスポート/インポート。エクスポート/インポートは、いま開いている保存先(一覧のタブ)のデータに効く。
 
 import { fileStamp } from '../domain/date.js';
+import { href } from '../route.js';
 import { clearSession, loadSession } from '../session.js';
-import { notify, repo } from '../state.js';
+import { currentMode, notify, repo } from '../state.js';
 import { migrate } from '../store/repository.js';
 import { loadTheme, setTheme, THEMES } from '../theme.js';
 import { loadIdleMinutes, MAX_IDLE_MINUTES, saveIdleMinutes } from './idleTimer.js';
@@ -211,10 +213,12 @@ export function mount(container) {
    });
 
    const session = loadSession();
-   const remote = session?.mode === 'supabase';
-   // ログイン情報を消して読み込み直すと、ログイン画面に戻る
+   const online = currentMode() === 'online';
+   // 接続情報を消してオンラインの一覧を開き直すと、ログインのフォームが出る。オフラインのデータには触らない。
+   // 開いている repository を確実に外すため、読み込み直す
    const logout = () => {
       clearSession();
+      location.hash = href('/', 'online');
       location.reload();
    };
 
@@ -269,7 +273,7 @@ export function mount(container) {
    container.append(h('div', { class: 'page settings-page' },
       h('div', { class: 'page-head' },
          h('div', { class: 'page-head-group' },
-            h('a', { class: 'btn btn-icon', href: '#/', 'aria-label': 'プロジェクト一覧へ', title: 'プロジェクト一覧へ' }, icon('arrow-left')),
+            h('a', { class: 'btn btn-icon', href: href('/'), 'aria-label': 'プロジェクト一覧へ', title: 'プロジェクト一覧へ' }, icon('arrow-left')),
             h('h1', { class: 'page-title' }, '設定'))),
       section('UIテーマ',
          '画面の明るさを選びます。「システム」では端末の設定(ライト / ダーク)に合わせます。このブラウザにだけ保存されます。',
@@ -279,21 +283,21 @@ export function mount(container) {
       section('編集していない時間',
          `アレンジ画面で、最後に編集してからこの時間が過ぎると、ツールバーに経過時間を出します。0 にすると出しません(1〜${MAX_IDLE_MINUTES}分)。このブラウザにだけ保存されます。`,
          h('label', { class: 'settings-inline' }, idleInput, '分')),
-      remote
-         ? section('保存先: Supabase',
-            `${session.url} に保存しています。ログアウトすると、このブラウザから Project URL と公開キーを消します。Supabase 上のデータは残ります。`,
+      online
+         ? section('保存先: オンライン(Supabase)',
+            `${session?.url ?? ''} に保存しています。ログアウトすると、このブラウザから Project URL と公開キーを消します。`
+            + 'Supabase 上のデータも、オフラインのデータも残ります。',
             h('button', { type: 'button', class: 'btn', onclick: logout }, icon('log-out'), 'ログアウト'))
-         : section('保存先: このブラウザ',
-            'ログインしていません。データはこのブラウザの中(IndexedDB)だけに保存されていて、ブラウザのデータを消すと失われます。'
-            + 'Supabase にログインすると保存先が切り替わります。このブラウザのデータは残りますが、自動では移りません(移すには、エクスポートしてからログイン後にインポートします)。',
-            h('button', { type: 'button', class: 'btn', onclick: logout }, icon('log-in'), 'Supabase にログイン')),
+         : section('保存先: オフライン(このブラウザ)',
+            'オフラインのプロジェクトは、このブラウザの中(IndexedDB)だけに保存されていて、ブラウザのデータを消すと失われます。'
+            + 'オンライン(Supabase)とは別のデータで、自動では移りません。行き来させるときは、プロジェクトのメニューの「オンラインにコピー」「オフラインにコピー」を使います。'),
       section('エクスポート',
-         'すべてのプロジェクトを、1つのJSONファイルに書き出します。バックアップや、別のブラウザ・端末への移行に使います。'
+         `${online ? 'オンライン' : 'オフライン'}のすべてのプロジェクトを、1つのJSONファイルに書き出します。バックアップや、別のブラウザ・端末への移行に使います。`
          + 'プロジェクトを1つだけ書き出すときは、プロジェクトのメニューの「エクスポート」を使います。',
          h('button', { type: 'button', class: 'btn btn-primary', onclick: () => run(exportData()) }, icon('download'), 'JSONをエクスポート'),
          summary),
       section('インポート',
-         'エクスポートしたJSONファイルを読み込みます。現在のデータはすべて置き換えられます。'
+         `エクスポートしたJSONファイルを読み込みます。${online ? 'オンライン' : 'オフライン'}の現在のデータはすべて置き換えられます(もう一方のデータはそのまま)。`
          + 'いまのデータを残したままプロジェクトを足すときは、プロジェクト一覧の「インポート」を使います。',
          h('button', { type: 'button', class: 'btn', onclick: () => fileInput.click() }, icon('upload'), 'JSONをインポート…'),
          fileInput)));

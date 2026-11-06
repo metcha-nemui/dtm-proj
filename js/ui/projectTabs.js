@@ -1,11 +1,12 @@
 // プロジェクトの中の画面を切り替えるタブ(ボード / アレンジ)。
 
+import { href } from '../route.js';
 import { h, icon } from './components/dom.js';
 import { enterFullscreenOnPhone } from './fullscreen.js';
 
 const TABS = [
-   { key: 'board', label: 'ボード', icon: 'columns-3', href: (id) => `#/p/${encodeURIComponent(id)}` },
-   { key: 'arrange', label: 'アレンジ', icon: 'audio-lines', href: (id) => `#/p/${encodeURIComponent(id)}/arrange` },
+   { key: 'board', label: 'ボード', icon: 'columns-3', href: (id, mode) => href(`/p/${encodeURIComponent(id)}`, mode) },
+   { key: 'arrange', label: 'アレンジ', icon: 'audio-lines', href: (id, mode) => href(`/p/${encodeURIComponent(id)}/arrange`, mode) },
 ];
 
 // 最後に開いていた画面を、一覧からプロジェクトを開くときに使う。
@@ -30,10 +31,19 @@ function saveView(view) {
    }
 }
 
-/** プロジェクトを開くリンク先。最後に開いていた画面(ボードかアレンジ)にする。 */
-export function projectHref(projectId) {
+/**
+ * プロジェクトを開くリンク先。最後に開いていた画面(ボードかアレンジ)にする。
+ * @param {string} projectId
+ * @param {'online'|'offline'} [mode] 保存先。既定は、いま開いている保存先
+ */
+export function projectHref(projectId, mode) {
    const view = loadView();
-   return TABS.find((tab) => tab.key === view).href(projectId);
+   return TABS.find((tab) => tab.key === view).href(projectId, mode);
+}
+
+/** プロジェクトのアレンジ画面のリンク先(いま開いている保存先の中)。 */
+export function arrangeHref(projectId) {
+   return TABS.find((tab) => tab.key === 'arrange').href(projectId);
 }
 
 /**

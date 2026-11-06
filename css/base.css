@@ -545,11 +545,6 @@ textarea {
    margin-top: var(--space-4);
 }
 
-.login-actions .btn-ghost {
-   color: var(--text-muted);
-   font-size: 13px;
-}
-
 .error-actions {
    display: flex;
    gap: var(--space-2);

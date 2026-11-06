@@ -21,6 +21,11 @@ function serial(operation) {
    };
 }
 
+/** 受け付けた操作がすべて終わるのを待つ(失敗したものも含む)。保存先を差し替える前に使う。 */
+export function idle() {
+   return queue;
+}
+
 async function load(projectId) {
    const [lanes, tasks] = await Promise.all([repo().getLanes(projectId), repo().getTasks(projectId)]);
    return { lanes, tasks };
@@ -53,10 +58,21 @@ async function changed(projectId, { listening = false } = {}) {
 
 // ---- プロジェクト ----
 
+// 複製・インポート・コピーで作ったプロジェクト1つ分(domain の duplicateProject / importProjects の結果)を保存する。
+// 子を先に、プロジェクトを最後に保存する。途中で失敗しても、中身の欠けたプロジェクトが一覧に出ないように
+async function saveCopy(repository, copy) {
+   await repository.saveLanes(copy.lanes);
+   await repository.saveTasks(copy.tasks);
+   await repository.saveTracks(copy.tracks);
+   await repository.saveClips(copy.clips);
+   await repository.saveMarkers(copy.markers);
+   await repository.saveProject(copy.project);
+}
+
 /** 新しいプロジェクトを作る。レーンは空の「全体」レーンだけ。 */
 export const createProject = serial(async ({ title, memo, dueDate }) => {
    const { project, lanes, tracks, markers } = arrangementDomain.createNewProject({ title, memo, dueDate });
-   // 子を先に、プロジェクトを最後に保存する(duplicateProject と同じ理由)
+   // 子を先に、プロジェクトを最後に保存する(saveCopy と同じ理由)
    await repo().saveLanes(lanes);
    await repo().saveTracks(tracks);
    await repo().saveMarkers(markers);
@@ -76,13 +92,7 @@ export const duplicateProject = serial(async (projectId) => {
       load(projectId), repo().getTracks(projectId), repo().getClips(projectId), repo().getMarkers(projectId),
    ]);
    const copy = projectDomain.duplicateProject({ project, lanes, tasks, tracks, clips, markers });
-   // 子を先に、プロジェクトを最後に保存する。途中で失敗しても、中身の欠けたプロジェクトが一覧に出ないように
-   await repo().saveLanes(copy.lanes);
-   await repo().saveTasks(copy.tasks);
-   await repo().saveTracks(copy.tracks);
-   await repo().saveClips(copy.clips);
-   await repo().saveMarkers(copy.markers);
-   await repo().saveProject(copy.project);
+   await saveCopy(repo(), copy);
    notify({ projectId: copy.project.id });
    return { project: copy.project, audioFiles: copy.audioFiles };
 });
@@ -95,20 +105,25 @@ export const duplicateProject = serial(async (projectId) => {
  */
 export const importProjects = serial(async (data) => {
    const copies = projectDomain.importProjects(data);
-   // 子を先に、プロジェクトを最後に保存する(duplicateProject と同じ理由)
-   for (const copy of copies) {
-      await repo().saveLanes(copy.lanes);
-      await repo().saveTasks(copy.tasks);
-      await repo().saveTracks(copy.tracks);
-      await repo().saveClips(copy.clips);
-      await repo().saveMarkers(copy.markers);
-      await repo().saveProject(copy.project);
-   }
+   for (const copy of copies) await saveCopy(repo(), copy);
    notify();
    return {
       projects: copies.map((c) => c.project),
       audioFiles: copies.map((c) => ({ projectId: c.project.id, pairs: c.audioFiles })),
    };
+});
+
+/**
+ * プロジェクトを、別の保存先(オンライン⇔オフライン)にコピーする。インポートと同じく id はすべて新しくし、タイトルはそのまま。
+ * いま開いている保存先は変わらないので、notify はしない。
+ * @param {string} projectId いまの保存先のプロジェクト
+ * @param {import('./store/repository.js').Repository} target コピー先
+ * @returns {Promise<{ project: object, audioFiles: { from: string, to: string }[] }>} audioFiles は、このブラウザで中身を写す音声の組
+ */
+export const copyProjectTo = serial(async (projectId, target) => {
+   const [copy] = projectDomain.importProjects(await repo().exportProject(projectId));
+   await saveCopy(target, copy);
+   return { project: copy.project, audioFiles: copy.audioFiles };
 });
 
 export const updateProject = serial(async (projectId, patch) => {
