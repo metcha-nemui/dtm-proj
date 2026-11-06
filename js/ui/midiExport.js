@@ -1,5 +1,6 @@
 // .mid の書き出し(ダウンロード)。DAW へは、書き出したファイルを読み込んで渡す。
 // オーディオ(WAV)の中身は ../audioExport.js で作り、ダウンロードはここの downloadBlob を使う。
+// データのエクスポート(JSON)のダウンロードも、ここの downloadJson を使う。
 
 import { buildMidiFile, midiFileName, projectBpm } from '../domain/midi.js';
 import { sortByOrder } from '../domain/order.js';
@@ -30,7 +31,12 @@ export function downloadMidi({ bytes, fileName }) {
    downloadBlob(new Blob([bytes], { type: 'audio/midi' }), fileName);
 }
 
-/** ファイルをダウンロードさせる(.mid、オーディオの書き出しで使う)。 */
+/** データ(エクスポートの JSON)をファイルとしてダウンロードさせる。 */
+export function downloadJson(data, fileName) {
+   downloadBlob(new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' }), fileName);
+}
+
+/** ファイルをダウンロードさせる(.mid、オーディオ、JSON の書き出しで使う)。 */
 export function downloadBlob(blob, fileName) {
    const url = URL.createObjectURL(blob);
    const a = document.createElement('a');

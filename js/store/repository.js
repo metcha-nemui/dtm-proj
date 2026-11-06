@@ -188,6 +188,7 @@ const UNTRACKED_VERSION = 6;
  * @property {(key: string, value: any) => Promise<void>} setMeta
  *
  * @property {() => Promise<ExportData>} exportAll
+ * @property {(id: string) => Promise<ExportData>} exportProject 1つのプロジェクトだけ(projects は1件)。形は exportAll と同じ
  * @property {(json: string|object) => Promise<void>} importAll 既存データをすべて置き換える
  */
 
@@ -215,7 +216,7 @@ const METHODS = [
    'getClips', 'saveClip', 'saveClips', 'deleteClip',
    'getMarkers', 'saveMarker', 'saveMarkers', 'deleteMarker',
    'getMeta', 'setMeta',
-   'exportAll', 'importAll',
+   'exportAll', 'exportProject', 'importAll',
 ];
 
 /** 実装がインターフェースを満たしているか起動時に確かめる。 */
@@ -281,6 +282,18 @@ export function createRepository(store) {
          const lists = await Promise.all(COLLECTIONS.map((name) => store.find(name)));
          const data = { schemaVersion: SCHEMA_VERSION, exportedAt: new Date().toISOString() };
          COLLECTIONS.forEach((name, i) => { data[name] = lists[i]; });
+         return data;
+      },
+
+      // 全体のエクスポートと同じ形にしておけば、読み込み(migrate)を共通にでき、
+      // 設定画面の「インポート」(置き換え)にも、一覧の「インポート」(追加)にも使える
+      async exportProject(id) {
+         const project = await store.get('projects', id);
+         if (!project) throw new Error('プロジェクトが見つかりません');
+         const children = COLLECTIONS.filter((name) => name !== 'projects');
+         const lists = await Promise.all(children.map((name) => store.find(name, { projectId: id })));
+         const data = { schemaVersion: SCHEMA_VERSION, exportedAt: new Date().toISOString(), projects: [project] };
+         children.forEach((name, i) => { data[name] = lists[i]; });
          return data;
       },
 

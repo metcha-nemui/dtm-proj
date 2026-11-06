@@ -1,9 +1,14 @@
-// プロジェクトの作成・編集・複製・削除のダイアログ。一覧とボード・アレンジから使う。
+// プロジェクトの作成・編集・複製・エクスポート・インポート・削除のダイアログ。一覧とボード・アレンジから使う。
 
 import * as actions from '../actions.js';
+import { fileStamp } from '../domain/date.js';
+import { projectFileName } from '../domain/midi.js';
+import { repo } from '../state.js';
 import { copyAudioFiles, removeAudioFiles } from '../store/audioFileStore.js';
+import { migrate } from '../store/repository.js';
 import { confirmDialog, formDialog } from './components/dialog.js';
 import { showToast } from './components/toast.js';
+import { downloadJson } from './midiExport.js';
 
 /** @returns {Promise<object|null>} 作成したプロジェクト */
 export async function newProjectDialog() {
@@ -39,6 +44,30 @@ export async function duplicateProject(project) {
    await copyAudioFiles(copy.id, audioFiles).catch(() => {});
    showToast(`「${copy.title}」を作りました`);
    return copy;
+}
+
+/** プロジェクト1つを JSON に書き出す。読み込むのは一覧の「インポート」(追加)か、設定の「インポート」(置き換え)。 */
+export async function exportProject(project) {
+   const data = await repo().exportProject(project.id);
+   downloadJson(data, projectFileName(project.title, fileStamp(new Date())));
+   showToast(`「${project.title}」をエクスポートしました`);
+}
+
+/**
+ * エクスポートしたファイル(プロジェクト1つでも、全体のバックアップでも)のプロジェクトを、いまのデータに足す。
+ * 足すだけで何も消さないので、確認は取らない。
+ * @returns {Promise<object[]>} 足したプロジェクト
+ */
+export async function importProjectFile(file) {
+   const data = migrate(await file.text());
+   if (!data.projects.length) throw new Error('ファイルにプロジェクトがありません');
+   const { projects, audioFiles } = await actions.importProjects(data);
+   // 音声の中身は、このブラウザにある分だけ新しい id へ写す(書き出したのと同じブラウザで読み込んだとき)
+   for (const { projectId, pairs } of audioFiles) await copyAudioFiles(projectId, pairs).catch(() => {});
+   showToast(projects.length === 1
+      ? `「${projects[0].title}」をインポートしました`
+      : `${projects.length}件のプロジェクトをインポートしました`);
+   return projects;
 }
 
 /** @returns {Promise<boolean>} 削除したら true */

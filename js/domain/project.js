@@ -116,8 +116,33 @@ function cloneRecord(record, patch) {
  * @returns {{ project: object, lanes: object[], tasks: object[], tracks: object[], clips: object[], markers: object[],
  *    audioFiles: { from: string, to: string }[] }}
  */
-export function duplicateProject({ project, lanes, tasks, tracks, clips, markers }) {
-   const copy = cloneRecord(project, { title: `${project.title}のコピー` });
+export function duplicateProject(source) {
+   return copyProject(source, { title: `${source.project.title}のコピー` });
+}
+
+/**
+ * エクスポートデータ(migrate 済み)のプロジェクトを、いまのデータに足すための新しいレコードにする。
+ * 複製と同じく、id はすべて新しくする(同じファイルを何度読み込んでも、元のプロジェクトやほかの読み込みと重ならないように)。
+ * タイトルはそのまま。音声ファイルの組(audioFiles)の扱いも複製と同じ。
+ * @param {{ projects: object[], lanes: object[], tasks: object[], tracks: object[], clips: object[], markers: object[] }} data
+ * @returns {ReturnType<typeof duplicateProject>[]} ファイルのプロジェクトの順
+ */
+export function importProjects(data) {
+   return data.projects.map((project) => {
+      const of = (records) => records.filter((r) => r.projectId === project.id);
+      return copyProject({
+         project,
+         lanes: of(data.lanes),
+         tasks: of(data.tasks),
+         tracks: of(data.tracks),
+         clips: of(data.clips),
+         markers: of(data.markers),
+      });
+   });
+}
+
+function copyProject({ project, lanes, tasks, tracks, clips, markers }, patch = {}) {
+   const copy = cloneRecord(project, patch);
    const projectId = copy.id;
    const laneIds = new Map();
    const trackIds = new Map();

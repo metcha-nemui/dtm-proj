@@ -1,7 +1,7 @@
 // 保存まわり(スキーマの変換、Supabase 実装、ログイン)のテスト。test/domain.test.js から読む。
 
 import { addClip, addMarker, addTrack } from '../js/domain/arrangement.js';
-import { createProject } from '../js/domain/project.js';
+import { createProject, importProjects } from '../js/domain/project.js';
 import { addTask, setStatus } from '../js/domain/task.js';
 import { normalizeProjectUrl } from '../js/session.js';
 import { checkConnection, createSupabaseRepository, fromRow, toRow } from '../js/store/supabase.js';
@@ -226,6 +226,50 @@ test('supabase: エクスポートとインポート(全部置き換える)', as
    equal([await b.getTracks(project.id), await b.getClips(project.id), await b.getMarkers(project.id)],
       [[track], [clip], [marker]], 'アレンジも戻る');
    await rejects(b.importAll('{"x":1}'), 'エクスポートデータではありません');
+});
+
+test('exportProject: 1つのプロジェクトだけを全体と同じ形で書き出し、importProjects で別の id のプロジェクトとして足せる', async () => {
+   const { repository } = fakeSupabase();
+   const other = sampleProject('vocal', { title: '曲B' });
+   const { project, lanes, tasks } = sampleProject('inst', { title: '曲A' });
+   for (const s of [other, { project, lanes, tasks }]) {
+      await repository.saveProject(s.project);
+      await repository.saveLanes(s.lanes);
+      await repository.saveTasks(s.tasks);
+   }
+   const track = addTrack(project.id, [], 'ピアノ');
+   const clip = addClip(track, [], { startBar: 5, bars: 4, name: 'リフ' });
+   await repository.saveTracks([track]);
+   await repository.saveClips([clip]);
+
+   const exported = await repository.exportProject(project.id);
+   equal([exported.schemaVersion, exported.projects.map((p) => p.title), exported.lanes.length, exported.tasks.length],
+      [SCHEMA_VERSION, ['曲A'], lanes.length, tasks.length]);
+   equal([exported.tracks, exported.clips, exported.markers], [[track], [clip], []], 'ほかのプロジェクトのものは入らない');
+   await rejects(repository.exportProject('none'), '見つかりません');
+
+   // 書き出したものは migrate を通り、足すときは id をすべて新しくする(元のプロジェクトとは重ならない)
+   const [copy] = importProjects(migrate(JSON.stringify(exported)));
+   equal(copy.project.title, '曲A', 'タイトルはそのまま');
+   assert(copy.project.id !== project.id);
+   const all = [copy.lanes, copy.tasks, copy.tracks, copy.clips].flat();
+   assert(all.every((r) => r.projectId === copy.project.id));
+   equal([copy.lanes.length, copy.tasks.length, copy.tracks.length, copy.clips.length], [lanes.length, tasks.length, 1, 1]);
+   equal(copy.clips[0].trackId, copy.tracks[0].id);
+   equal(new Set(copy.tasks.map((t) => t.status)), new Set(tasks.map((t) => t.status)), 'ステータスも引き継ぐ');
+});
+
+test('importProjects: 全体のバックアップなら、入っているプロジェクトをそれぞれ足す', () => {
+   const a = sampleProject('inst', { title: '曲A' });
+   const b = sampleProject('vocal', { title: '曲B' });
+   const data = migrate({
+      schemaVersion: SCHEMA_VERSION,
+      projects: [a.project, b.project], lanes: [...a.lanes, ...b.lanes], tasks: [...a.tasks, ...b.tasks],
+   });
+   const copies = importProjects(data);
+   equal(copies.map((c) => [c.project.title, c.lanes.length, c.tasks.length]),
+      [['曲A', a.lanes.length, a.tasks.length], ['曲B', b.lanes.length, b.tasks.length]]);
+   assert(copies.every((c) => c.tasks.every((t) => c.lanes.some((l) => l.id === t.laneId))), 'レーンは自分のプロジェクトのもの');
 });
 
 test('upgradeStorage: 初めて使う保存先は、変換せずに現在のバージョンを記録する。同じなら何もしない', async () => {

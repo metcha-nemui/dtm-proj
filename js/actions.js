@@ -87,6 +87,30 @@ export const duplicateProject = serial(async (projectId) => {
    return { project: copy.project, audioFiles: copy.audioFiles };
 });
 
+/**
+ * エクスポートしたファイルのプロジェクトを、いまのデータに足す(置き換えない)。id はすべて新しくする。
+ * @param {import('./store/repository.js').ExportData} data migrate 済みのもの
+ * @returns {Promise<{ projects: object[], audioFiles: { projectId: string, pairs: { from: string, to: string }[] }[] }>}
+ *    audioFiles は、このブラウザで中身を写す音声の組(プロジェクトごと)
+ */
+export const importProjects = serial(async (data) => {
+   const copies = projectDomain.importProjects(data);
+   // 子を先に、プロジェクトを最後に保存する(duplicateProject と同じ理由)
+   for (const copy of copies) {
+      await repo().saveLanes(copy.lanes);
+      await repo().saveTasks(copy.tasks);
+      await repo().saveTracks(copy.tracks);
+      await repo().saveClips(copy.clips);
+      await repo().saveMarkers(copy.markers);
+      await repo().saveProject(copy.project);
+   }
+   notify();
+   return {
+      projects: copies.map((c) => c.project),
+      audioFiles: copies.map((c) => ({ projectId: c.project.id, pairs: c.audioFiles })),
+   };
+});
+
 export const updateProject = serial(async (projectId, patch) => {
    const project = await repo().getProject(projectId);
    if (!project) throw new Error('プロジェクトが見つかりません');

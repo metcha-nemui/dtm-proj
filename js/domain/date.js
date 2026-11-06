@@ -15,6 +15,12 @@ export function toDateString(date) {
    return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
 }
 
+/** 書き出すファイルの名前に付ける日時('YYYYMMDD-HHMM'。端末の時刻)。 */
+export function fileStamp(date) {
+   const pad = (n) => String(n).padStart(2, '0');
+   return `${toDateString(date).replaceAll('-', '')}-${pad(date.getHours())}${pad(date.getMinutes())}`;
+}
+
 // 'YYYY-MM-DD' を、端末の時刻でその日の 0:00 にする
 function toLocalDate(dateString) {
    const [year, month, day] = dateString.split('-').map(Number);

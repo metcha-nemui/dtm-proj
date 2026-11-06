@@ -1,6 +1,6 @@
 // 締切パネル・日付・ガントチャートのテスト。test/domain.test.js から読む。
 
-import { addDays, daysBetween, toDateString, weekendDaysBetween } from '../js/domain/date.js';
+import { addDays, daysBetween, fileStamp, toDateString, weekendDaysBetween } from '../js/domain/date.js';
 import { deadlineRange, deadlineRows } from '../js/domain/deadline.js';
 import { ganttRange, ganttRows } from '../js/domain/gantt.js';
 import { isFinished } from '../js/domain/stats.js';
@@ -131,4 +131,8 @@ test('moveTask: レーン間の移動', () => {
    equal(inLane(moved, 'サビ').length, 5);
    const again = apply(moved, moveTask(moved, task.id, lane('Aメロ').id, 1));
    equal(titles(inLane(again, 'Aメロ')), ['コード確定', 'コーラス', 'メロ確定', 'ドラム', 'ベース']);
+});
+
+test('fileStamp: ファイル名に付ける日時は端末の時刻で YYYYMMDD-HHMM', () => {
+   equal(fileStamp(new Date(2026, 0, 5, 9, 7)), '20260105-0907');
 });

@@ -572,6 +572,9 @@ export const midiFileName = (...parts) => `${exportName(parts)}.mid`;
 /** オーディオ(WAV)のファイル名。 */
 export const audioFileName = (...parts) => `${exportName(parts)}.wav`;
 
+/** プロジェクトのエクスポート(JSON)のファイル名。 */
+export const projectFileName = (...parts) => `${exportName(parts)}.json`;
+
 // ---- 音色の名前(General MIDI) ----
 
 export const GM_PROGRAMS = [

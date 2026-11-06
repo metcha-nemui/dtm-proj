@@ -7,7 +7,9 @@ import { openMenu } from './components/menu.js';
 import { reportError } from './components/toast.js';
 import { renderDeadlinePanel } from './deadlinePanel.js';
 import { dueBadge } from './dueBadge.js';
-import { deleteProjectDialog, duplicateProject, editProjectDialog, newProjectDialog } from './projectDialogs.js';
+import {
+   deleteProjectDialog, duplicateProject, editProjectDialog, exportProject, importProjectFile, newProjectDialog,
+} from './projectDialogs.js';
 import { projectHref } from './projectTabs.js';
 
 const dateFormat = new Intl.DateTimeFormat('ja-JP', { dateStyle: 'short', timeStyle: 'short' });
@@ -20,6 +22,7 @@ function projectCard(project, stats) {
       onclick: () => openMenu(menuButton, [
          { label: '名前・締切・メモを編集', onSelect: () => editProjectDialog(project).catch(reportError) },
          { label: '複製', onSelect: () => duplicateProject(project).catch(reportError) },
+         { label: 'エクスポート', onSelect: () => exportProject(project).catch(reportError) },
          { label: '削除', danger: true, onSelect: () => deleteProjectDialog(project).catch(reportError) },
       ]),
    }, icon('ellipsis-vertical'));
@@ -43,6 +46,20 @@ export function mount(container) {
    const create = () => newProjectDialog()
       .then((project) => { if (project) location.hash = projectHref(project.id); })
       .catch(reportError);
+   // 1つ読み込んだときはそのプロジェクトを開く(いくつも入っていたときは一覧のまま)
+   const fileInput = h('input', {
+      type: 'file',
+      accept: 'application/json,.json',
+      hidden: true,
+      onchange: () => {
+         const [file] = fileInput.files;
+         fileInput.value = ''; // 同じファイルをもう一度選べるようにする
+         if (!file) return;
+         importProjectFile(file)
+            .then((projects) => { if (projects.length === 1) location.hash = projectHref(projects[0].id); })
+            .catch(reportError);
+      },
+   });
 
    container.append(h('div', { class: 'page' },
       h('div', { class: 'page-head' },
@@ -50,6 +67,13 @@ export function mount(container) {
          // 設定へはここからだけ行く(編集しながら何度も開くものではないので、ほかの画面には置かない)
          h('div', { class: 'page-head-group' },
             h('a', { class: 'btn', href: '#/settings' }, icon('settings'), '設定'),
+            h('button', {
+               type: 'button',
+               class: 'btn',
+               title: 'エクスポートしたファイルのプロジェクトを追加します(いまのプロジェクトはそのまま)',
+               onclick: () => fileInput.click(),
+            }, icon('upload'), 'インポート'),
+            fileInput,
             h('button', { type: 'button', class: 'btn btn-primary', onclick: create }, icon('plus'), '新規プロジェクト'))),
       deadlines,
       grid));

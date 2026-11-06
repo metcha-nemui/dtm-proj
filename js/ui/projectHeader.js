@@ -5,7 +5,7 @@ import { listReferences } from '../domain/reference.js';
 import { viewDialog } from './components/dialog.js';
 import { h, icon } from './components/dom.js';
 import { openMenu } from './components/menu.js';
-import { deleteProjectDialog, editProjectDialog } from './projectDialogs.js';
+import { deleteProjectDialog, editProjectDialog, exportProject } from './projectDialogs.js';
 
 // プロジェクトのタスクに付いているリファレンスの曲名を、名前順に見せる。見るだけで、どのタスクのものかは出さない
 function showReferences(tasks) {
@@ -34,6 +34,7 @@ export function projectHead({ project, tasks, run }) {
       dataset: { focusKey: 'project-menu' },
       onclick: () => openMenu(menuButton, [
          { label: '名前・締切・メモを編集', onSelect: () => run(editProjectDialog(project)) },
+         { label: 'プロジェクトをエクスポート', onSelect: () => run(exportProject(project)) },
          { label: 'プロジェクトを削除', danger: true, onSelect: remove },
       ]),
    }, icon('ellipsis-vertical'));

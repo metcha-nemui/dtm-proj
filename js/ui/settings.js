@@ -1,5 +1,6 @@
 // 設定 #/settings — UIテーマ、音源と再生の負荷(このブラウザだけ)、保存先(ログイン状態)と、JSONのエクスポート/インポート。
 
+import { fileStamp } from '../domain/date.js';
 import { clearSession, loadSession } from '../session.js';
 import { notify, repo } from '../state.js';
 import { migrate } from '../store/repository.js';
@@ -9,6 +10,7 @@ import { confirmDialog } from './components/dialog.js';
 import { h, icon } from './components/dom.js';
 import { watchSlow } from './components/slowNotice.js';
 import { reportError, showToast } from './components/toast.js';
+import { downloadJson } from './midiExport.js';
 import {
    audioStatus, clearSoundFont, DEFAULT_VOICE_CAP, isWindows, loadPlaybackOption, loadVoiceCap, MAX_VOICE_CAP,
    MIN_VOICE_CAP, onSynthChange, playbackOptionChoices, refreshSoundSource, resetAudio, savePlaybackOption,
@@ -21,18 +23,9 @@ function describe(data) {
    return `プロジェクト${data.projects.length}件、タスク${data.tasks.length}件`;
 }
 
-function download(filename, text) {
-   const url = URL.createObjectURL(new Blob([text], { type: 'application/json' }));
-   h('a', { href: url, download: filename }).click();
-   setTimeout(() => URL.revokeObjectURL(url), 1000);
-}
-
 async function exportData() {
    const data = await repo().exportAll();
-   const now = new Date();
-   const pad = (n) => String(n).padStart(2, '0');
-   const stamp = `${now.getFullYear()}${pad(now.getMonth() + 1)}${pad(now.getDate())}-${pad(now.getHours())}${pad(now.getMinutes())}`;
-   download(`dtm-proj-backup-${stamp}.json`, JSON.stringify(data, null, 2));
+   downloadJson(data, `dtm-proj-backup-${fileStamp(new Date())}.json`);
    showToast('エクスポートしました');
 }
 
@@ -295,11 +288,13 @@ export function mount(container) {
             + 'Supabase にログインすると保存先が切り替わります。このブラウザのデータは残りますが、自動では移りません(移すには、エクスポートしてからログイン後にインポートします)。',
             h('button', { type: 'button', class: 'btn', onclick: logout }, icon('log-in'), 'Supabase にログイン')),
       section('エクスポート',
-         'すべてのプロジェクトを、1つのJSONファイルに書き出します。バックアップや、別のブラウザ・端末への移行に使います。',
+         'すべてのプロジェクトを、1つのJSONファイルに書き出します。バックアップや、別のブラウザ・端末への移行に使います。'
+         + 'プロジェクトを1つだけ書き出すときは、プロジェクトのメニューの「エクスポート」を使います。',
          h('button', { type: 'button', class: 'btn btn-primary', onclick: () => run(exportData()) }, icon('download'), 'JSONをエクスポート'),
          summary),
       section('インポート',
-         'エクスポートしたJSONファイルを読み込みます。現在のデータはすべて置き換えられます。',
+         'エクスポートしたJSONファイルを読み込みます。現在のデータはすべて置き換えられます。'
+         + 'いまのデータを残したままプロジェクトを足すときは、プロジェクト一覧の「インポート」を使います。',
          h('button', { type: 'button', class: 'btn', onclick: () => fileInput.click() }, icon('upload'), 'JSONをインポート…'),
          fileInput)));
 
